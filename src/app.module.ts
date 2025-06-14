@@ -3,7 +3,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { OrderModule } from './order/order.module';
 import { ConfigModule } from '@nestjs/config';
-import { PaymentModule } from './payment/ayment.module';
+import { PaymentModule } from './payment/payment.module';
 
 @Module({
   imports: [
