@@ -18,8 +18,13 @@ import { PaymentModule } from './payment/ayment.module';
       password: process.env.DATABASE_PASSWORD,
       database: process.env.DATABASE_NAME,
       autoLoadEntities: true,
-      entities: [__dirname + '/**/*.entity.{ts,js}'],
       synchronize: true,
+      ssl: true, // ✅ เปิด SSL
+      extra: {
+        ssl: {
+          rejectUnauthorized: false, // ✅ สำหรับ Render.com และ cloud DB ส่วนมาก
+        },
+      },
     }),
     OrderModule,
     PaymentModule,
