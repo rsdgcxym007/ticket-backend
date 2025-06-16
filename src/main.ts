@@ -7,7 +7,10 @@ async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
   app.enableCors({
-    origin: 'http://localhost:3000',
+    origin: [
+      'http://localhost:3000',
+      'https://boxing-ticket-frontend.vercel.app/',
+    ],
     credentials: true,
   });
 
