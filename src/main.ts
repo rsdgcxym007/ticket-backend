@@ -9,7 +9,7 @@ async function bootstrap() {
   app.enableCors({
     origin: [
       'http://localhost:3000',
-      'https://boxing-ticket-frontend.vercel.app/',
+      'https://boxing-ticket-frontend.vercel.app',
     ],
     credentials: true,
   });
