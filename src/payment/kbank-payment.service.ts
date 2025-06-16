@@ -19,7 +19,6 @@ export class KBankPaymentService {
   private async getAccessToken(): Promise<string> {
     const now = Date.now();
 
-    // ถ้ามี token และยังไม่หมดอายุ ให้ใช้ของเดิม
     if (
       this.cachedAccessToken &&
       this.tokenExpireAt &&
@@ -46,9 +45,8 @@ export class KBankPaymentService {
     });
 
     const accessToken = response.data.access_token;
-    const expiresIn = parseInt(response.data.expires_in || '0'); // วินาที
+    const expiresIn = parseInt(response.data.expires_in || '0');
 
-    // ตั้งเวลาให้หมดอายุล่วงหน้า 60 วินาที
     this.cachedAccessToken = accessToken;
     this.tokenExpireAt = now + (expiresIn - 60) * 1000;
 

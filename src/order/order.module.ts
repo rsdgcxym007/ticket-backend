@@ -9,5 +9,6 @@ import { PaymentGateway } from 'src/payment/payment.gateway';
   imports: [TypeOrmModule.forFeature([Order])],
   controllers: [OrderController],
   providers: [OrderService, PaymentGateway],
+  exports: [OrderService],
 })
 export class OrderModule {}

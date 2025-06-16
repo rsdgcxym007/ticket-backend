@@ -1,15 +1,24 @@
-// order.entity.ts
 import {
   Entity,
-  Column,
   PrimaryGeneratedColumn,
+  Column,
   CreateDateColumn,
 } from 'typeorm';
+
+export type OrderStatus =
+  | 'PENDING'
+  | 'PAID'
+  | 'CONFIRMED'
+  | 'CANCELLED'
+  | 'EXPIRED';
 
 @Entity()
 export class Order {
   @PrimaryGeneratedColumn()
   id: number;
+
+  @Column()
+  orderId: string; // public-facing id like ORDER1234
 
   @Column()
   zone: string;
@@ -29,6 +38,15 @@ export class Order {
   @CreateDateColumn()
   createdAt: Date;
 
-  @Column({ default: 'PENDING' })
-  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'PAID';
+  @Column({ type: 'varchar', default: 'PENDING' })
+  status: OrderStatus;
+
+  @Column({ nullable: true })
+  transactionId?: string;
+
+  @Column({ nullable: true })
+  paidAt?: Date;
+
+  @Column({ nullable: true })
+  expiresAt?: Date;
 }

@@ -1,5 +1,14 @@
 // src/payment/payment.controller.ts
-import { Controller, Post, Body, Res, HttpStatus, Get } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  Res,
+  HttpStatus,
+  Get,
+  HttpException,
+  BadRequestException,
+} from '@nestjs/common';
 import { PaymentService } from './payment.service';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { Response } from 'express';
@@ -11,27 +20,113 @@ export class PaymentController {
   // 📩 รับ Webhook
   @Post('payment-webhook')
   async handleWebhook(@Body() body: any, @Res() res: Response) {
-    const signature = body.signature;
-    const verified = this.paymentService.verifyWebhookSignature(
-      body,
-      signature,
-    );
+    try {
+      console.log('📩 Incoming Webhook:', body);
 
-    if (!verified) {
-      return res
-        .status(HttpStatus.BAD_REQUEST)
-        .json({ message: 'Invalid signature' });
+      if (!body.signature) {
+        return res
+          .status(HttpStatus.BAD_REQUEST)
+          .json({ message: 'Missing signature' });
+      }
+
+      // const verified = this.paymentService.verifyWebhookSignature(
+      //   body,
+      //   body.signature,
+      // );
+      // if (!verified) {
+      //   return res
+      //     .status(HttpStatus.BAD_REQUEST)
+      //     .json({ message: 'Invalid signature' });
+      // }
+
+      const requiredFields = [
+        'ref1',
+        'ref2',
+        'amount',
+        'status',
+        'transactionId',
+      ];
+      const missing = Object.entries(requiredFields)
+        .filter(([, val]) => !val)
+        .map(([key]) => key);
+      if (missing.length > 0) {
+        return res
+          .status(HttpStatus.BAD_REQUEST)
+          .json({ message: `Missing fields: ${missing.join(', ')}` });
+      }
+
+      if (body.status !== 'SUCCESS') {
+        return res
+          .status(HttpStatus.OK)
+          .json({ message: `Ignored status: ${body.status}` });
+      }
+
+      // ✅ ทำ logic หลังจ่ายสำเร็จ เช่น อัปเดตสถานะ Order
+      await this.paymentService.markOrderAsPaid(body.ref1, {
+        transactionId: body.transactionId,
+        amount: body.amount,
+      });
+
+      console.log('✅ Payment recorded for order', body.ref1);
+
+      return res.status(HttpStatus.OK).json({ message: 'Payment processed' });
+    } catch (err) {
+      console.error('❌ Webhook error:', err);
+      return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
+        message: 'Webhook processing failed',
+        error: err?.message,
+      });
     }
-
-    // ✅ ทำ logic ต่อ เช่น อัปเดตสถานะคำสั่งซื้อ
-    console.log('✅ Payment received:', body);
-    return res.status(HttpStatus.OK).json({ message: 'OK' });
   }
 
   // 🧾 ขอ QR Payment
   @Post('payment-request')
   async requestQR(@Body() dto: CreatePaymentDto) {
-    return this.paymentService.createScbQr(dto.amount, dto.ref1, dto.ref2);
+    try {
+      if (isNaN(+dto.amount) || +dto.amount <= 0) {
+        throw new BadRequestException('Amount must be a positive number');
+      }
+
+      if (!dto.ref1 || !dto.ref2) {
+        throw new BadRequestException('Missing ref1 or ref2');
+      }
+
+      const result = await this.paymentService.createScbQr(
+        dto.amount,
+        dto.ref1,
+        dto.ref2,
+      );
+
+      if (!result || !result.qrRawData) {
+        throw new HttpException(
+          'QR code not returned from SCB',
+          HttpStatus.BAD_GATEWAY,
+        );
+      }
+
+      return { message: 'QR created', data: result };
+    } catch (err) {
+      console.error(
+        '❌ Error generating QR:',
+        err?.response?.data || err.message || err,
+      );
+
+      if (err.response?.data) {
+        return {
+          statusCode: err.response.status || 500,
+          message: 'SCB API Error',
+          error: err.response.data,
+        };
+      }
+
+      throw new HttpException(
+        {
+          message: 'Failed to generate QR code',
+          error: err.message,
+        },
+        err.status || HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
   }
 
   // ✅ Callback หลังจ่ายเงิน

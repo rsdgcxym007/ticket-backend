@@ -4,6 +4,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { OrderModule } from './order/order.module';
 import { ConfigModule } from '@nestjs/config';
 import { PaymentModule } from './payment/payment.module';
+import { SeatsModule } from './seats/seats.module';
+import { PaymentGateway } from './payment/payment.gateway';
 
 @Module({
   imports: [
@@ -28,6 +30,8 @@ import { PaymentModule } from './payment/payment.module';
     }),
     OrderModule,
     PaymentModule,
+    SeatsModule,
   ],
+  providers: [PaymentGateway],
 })
 export class AppModule {}
