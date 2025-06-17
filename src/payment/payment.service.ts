@@ -138,9 +138,6 @@ export class PaymentService {
     orderId: string,
     data: { transactionId: string; amount: string },
   ) {
-    console.log('orderId', orderId);
-    console.log('data', data);
-
     const order = await this.orderService.findByOrderId(orderId);
     console.log('order', order);
 

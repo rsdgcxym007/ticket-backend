@@ -18,7 +18,6 @@ export class SeatsController {
   getBookedSeats() {
     return this.orderService.getBookedSeats();
   }
-  //test
 
   @Get()
   getAllSeats() {

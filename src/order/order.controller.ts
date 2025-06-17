@@ -26,12 +26,10 @@ export class OrderController {
     private readonly paymentGateway: PaymentGateway,
   ) {}
 
-  /**
-   * 🛒 สร้างออเดอร์แบบ PENDING (ไม่มีสลิป)
-   */
   @Post()
   async createOrder(@Body() body: CreateOrderDto) {
     const orderId = `ORDER${Date.now()}`.slice(0, 17);
+
     const order = await this.orderService.create({
       ...body,
       orderId,
@@ -51,7 +49,6 @@ export class OrderController {
     if (order.status === 'PENDING') {
       order.status = 'CANCELLED';
       await this.orderService.save(order);
-      this.paymentGateway.serverToClientUpdate(order); // WebSocket update
     }
 
     return { message: 'Order cancelled', data: order };

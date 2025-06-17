@@ -53,13 +53,23 @@ export class OrderService {
       );
     }
 
+    const createdAt = new Date();
+    const expiresAt = new Date(createdAt.getTime() + 5 * 60 * 1000); // ✅ +5 นาที
+
     const order = this.repo.create({
       ...createOrderDto,
       seats: createOrderDto.seats.join(','),
       slipPath,
+      createdAt, // ✅ เผื่อคุณกำหนดเอง
+      expiresAt, // ✅ เพิ่ม expiresAt ลง DB
+      status: 'PENDING', // เผื่อไม่ส่งจาก DTO
     });
 
-    return this.repo.save(order);
+    const savedOrder = await this.repo.save(order);
+
+    this.paymentGateway.serverToClientOrderCreated(savedOrder); // ✅ emit ให้ frontend
+
+    return savedOrder;
   }
 
   /**
@@ -124,26 +134,28 @@ export class OrderService {
 
   @Cron(CronExpression.EVERY_MINUTE)
   async cancelExpiredOrders() {
-    const expiredTime = new Date(Date.now() - 5 * 60 * 1000); // 5 นาที
+    const now = new Date();
+    console.log('🌀 CRON running at', now);
 
-    const orders = await this.repo.find({
+    const expiredOrders = await this.repo.find({
       where: {
         status: 'PENDING',
-        createdAt: LessThan(expiredTime),
+        expiresAt: LessThan(now),
       },
     });
 
-    if (orders.length > 0) {
+    if (expiredOrders.length > 0) {
       this.logger.warn(
-        `⏰ Found ${orders.length} expired orders. Cancelling...`,
+        `⏰ Found ${expiredOrders.length} expired orders. Cancelling...`,
       );
     }
 
-    for (const order of orders) {
+    for (const order of expiredOrders) {
       order.status = 'CANCELLED';
       await this.repo.save(order);
 
-      this.paymentGateway.serverToClientUpdate(order); // 🎯 broadcast frontend update
+      // 🔁 แจ้ง frontend ว่าถูกยกเลิกแล้ว
+      this.paymentGateway.serverToClientUpdate(order);
     }
   }
 

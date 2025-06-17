@@ -47,6 +47,6 @@ export class Order {
   @Column({ nullable: true })
   paidAt?: Date;
 
-  @Column({ nullable: true })
+  @Column({ type: 'timestamp', nullable: true })
   expiresAt?: Date;
 }
