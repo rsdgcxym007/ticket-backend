@@ -50,7 +50,7 @@ export class OrderController {
       order.status = 'CANCELLED';
       await this.orderService.save(order);
     }
-
+    this.paymentGateway.serverToClientUpdate(order);
     return { message: 'Order cancelled', data: order };
   }
 

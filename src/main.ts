@@ -10,6 +10,7 @@ async function bootstrap() {
     origin: [
       'http://localhost:3000',
       'https://boxing-ticket-frontend.vercel.app',
+      'https://boxing-ticket-frontend-cj9x.vercel.app',
     ],
     credentials: true,
   });
