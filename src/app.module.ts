@@ -25,7 +25,7 @@ import { ScheduleModule } from '@nestjs/schedule';
       ssl: true, // ✅ เปิด SSL
       extra: {
         ssl: {
-          rejectUnauthorized: false, // ✅ สำหรับ Render.com และ cloud DB ส่วนมาก
+          rejectUnauthorized: false,
         },
       },
     }),

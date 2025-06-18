@@ -5,10 +5,12 @@ import { OrderService } from './order.service';
 import { OrderController } from './order.controller';
 import { Order } from './order.entity';
 import { PaymentGateway } from 'src/payment/payment.gateway';
+import { OrderRepository } from './order.repository';
+
 @Module({
   imports: [TypeOrmModule.forFeature([Order])],
   controllers: [OrderController],
-  providers: [OrderService, PaymentGateway],
-  exports: [OrderService],
+  providers: [OrderService, PaymentGateway, OrderRepository],
+  exports: [OrderService, OrderRepository],
 })
 export class OrderModule {}

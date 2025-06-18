@@ -2,8 +2,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Order } from 'src/order/order.entity';
-import { Repository } from 'typeorm';
-import { In } from 'typeorm';
+import { Repository, In } from 'typeorm';
 
 @Injectable()
 export class SeatsService {
@@ -156,25 +155,36 @@ export class SeatsService {
     ],
   };
 
-  async getSeatsByZone(zone: string) {
+  async getSeatsByZone(zone: string): Promise<(string | null)[][]> {
     return this.seatMap[zone] || [];
   }
 
-  async getAllZones() {
+  getAllZones(): Record<string, (string | null)[][]> {
     return this.seatMap;
   }
-  getAllSeats() {
+
+  getAllSeats(): Record<string, (string | null)[][]> {
     return this.seatMap;
   }
 
   async getBookedSeats(): Promise<string[]> {
     const orders = await this.orderRepo.find({
-      where: {
-        status: In(['PENDING', 'PAID']),
-      },
+      where: { status: In(['PENDING', 'PAID']) },
     });
+
     return orders.flatMap((order) =>
       order.seats ? order.seats.split(',') : [],
     );
+  }
+
+  async getAllBookedSeats(): Promise<{ zone: string; seats: string[] }[]> {
+    const bookedSeats = await this.getBookedSeats();
+
+    return Object.entries(this.seatMap).map(([zone, layout]) => {
+      const zoneSeats = layout
+        .flat()
+        .filter((seat) => seat !== null && bookedSeats.includes(seat));
+      return { zone, seats: zoneSeats as string[] };
+    });
   }
 }

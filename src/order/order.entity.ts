@@ -3,6 +3,7 @@ import {
   PrimaryGeneratedColumn,
   Column,
   CreateDateColumn,
+  UpdateDateColumn,
 } from 'typeorm';
 
 export type OrderStatus =
@@ -17,8 +18,8 @@ export class Order {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column()
-  orderId: string; // public-facing id like ORDER1234
+  @Column({ unique: true })
+  orderId: string;
 
   @Column()
   zone: string;
@@ -26,7 +27,7 @@ export class Order {
   @Column()
   seats: string;
 
-  @Column()
+  @Column('decimal')
   total: number;
 
   @Column()
@@ -38,7 +39,10 @@ export class Order {
   @CreateDateColumn()
   createdAt: Date;
 
-  @Column({ type: 'varchar', default: 'PENDING' })
+  @UpdateDateColumn()
+  updatedAt: Date;
+
+  @Column({ type: 'varchar', length: 20, default: 'PENDING' })
   status: OrderStatus;
 
   @Column({ nullable: true })

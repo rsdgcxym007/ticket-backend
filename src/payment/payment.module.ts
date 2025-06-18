@@ -9,14 +9,15 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Order } from 'src/order/order.entity';
 import { OrderModule } from 'src/order/order.module';
 import { PaymentGateway } from './payment.gateway';
+
 @Module({
   imports: [
     HttpModule,
-    TypeOrmModule.forFeature([Order, OrderModule]),
+    TypeOrmModule.forFeature([Order]),
     forwardRef(() => OrderModule),
   ],
   providers: [KBankPaymentService, PaymentService, PaymentGateway],
   controllers: [KBankPaymentController, PaymentController],
-  exports: [KBankPaymentService],
+  exports: [KBankPaymentService, PaymentService],
 })
 export class PaymentModule {}

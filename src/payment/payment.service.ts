@@ -1,4 +1,3 @@
-// src/payment/payment.service.ts
 import {
   Injectable,
   HttpException,
@@ -9,14 +8,18 @@ import {
 import axios from 'axios';
 import * as crypto from 'crypto';
 import { OrderService } from '../order/order.service';
+
 @Injectable()
 export class PaymentService {
-  private baseUrl = 'https://api-sandbox.partners.scb/partners/sandbox';
+  private baseUrl =
+    process.env.SCB_BASE_URL ||
+    'https://api-sandbox.partners.scb/partners/sandbox';
   private secret = process.env.SCB_SECRET;
   private clientId = process.env.SCB_CLIENT_ID;
   private clientSecret = process.env.SCB_CLIENT_SECRET;
-  private accessToken: string | null = '2fcfeae9-87e0-4551-9146-d64c93c9f630';
+  private accessToken: string | null = null;
   private expiresAt: number | null = null;
+
   constructor(
     @Inject(forwardRef(() => OrderService))
     private readonly orderService: OrderService,
@@ -45,13 +48,12 @@ export class PaymentService {
       const { data } = await axios.post(
         `${this.baseUrl}/v1/oauth/token`,
         payload,
-        {
-          headers,
-        },
+        { headers },
       );
-      console.log('data', data);
 
       this.accessToken = data.data.accessToken;
+      console.log('this.accessToken', this.accessToken);
+
       this.expiresAt = now + Number(data.data.expiresAt) * 1000 - 10_000;
 
       return this.accessToken;
@@ -66,6 +68,8 @@ export class PaymentService {
 
   async createScbQr(amount: string, ref1: string, ref2: string) {
     const accessToken = await this.getAccessToken();
+    console.log('accessTokenaccessToken', accessToken);
+
     const payload = {
       qrType: 'PP',
       amount,
@@ -75,14 +79,12 @@ export class PaymentService {
       ref2,
       ref3: `BQE${ref1}`,
     };
-    console.log('payload', payload);
 
     const signature = this.generateSignature(payload);
-    console.log('signature', signature);
 
     const headers = {
       'content-type': 'application/json',
-      resourceOwnerId: process.env.SCB_CLIENT_ID,
+      resourceOwnerId: this.clientId,
       requestUId: crypto.randomUUID(),
       authorization: `Bearer ${accessToken}`,
       'accept-language': 'EN',
@@ -139,10 +141,9 @@ export class PaymentService {
     data: { transactionId: string; amount: string },
   ) {
     const order = await this.orderService.findByOrderId(orderId);
-    console.log('order', order);
 
     if (!order) {
-      throw new Error('Order not found');
+      throw new HttpException('Order not found', HttpStatus.NOT_FOUND);
     }
 
     order.status = 'PAID';
@@ -152,16 +153,17 @@ export class PaymentService {
     await this.orderService.save(order);
   }
 
-  // สร้าง HMAC SHA256 ลายเซ็น
-  generateSignature(data: any): string {
+  generateSignature(data: Record<string, any>): string {
     return crypto
       .createHmac('sha256', this.secret)
       .update(JSON.stringify(data))
       .digest('hex');
   }
 
-  // ตรวจสอบลายเซ็นจาก webhook
-  verifyWebhookSignature(payload: any, signature: string): boolean {
+  verifyWebhookSignature(
+    payload: Record<string, any>,
+    signature: string,
+  ): boolean {
     const clone = { ...payload };
     delete clone.signature;
 
@@ -169,7 +171,6 @@ export class PaymentService {
       .createHmac('sha256', this.secret)
       .update(JSON.stringify(clone))
       .digest('hex');
-    console.log('expected', expected);
 
     return expected === signature;
   }

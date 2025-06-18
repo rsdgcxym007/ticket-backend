@@ -1,4 +1,3 @@
-// src/order/order.controller.ts
 import {
   Controller,
   Post,
@@ -13,11 +12,13 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
-import { OrderService, OrderStatus } from './order.service';
+import { OrderService } from './order.service';
+import { OrderStatus } from './order.entity';
 import { v4 as uuid } from 'uuid';
 import { extname } from 'path';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { PaymentGateway } from 'src/payment/payment.gateway';
+import { success, error } from 'src/common/responses';
 
 @Controller('/api/orders')
 export class OrderController {
@@ -27,41 +28,43 @@ export class OrderController {
   ) {}
 
   @Post()
-  async createOrder(@Body() body: CreateOrderDto) {
-    const orderId = `ORDER${Date.now()}`.slice(0, 17);
-
-    const order = await this.orderService.create({
-      ...body,
-      orderId,
-    });
-
-    return {
-      message: 'Order created',
-      data: order,
-    };
+  async createOrder(@Body() dto: CreateOrderDto) {
+    try {
+      const orderId = `ORDER${Date.now()}`.slice(0, 17);
+      const order = await this.orderService.create({ ...dto, orderId });
+      return success(order, 'Order created');
+    } catch (err) {
+      return error(err.message, 'Order creation failed');
+    }
   }
 
   @Patch('/cancel/:orderId')
   async cancelOrder(@Param('orderId') orderId: string) {
-    const order = await this.orderService.findByOrderId(orderId);
-    if (!order) throw new NotFoundException('Order not found');
+    try {
+      const order = await this.orderService.findByOrderId(orderId);
+      if (!order) throw new NotFoundException('Order not found');
 
-    if (order.status === 'PENDING') {
-      order.status = 'CANCELLED';
-      await this.orderService.save(order);
+      if (order.status === 'PENDING') {
+        order.status = 'CANCELLED';
+        await this.orderService.save(order);
+      }
+      this.paymentGateway.serverToClientUpdate(order);
+      return success(order, 'Order cancelled');
+    } catch (err) {
+      return error(err.message, 'Cancellation failed');
     }
-    this.paymentGateway.serverToClientUpdate(order);
-    return { message: 'Order cancelled', data: order };
   }
 
   @Get('/seats/booked')
-  getBookedSeats() {
-    return this.orderService.getBookedSeats();
+  async getBookedSeats() {
+    try {
+      const data = await this.orderService.getBookedSeats();
+      return success(data);
+    } catch (err) {
+      return error(err.message);
+    }
   }
 
-  /**
-   * 🧾 สร้างออเดอร์พร้อมแนบสลิป (optional ใช้ในระบบแนบสลิปเอง)
-   */
   @Post('upload')
   @UseInterceptors(
     FileInterceptor('slip', {
@@ -76,63 +79,76 @@ export class OrderController {
   )
   async uploadOrder(
     @UploadedFile() file: Express.Multer.File,
-    @Body() body: any,
+    @Body() body: CreateOrderDto,
   ) {
-    const { zone, seats, total, method } = body;
+    try {
+      const slipPath = file ? `uploads/slips/${file.filename}` : undefined;
+      const orderId = `ORDER${Date.now()}`.slice(0, 17);
 
-    const slipPath = file ? `uploads/slips/${file.filename}` : undefined;
-    const orderId = `ORDER${Date.now()}`.slice(0, 17);
+      const order = await this.orderService.create(
+        {
+          ...body,
+          orderId,
+        },
+        slipPath,
+      );
 
-    const order = await this.orderService.create(
-      {
-        orderId,
-        zone,
-        seats: seats.split(','),
-        total: Number(total),
-        method,
-      },
-      slipPath,
-    );
-
-    return {
-      message: 'Order uploaded',
-      data: order,
-    };
+      return success(order, 'Order uploaded');
+    } catch (err) {
+      return error(err.message, 'Upload failed');
+    }
   }
 
-  /**
-   * 📄 รายการทั้งหมด
-   */
   @Get('list')
-  findAll() {
-    return this.orderService.findAll();
+  async findAll() {
+    try {
+      const data = await this.orderService.findAll();
+      return success(data);
+    } catch (err) {
+      return error(err.message);
+    }
   }
 
-  /**
-   * 🔄 เปลี่ยนสถานะออเดอร์
-   */
   @Patch(':id/status')
-  updateStatus(@Param('id') id: number, @Body('status') status: OrderStatus) {
-    return this.orderService.updateStatus(id, status);
+  async updateStatus(
+    @Param('id') orderId: string,
+    @Body('status') status: OrderStatus,
+  ) {
+    try {
+      const order = await this.orderService.findByOrderId(orderId);
+      if (!order) throw new NotFoundException('Order not found');
+
+      if (order.status === 'PENDING') {
+        order.status = status;
+        await this.orderService.save(order);
+      }
+      return success(order, 'Status updated');
+    } catch (err) {
+      return error(err.message, 'Update failed');
+    }
   }
 
-  /**
-   * 🔳 สร้าง QR (PromptPay)
-   */
   @Get('qrcode')
   async generateQR(@Query('amount') amount: string) {
-    const numericAmount = parseFloat(amount);
-    const qr = await this.orderService.generatePromptpayQRCode(numericAmount);
-    return { data: qr };
+    try {
+      const qr = await this.orderService.generatePromptpayQRCode(
+        parseFloat(amount),
+      );
+      return success(qr);
+    } catch (err) {
+      return error(err.message);
+    }
   }
 
-  /**
-   * 🔳 สร้าง QR ผ่าน param
-   */
   @Get('qrcode/:amount')
   async getQRCode(@Param('amount') amount: string) {
-    const numericAmount = parseFloat(amount);
-    const qr = await this.orderService.generatePromptpayQRCode(numericAmount);
-    return { data: qr };
+    try {
+      const qr = await this.orderService.generatePromptpayQRCode(
+        parseFloat(amount),
+      );
+      return success(qr);
+    } catch (err) {
+      return error(err.message);
+    }
   }
 }

@@ -1,4 +1,3 @@
-// src/payment/payment.controller.ts
 import {
   Controller,
   Post,
@@ -29,15 +28,15 @@ export class PaymentController {
           .json({ message: 'Missing signature' });
       }
 
-      // const verified = this.paymentService.verifyWebhookSignature(
-      //   body,
-      //   body.signature,
-      // );
-      // if (!verified) {
-      //   return res
-      //     .status(HttpStatus.BAD_REQUEST)
-      //     .json({ message: 'Invalid signature' });
-      // }
+      const verified = this.paymentService.verifyWebhookSignature(
+        body,
+        body.signature,
+      );
+      if (!verified) {
+        return res
+          .status(HttpStatus.BAD_REQUEST)
+          .json({ message: 'Invalid signature' });
+      }
 
       const requiredFields = [
         'ref1',
@@ -46,9 +45,7 @@ export class PaymentController {
         'status',
         'transactionId',
       ];
-      const missing = Object.entries(requiredFields)
-        .filter(([, val]) => !val)
-        .map(([key]) => key);
+      const missing = requiredFields.filter((field) => !body[field]);
       if (missing.length > 0) {
         return res
           .status(HttpStatus.BAD_REQUEST)
@@ -61,7 +58,6 @@ export class PaymentController {
           .json({ message: `Ignored status: ${body.status}` });
       }
 
-      // ✅ ทำ logic หลังจ่ายสำเร็จ เช่น อัปเดตสถานะ Order
       await this.paymentService.markOrderAsPaid(body.ref1, {
         transactionId: body.transactionId,
         amount: body.amount,
@@ -96,6 +92,7 @@ export class PaymentController {
         dto.ref1,
         dto.ref2,
       );
+      console.log('result21321321', result);
 
       if (!result || !result.qrRawData) {
         throw new HttpException(

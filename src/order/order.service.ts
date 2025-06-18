@@ -1,12 +1,12 @@
 import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { LessThan, Repository } from 'typeorm';
 import { Order } from './order.entity';
 import { CreateOrderDto } from './dto/create-order.dto';
 import * as QRCode from 'qrcode';
 import generatePayload from 'promptpay-qr';
 import { PaymentGateway } from 'src/payment/payment.gateway';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { error } from 'src/common/responses';
+import { OrderRepository } from './order.repository';
 
 export type OrderStatus =
   | 'PENDING'
@@ -18,131 +18,115 @@ export type OrderStatus =
 @Injectable()
 export class OrderService {
   private readonly logger = new Logger(OrderService.name);
+
   constructor(
-    @InjectRepository(Order) private readonly repo: Repository<Order>,
+    private readonly orderRepository: OrderRepository,
     private readonly paymentGateway: PaymentGateway,
   ) {}
 
-  /**
-   * 📦 สร้างออเดอร์ใหม่ (PENDING)
-   */
-  // ใน order.service.ts
-  async isSeatBooked(seats: string[]): Promise<string | null> {
-    const activeOrders = await this.repo
-      .createQueryBuilder('order')
-      .where('order.status IN (:...statuses)', {
-        statuses: ['PENDING', 'PAID'],
-      })
-      .getMany();
-
-    const allBooked = activeOrders.flatMap((o) => o.seats.split(','));
-
-    const duplicate = seats.find((seat) => allBooked.includes(seat));
-    return duplicate || null;
-  }
-
   async create(createOrderDto: CreateOrderDto, slipPath?: string) {
-    const duplicate = await this.isSeatBooked(createOrderDto.seats);
+    const duplicate = await this.orderRepository.isSeatBooked(
+      createOrderDto.seats,
+    );
     if (duplicate) {
       throw new HttpException(
-        {
-          statusCode: HttpStatus.BAD_REQUEST,
-          message: `Seat ${duplicate} has already been booked.`,
-        },
+        error(
+          `Seat ${duplicate} has already been booked.`,
+          'Seat already booked',
+          undefined,
+          HttpStatus.BAD_REQUEST,
+        ),
         HttpStatus.BAD_REQUEST,
       );
     }
 
-    const createdAt = new Date();
-    const expiresAt = new Date(createdAt.getTime() + 5 * 60 * 1000); // ✅ +5 นาที
-
-    const order = this.repo.create({
+    const now = new Date();
+    const order = this.orderRepository.create({
       ...createOrderDto,
       seats: createOrderDto.seats.join(','),
       slipPath,
-      createdAt, // ✅ เผื่อคุณกำหนดเอง
-      expiresAt, // ✅ เพิ่ม expiresAt ลง DB
-      status: 'PENDING', // เผื่อไม่ส่งจาก DTO
+      createdAt: now,
+      expiresAt: new Date(now.getTime() + 5 * 60 * 1000),
+      status: 'PENDING',
     });
 
-    const savedOrder = await this.repo.save(order);
-
-    this.paymentGateway.serverToClientOrderCreated(savedOrder); // ✅ emit ให้ frontend
-
-    return savedOrder;
+    try {
+      const saved = await this.orderRepository.save(order);
+      this.paymentGateway.serverToClientOrderCreated(saved);
+      return saved;
+    } catch (err) {
+      this.logger.error('Failed to save order', err);
+      throw new HttpException(
+        error(
+          err.message,
+          'Order creation failed',
+          undefined,
+          HttpStatus.INTERNAL_SERVER_ERROR,
+        ),
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
   }
 
-  /**
-   * 📃 ดึงรายการทั้งหมด
-   */
   findAll() {
-    return this.repo.find({ order: { createdAt: 'DESC' } });
+    return this.orderRepository.find({ order: { createdAt: 'DESC' } });
   }
 
-  /**
-   * 🔎 ค้นหาโดย orderId
-   */
   findByOrderId(orderId: string) {
-    return this.repo.findOne({ where: { orderId } });
+    return this.orderRepository.findByOrderId(orderId);
   }
 
-  /**
-   * 🔄 เปลี่ยนสถานะออเดอร์
-   */
   updateStatus(id: number, status: OrderStatus) {
-    return this.repo.update(id, { status });
+    return this.orderRepository.update(id, { status });
   }
 
-  /**
-   * ✅ ทำเครื่องหมายว่าออเดอร์นี้จ่ายแล้ว
-   */
   async markAsPaid(id: number, transactionId?: string) {
-    await this.repo.update(id, {
+    await this.orderRepository.update(id, {
       status: 'PAID',
       transactionId,
       paidAt: new Date(),
     });
   }
 
-  /**
-   * ✅ สำหรับ webhook ที่ยิงมาจาก SCB (ใช้ orderId)
-   */
   async markOrderAsPaid(
     orderId: string,
     data: { transactionId: string; amount: string },
   ) {
     const order = await this.findByOrderId(orderId);
-    if (!order) throw new Error('Order not found');
-
+    if (!order) {
+      throw new HttpException(
+        error('Order not found', 'Order not found', undefined, 404),
+        404,
+      );
+    }
     if (order.status !== 'PENDING') {
-      throw new Error(`Cannot mark as PAID: current status is ${order.status}`);
+      throw new HttpException(
+        error(
+          `Cannot mark as PAID: current status is ${order.status}`,
+          'Invalid status',
+          undefined,
+          400,
+        ),
+        400,
+      );
     }
 
     order.status = 'PAID';
     order.transactionId = data.transactionId;
     order.paidAt = new Date();
-
-    return this.repo.save(order);
+    return this.orderRepository.save(order);
   }
 
-  /**
-   * 💾 Save แบบ manual (เช่นหลังแก้ไข)
-   */
   save(order: Order) {
-    return this.repo.save(order);
+    return this.orderRepository.save(order);
   }
 
   @Cron(CronExpression.EVERY_MINUTE)
   async cancelExpiredOrders() {
     const now = new Date();
-    console.log('🌀 CRON running at', now);
+    this.logger.debug('🌀 CRON running at ' + now.toISOString());
 
-    const expiredOrders = await this.repo.find({
-      where: {
-        status: 'PENDING',
-        expiresAt: LessThan(now),
-      },
-    });
+    const expiredOrders = await this.orderRepository.findExpired(now);
 
     if (expiredOrders.length > 0) {
       this.logger.warn(
@@ -152,30 +136,20 @@ export class OrderService {
 
     for (const order of expiredOrders) {
       order.status = 'CANCELLED';
-      await this.repo.save(order);
-
-      // 🔁 แจ้ง frontend ว่าถูกยกเลิกแล้ว
+      await this.orderRepository.save(order);
       this.paymentGateway.serverToClientUpdate(order);
     }
   }
 
   async getBookedSeats(): Promise<string[]> {
-    const orders = await this.repo.find({
-      where: [
-        { status: 'PAID' },
-        { status: 'PENDING' }, // ยังไม่ได้จ่าย แต่กำลังถือที่นั่งอยู่
-      ],
+    const orders = await this.orderRepository.find({
+      where: [{ status: 'PAID' }, { status: 'PENDING' }],
     });
-
     return orders.flatMap((order) => order.seats?.split(',') || []);
   }
 
-  /**
-   * 📱 Generate QR PromptPay (0960415207)
-   */
   async generatePromptpayQRCode(amount: number): Promise<string> {
     const payload = generatePayload('0960415207', { amount });
-    const qr = await QRCode.toDataURL(payload);
-    return qr;
+    return QRCode.toDataURL(payload);
   }
 }
