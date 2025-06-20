@@ -5,8 +5,6 @@ import { join } from 'path';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
-import * as crypto from 'crypto';
-(global as any).crypto = crypto;
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
