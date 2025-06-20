@@ -8,6 +8,7 @@ import {
   Param,
   Patch,
   Delete,
+  Query,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
@@ -43,8 +44,12 @@ export class SeatController {
   }
 
   @Get('by-zone/:zoneId')
-  async findByZone(@Param('zoneId') zoneId: string, @Req() req: Request) {
-    const result = await this.service.findByZone(zoneId);
+  async findByZone(
+    @Param('zoneId') zoneId: string,
+    @Query('showDate') showDate: string,
+    @Req() req: Request,
+  ) {
+    const result = await this.service.findByZone(zoneId, showDate);
     return success(result, 'Seats by zone', req);
   }
 

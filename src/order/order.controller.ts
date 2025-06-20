@@ -57,6 +57,12 @@ export class OrderController {
     return success(data, 'Order updated', req);
   }
 
+  @Patch('cancel/:id')
+  async cancel(@Param('id') id: string, @Req() req) {
+    const result = await this.orderService.cancel(id);
+    return success(result, 'ยกเลิกออเดอร์สำเร็จ', req);
+  }
+
   @Delete(':id')
   async remove(@Param('id') id: string, @Req() req: Request) {
     const data = await this.orderService.remove(id);

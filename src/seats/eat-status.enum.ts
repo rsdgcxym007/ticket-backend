@@ -3,4 +3,5 @@ export enum SeatStatus {
   LOCKED = 'LOCKED',
   BOOKED = 'BOOKED',
   PAID = 'PAID',
+  EMPTY = 'EMPTY',
 }

@@ -1,5 +1,6 @@
 import { Payment } from 'src/payment/payment.entity';
 import { Referrer } from 'src/referrer/referrer.entity';
+import { SeatBooking } from 'src/seats/seat-booking.entity';
 import { Seat } from 'src/seats/seat.entity';
 import { User } from 'src/user/user.entity';
 import {
@@ -77,4 +78,7 @@ export class Order {
 
   @Column({ type: 'date' })
   showDate: Date;
+
+  @OneToMany(() => SeatBooking, (booking) => booking.order, { cascade: true })
+  seatBookings: SeatBooking[];
 }
