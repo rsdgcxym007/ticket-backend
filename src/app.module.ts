@@ -11,11 +11,27 @@ import { UserModule } from './user/user.module';
 import { ZoneModule } from './zone/zone.module';
 import { SeatsModule } from './seats/seat.module';
 import { ReferrerModule } from './referrer/referrer.module';
+import { MulterModule } from '@nestjs/platform-express';
+import { UploadModule } from './upload/upload.module';
+import { diskStorage } from 'multer';
+import path from 'path';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
+    }),
+    MulterModule.register({
+      storage: diskStorage({
+        destination: './uploads',
+        filename: (req, file, cb) => {
+          const uniqueSuffix =
+            Date.now() + '-' + Math.round(Math.random() * 1e9);
+          const ext = path.extname(file.originalname); // ✅ แก้ตรงนี้
+          const filename = file.fieldname + '-' + uniqueSuffix + ext;
+          cb(null, filename);
+        },
+      }),
     }),
     ScheduleModule.forRoot(),
     TypeOrmModule.forRoot({
@@ -41,6 +57,7 @@ import { ReferrerModule } from './referrer/referrer.module';
     UserModule,
     ZoneModule,
     ReferrerModule,
+    UploadModule,
   ],
   providers: [PaymentGateway],
 })
