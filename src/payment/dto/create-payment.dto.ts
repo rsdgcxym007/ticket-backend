@@ -1,15 +1,16 @@
-import { IsNotEmpty, IsString, IsNumberString } from 'class-validator';
+import { IsUUID, IsNumber, IsIn, IsOptional, IsString } from 'class-validator';
 
 export class CreatePaymentDto {
-  @IsNotEmpty()
-  @IsNumberString()
-  amount: string;
+  @IsUUID()
+  orderId: string;
 
-  @IsNotEmpty()
-  @IsString()
-  ref1: string;
+  @IsIn(['QR', 'TRANSFER', 'CASH'])
+  method: 'QR' | 'TRANSFER' | 'CASH';
 
-  @IsNotEmpty()
+  @IsNumber()
+  amount: number;
+
+  @IsOptional()
   @IsString()
-  ref2: string;
+  slipUrl?: string;
 }

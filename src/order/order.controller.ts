@@ -2,153 +2,64 @@ import {
   Controller,
   Post,
   Get,
-  UploadedFile,
-  UseInterceptors,
-  Body,
   Param,
   Patch,
-  Query,
-  NotFoundException,
+  Delete,
+  Body,
+  Req,
+  UseGuards,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
 import { OrderService } from './order.service';
-import { OrderStatus } from './order.entity';
-import { v4 as uuid } from 'uuid';
-import { extname } from 'path';
 import { CreateOrderDto } from './dto/create-order.dto';
-import { PaymentGateway } from 'src/payment/payment.gateway';
-import { success, error } from 'src/common/responses';
+import { UpdateOrderDto } from './dto/update-order.dto';
+import { success } from 'src/common/responses';
+import { Request } from 'express';
+import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
+import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 
-@Controller('/api/orders')
+@ApiTags('Orders')
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard)
+@Controller('orders')
 export class OrderController {
-  constructor(
-    private readonly orderService: OrderService,
-    private readonly paymentGateway: PaymentGateway,
-  ) {}
+  constructor(private readonly orderService: OrderService) {}
 
   @Post()
-  async createOrder(@Body() dto: CreateOrderDto) {
-    try {
-      const orderId = `ORDER${Date.now()}`.slice(0, 17);
-      const order = await this.orderService.create({ ...dto, orderId });
-      return success(order, 'Order created');
-    } catch (err) {
-      return error(err.message, 'Order creation failed');
-    }
+  async create(@Body() dto: CreateOrderDto, @Req() req: Request) {
+    const data = await this.orderService.create(dto);
+    return success(data, 'Order created', req);
   }
 
-  @Patch('/cancel/:orderId')
-  async cancelOrder(@Param('orderId') orderId: string) {
-    try {
-      const order = await this.orderService.findByOrderId(orderId);
-      if (!order) throw new NotFoundException('Order not found');
-
-      if (order.status === 'PENDING') {
-        order.status = 'CANCELLED';
-        await this.orderService.save(order);
-      }
-      this.paymentGateway.serverToClientUpdate(order);
-      return success(order, 'Order cancelled');
-    } catch (err) {
-      return error(err.message, 'Cancellation failed');
-    }
+  @Patch('change-seats/:id')
+  changeSeats(@Param('id') id: string, @Body('seatIds') seatIds: string[]) {
+    return this.orderService.changeSeats(id, seatIds);
   }
 
-  @Get('/seats/booked')
-  async getBookedSeats() {
-    try {
-      const data = await this.orderService.getBookedSeats();
-      return success(data);
-    } catch (err) {
-      return error(err.message);
-    }
+  @Get()
+  async findAll(@Req() req: Request) {
+    const data = await this.orderService.findAll();
+    return success(data, 'All orders', req);
   }
 
-  @Post('upload')
-  @UseInterceptors(
-    FileInterceptor('slip', {
-      storage: diskStorage({
-        destination: './uploads/slips',
-        filename: (req, file, cb) => {
-          const filename = `${uuid()}${extname(file.originalname)}`;
-          cb(null, filename);
-        },
-      }),
-    }),
-  )
-  async uploadOrder(
-    @UploadedFile() file: Express.Multer.File,
-    @Body() body: CreateOrderDto,
+  @Get(':id')
+  async findById(@Param('id') id: string, @Req() req: Request) {
+    const data = await this.orderService.findById(id);
+    return success(data, 'Order detail', req);
+  }
+
+  @Patch(':id')
+  async update(
+    @Param('id') id: string,
+    @Body() dto: UpdateOrderDto,
+    @Req() req: Request,
   ) {
-    try {
-      const slipPath = file ? `uploads/slips/${file.filename}` : undefined;
-      const orderId = `ORDER${Date.now()}`.slice(0, 17);
-
-      const order = await this.orderService.create(
-        {
-          ...body,
-          orderId,
-        },
-        slipPath,
-      );
-
-      return success(order, 'Order uploaded');
-    } catch (err) {
-      return error(err.message, 'Upload failed');
-    }
+    const data = await this.orderService.update(id, dto);
+    return success(data, 'Order updated', req);
   }
 
-  @Get('list')
-  async findAll() {
-    try {
-      const data = await this.orderService.findAll();
-      return success(data);
-    } catch (err) {
-      return error(err.message);
-    }
-  }
-
-  @Patch(':id/status')
-  async updateStatus(
-    @Param('id') orderId: string,
-    @Body('status') status: OrderStatus,
-  ) {
-    try {
-      const order = await this.orderService.findByOrderId(orderId);
-      if (!order) throw new NotFoundException('Order not found');
-
-      if (order.status === 'PENDING') {
-        order.status = status;
-        await this.orderService.save(order);
-      }
-      return success(order, 'Status updated');
-    } catch (err) {
-      return error(err.message, 'Update failed');
-    }
-  }
-
-  @Get('qrcode')
-  async generateQR(@Query('amount') amount: string) {
-    try {
-      const qr = await this.orderService.generatePromptpayQRCode(
-        parseFloat(amount),
-      );
-      return success(qr);
-    } catch (err) {
-      return error(err.message);
-    }
-  }
-
-  @Get('qrcode/:amount')
-  async getQRCode(@Param('amount') amount: string) {
-    try {
-      const qr = await this.orderService.generatePromptpayQRCode(
-        parseFloat(amount),
-      );
-      return success(qr);
-    } catch (err) {
-      return error(err.message);
-    }
+  @Delete(':id')
+  async remove(@Param('id') id: string, @Req() req: Request) {
+    const data = await this.orderService.remove(id);
+    return success(data, 'Order deleted', req);
   }
 }
