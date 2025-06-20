@@ -8,10 +8,11 @@ import { UserModule } from 'src/user/user.module';
 import { ReferrerModule } from 'src/referrer/referrer.module';
 import { SeatsModule } from 'src/seats/seat.module';
 import { PaymentModule } from 'src/payment/payment.module';
+import { SeatBooking } from 'src/seats/seat-booking.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Order]),
+    TypeOrmModule.forFeature([Order, SeatBooking]),
     SeatsModule,
     UserModule,
     ReferrerModule,

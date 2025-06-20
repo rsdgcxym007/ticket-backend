@@ -1,6 +1,7 @@
 import {
   ConflictException,
   Injectable,
+  NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
@@ -10,30 +11,46 @@ import { Auth } from './auth.entity';
 import { LoginDto } from './dto/login.dto';
 import * as bcrypt from 'bcrypt';
 import { RegisterDto } from './dto/register.dto';
-
+import { User } from 'src/user/user.entity';
 @Injectable()
 export class AuthService {
   constructor(
     private jwtService: JwtService,
     @InjectRepository(Auth)
     private readonly authRepo: Repository<Auth>,
+    @InjectRepository(User)
+    private readonly userRepo: Repository<User>,
   ) {}
+
   async login(dto: LoginDto): Promise<{ access_token: string; user: any }> {
-    const user = await this.authRepo.findOne({ where: { email: dto.email } });
+    const auth = await this.authRepo.findOne({
+      where: { email: dto.email },
+      relations: ['user'],
+    });
 
-    if (!user) {
-      throw new UnauthorizedException('Invalid credentials');
+    if (!auth) {
+      throw new UnauthorizedException('📧 ไม่พบอีเมลนี้ในระบบ');
     }
 
-    const isMatch = await bcrypt.compare(dto.password, user.password);
-    if (!isMatch) {
-      throw new UnauthorizedException('Invalid credentials');
+    const isPasswordValid = await bcrypt.compare(dto.password, auth.password);
+    if (!isPasswordValid) {
+      throw new UnauthorizedException('🔐 รหัสผ่านไม่ถูกต้อง');
     }
 
-    const payload = { sub: user.id, email: user.email, role: user.role };
+    if (!auth.user) {
+      throw new NotFoundException('❌ ไม่พบข้อมูลผู้ใช้ที่เชื่อมกับบัญชีนี้');
+    }
+
+    const payload = {
+      sub: auth.user.id,
+      email: auth.email,
+      role: auth.user.role,
+    };
+
     const access_token = this.jwtService.sign(payload);
 
-    const { password, ...safeUser } = user;
+    const { password, ...safeUser } = auth;
+    console.log(password);
 
     return {
       access_token,
@@ -69,26 +86,40 @@ export class AuthService {
     return this.authRepo.findOne({ where: { id } });
   }
 
-  async register(dto: RegisterDto): Promise<{ access_token: string }> {
-    const existing = await this.authRepo.findOne({
-      where: { email: dto.email },
-    });
+  async register(
+    dto: RegisterDto,
+  ): Promise<{ access_token: string; user: any }> {
+    const email = dto.email.toLowerCase().trim();
+
+    const existing = await this.authRepo.findOne({ where: { email } });
     if (existing) {
       throw new ConflictException('Email already in use');
     }
 
-    const hashed = await bcrypt.hash(dto.password, 10);
-    const user = this.authRepo.create({
-      email: dto.email,
-      password: hashed,
-      displayName: dto.name,
-      role: 'user',
-      provider: 'manual',
-      providerId: 'manual',
+    const newUser = this.userRepo.create({
+      email,
+      name: dto.name,
+      role: dto.role || 'user',
     });
-    await this.authRepo.save(user);
+    const savedUser = await this.userRepo.save(newUser);
 
-    const payload = { sub: user.id, email: user.email, role: user.role };
-    return { access_token: this.jwtService.sign(payload) };
+    const hashed = await bcrypt.hash(dto.password, 10);
+    const auth = this.authRepo.create({
+      email: savedUser.email,
+      password: hashed,
+      displayName: savedUser.name,
+      provider: 'manual',
+      providerId: savedUser.id,
+      role: savedUser.role,
+    });
+    await this.authRepo.save(auth);
+
+    const payload = { sub: auth.id, email: auth.email, role: auth.role };
+    const access_token = this.jwtService.sign(payload);
+
+    const { password, ...safeUser } = auth;
+    console.log(password);
+
+    return { access_token, user: safeUser };
   }
 }

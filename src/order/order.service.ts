@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Order, OrderStatus } from './order.entity';
-import { Repository } from 'typeorm';
+import { In, Not, Repository } from 'typeorm';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { Seat } from '../seats/seat.entity';
 import { User } from '../user/user.entity';
@@ -9,6 +9,7 @@ import { Referrer } from '../referrer/referrer.entity';
 import { UpdateOrderDto } from './dto/update-order.dto';
 import { SeatStatus } from 'src/seats/eat-status.enum';
 import { DeepPartial } from 'typeorm';
+import { BookingStatus, SeatBooking } from 'src/seats/seat-booking.entity';
 
 @Injectable()
 export class OrderService {
@@ -17,64 +18,43 @@ export class OrderService {
     @InjectRepository(Seat) private seatRepo: Repository<Seat>,
     @InjectRepository(User) private userRepo: Repository<User>,
     @InjectRepository(Referrer) private referrerRepo: Repository<Referrer>,
+    @InjectRepository(SeatBooking)
+    private seatBookingRepo: Repository<SeatBooking>,
   ) {}
 
   async create(dto: CreateOrderDto) {
-    if (!dto.seatIds || dto.seatIds.length === 0) {
-      throw new Error('Seat IDs are required');
-    }
-    if (!dto.showDate) {
-      throw new Error('Show date is required');
-    }
+    if (!dto.seatIds?.length) throw new Error('Seat IDs are required');
+    if (!dto.showDate) throw new Error('Show date is required');
 
     const seats = await this.seatRepo.findByIds(dto.seatIds);
+    if (seats.length !== dto.seatIds.length) throw new Error('Invalid seatIds');
 
-    if (seats.length !== dto.seatIds.length) {
-      const foundIds = seats.map((s) => s.id);
-      const missing = dto.seatIds.filter((id) => !foundIds.includes(id));
-      throw new Error(`Some seats not found: ${missing.join(', ')}`);
-    }
+    const conflicts = await this.seatBookingRepo.find({
+      where: {
+        seat: seats,
+        showDate: dto.showDate,
+        status: In([SeatStatus.BOOKED, SeatStatus.PAID]),
+      },
+      relations: ['seat'],
+    });
 
-    const bookedInDate = await this.orderRepo
-      .createQueryBuilder('order')
-      .leftJoinAndSelect('order.seats', 'seat')
-      .where('order.showDate = :date', { date: dto.showDate })
-      .andWhere('seat.id IN (:...seatIds)', { seatIds: dto.seatIds })
-      .andWhere('order.status IN (:...statuses)', {
-        statuses: [OrderStatus.PENDING, OrderStatus.PAID], // ✅
-      })
-      .getMany();
-
-    if (bookedInDate.length > 0) {
-      const conflictSeats = bookedInDate
-        .flatMap((o) => o.seats)
-        .filter((s) => dto.seatIds.includes(s.id));
-      const numbers = conflictSeats.map((s) => s.seatNumber);
-      throw new Error(
-        `Seats already booked on ${dto.showDate}: ${numbers.join(', ')}`,
-      );
+    if (conflicts.length) {
+      const conflictNumbers = conflicts.map((b) => b.seat.seatNumber);
+      throw new Error(`ที่นั่ง ${conflictNumbers.join(', ')} ถูกจองแล้ว`);
     }
 
     const user = await this.userRepo.findOne({ where: { id: dto.userId } });
     if (!user) throw new Error('User not found');
-
-    const validMethods = ['QR', 'TRANSFER', 'CASH'];
-    if (!validMethods.includes(dto.method)) {
-      throw new Error(`Invalid payment method: ${dto.method}`);
-    }
 
     let referrer = null;
     if (dto.referrerCode) {
       referrer = await this.referrerRepo.findOne({
         where: { code: dto.referrerCode },
       });
-      if (!referrer) {
-        throw new Error(`Invalid referrerCode: ${dto.referrerCode}`);
-      }
+      if (!referrer) throw new Error('Invalid referrerCode');
     }
 
     const total = seats.length * 1800;
-
     const order = this.orderRepo.create({
       user,
       method: dto.method,
@@ -85,14 +65,66 @@ export class OrderService {
       showDate: dto.showDate,
     } as DeepPartial<Order>);
 
-    const saved = await this.orderRepo.save(order);
+    const savedOrder = await this.orderRepo.save(order);
 
-    await this.seatRepo.update(dto.seatIds, {
-      status: SeatStatus.BOOKED,
-      order: saved,
+    const bookings = seats.map((seat) =>
+      this.seatBookingRepo.create({
+        seat,
+        order: savedOrder,
+        showDate: dto.showDate,
+        bookingStatus: SeatStatus.BOOKED,
+      } as DeepPartial<SeatBooking>),
+    );
+
+    await this.seatBookingRepo.save(bookings);
+
+    return savedOrder;
+  }
+  async update(id: string, dto: UpdateOrderDto) {
+    const order = await this.orderRepo.findOne({
+      where: { id },
+      relations: ['seats', 'referrer'],
+    });
+    if (!order) throw new Error('Order not found');
+
+    if (dto.referrerCode && !order.referrerCode) {
+      const ref = await this.referrerRepo.findOne({
+        where: { code: dto.referrerCode },
+      });
+      if (!ref) throw new Error('Invalid referrerCode');
+      order.referrerCode = dto.referrerCode;
+      order.referrer = ref;
+    } else if (dto.referrerCode && order.referrerCode) {
+      throw new Error('referrerCode already set');
+    }
+
+    const bookings = await this.seatBookingRepo.find({
+      where: { order: { id } },
+      relations: ['seat'],
     });
 
-    return saved;
+    if (dto.status === OrderStatus.PAID) {
+      for (const booking of bookings) {
+        booking.status = BookingStatus.PAID;
+      }
+      await this.seatBookingRepo.save(bookings);
+
+      if (order.referrer) {
+        order.referrer.totalCommission += bookings.length * 400;
+        await this.referrerRepo.save(order.referrer);
+      }
+
+      order.status = OrderStatus.PAID;
+    } else if (dto.status === OrderStatus.CANCELLED) {
+      for (const booking of bookings) {
+        booking.status = BookingStatus.AVAILABLE;
+        booking.order = null;
+      }
+      await this.seatBookingRepo.save(bookings);
+      order.status = OrderStatus.CANCELLED;
+    }
+
+    return this.orderRepo.save(order);
   }
 
   async findAll() {
@@ -113,86 +145,94 @@ export class OrderService {
 
     const order = await this.orderRepo.findOne({
       where: { id: orderId },
-      relations: ['seats', 'referrer'],
+      relations: ['seatBookings', 'referrer'],
     });
 
-    if (!order) throw new Error('❌ ไม่พบออเดอร์ที่ต้องการเปลี่ยนที่นั่ง');
+    if (!order) {
+      throw new Error('❌ ไม่พบออเดอร์ที่ต้องการเปลี่ยนที่นั่ง');
+    }
 
-    const showDate = order.showDate;
     const isPaid = order.status === OrderStatus.PAID;
 
-    const newSeats = await this.seatRepo.findByIds(newSeatIds);
+    // ✅ แปลง showDate ให้เป็น string (YYYY-MM-DD)
+    const showDateStr =
+      order.showDate instanceof Date
+        ? order.showDate.toISOString().slice(0, 10)
+        : (order.showDate as string);
 
+    // ตรวจสอบ seat ใหม่
+    const newSeats = await this.seatRepo.findByIds(newSeatIds);
     if (newSeats.length !== newSeatIds.length) {
       const foundIds = newSeats.map((s) => s.id);
       const missing = newSeatIds.filter((id) => !foundIds.includes(id));
       throw new Error(`❌ ที่นั่งใหม่บางตัวไม่พบ: ${missing.join(', ')}`);
     }
 
-    const conflict = await this.orderRepo
-      .createQueryBuilder('order')
-      .leftJoin('order.seats', 'seat')
-      .where('order.showDate = :showDate', { showDate })
-      .andWhere('seat.id IN (:...seatIds)', { seatIds: newSeatIds })
-      .andWhere('order.status = :paid', { paid: OrderStatus.PAID })
-      .andWhere('order.id != :orderId', { orderId })
-      .getCount();
+    // ตรวจสอบว่า seat ใหม่ไม่ถูกจองแล้ว (ในวันเดียวกัน)
+    const conflict = await this.seatBookingRepo.count({
+      where: {
+        seat: In(newSeatIds),
+        showDate: showDateStr,
+        status: BookingStatus.PAID,
+        order: Not(orderId),
+      },
+    });
 
     if (conflict > 0) {
       throw new Error('❌ ที่นั่งใหม่มีบางตัวถูกจองแล้วในวันเดียวกัน');
     }
 
-    if (!isPaid) {
-      await this.seatRepo.update(
-        order.seats.map((s) => s.id),
-        {
-          status: SeatStatus.AVAILABLE,
-          order: null,
-        },
-      );
-    }
+    // ลบ seatBooking เดิมทั้งหมดของ order นี้
+    await this.seatBookingRepo.delete({ order: { id: orderId } });
 
-    order.seats = newSeats;
+    // สร้าง seatBooking ใหม่
+    const newBookings = newSeats.map((seat) => {
+      const booking = new SeatBooking();
+      booking.seat = seat;
+      booking.order = order;
+      booking.showDate = showDateStr;
+      booking.status = isPaid ? BookingStatus.PAID : BookingStatus.BOOKED;
+      return booking;
+    });
 
+    await this.seatBookingRepo.save(newBookings);
+
+    // อัปเดตค่าหากยังไม่จ่าย
     if (!isPaid) {
       order.total = newSeats.length * 1200;
+
       if (order.referrer) {
         order.referrerCommission = newSeats.length * 400;
-
         order.referrer.totalCommission = order.referrerCommission;
         await this.referrerRepo.save(order.referrer);
       }
+
+      await this.orderRepo.save(order);
     }
-
-    await this.orderRepo.save(order);
-
-    await this.seatRepo.update(newSeatIds, {
-      status: isPaid ? SeatStatus.PAID : SeatStatus.BOOKED,
-      order,
-    });
 
     return order;
   }
 
-  async update(id: string, dto: UpdateOrderDto) {
-    await this.orderRepo.update(id, dto);
+  async cancel(orderId: string) {
+    const order = await this.orderRepo.findOne({
+      where: { id: orderId },
+    });
 
-    const order = await this.findById(id);
+    if (!order) throw new Error('ไม่พบออเดอร์');
 
-    if (dto.status === 'PAID') {
-      const seatIds = order.seats.map((s) => s.id);
-      await this.seatRepo.update(seatIds, { status: SeatStatus.PAID });
+    // เปลี่ยน status order
+    order.status = OrderStatus.CANCELLED;
+    await this.orderRepo.save(order);
 
-      if (order.referrerCode && order.referrer) {
-        const referrer = await this.referrerRepo.findOneBy({
-          id: order.referrer.id,
-        });
-        if (referrer) {
-          referrer.totalCommission += seatIds.length * 400;
-          await this.referrerRepo.save(referrer);
-        }
-      }
+    // ยกเลิก bookings
+    const bookings = await this.seatBookingRepo.find({ where: { order } });
+
+    for (const booking of bookings) {
+      booking.status = BookingStatus.CANCELLED;
+      booking.order = null;
     }
+
+    await this.seatBookingRepo.save(bookings);
 
     return order;
   }

@@ -5,11 +5,13 @@ import {
   ManyToOne,
   CreateDateColumn,
   UpdateDateColumn,
+  OneToMany,
 } from 'typeorm';
 import { Zone } from 'src/zone/zone.entity';
 import { SeatStatus } from './eat-status.enum';
 import { Index } from 'typeorm';
 import { Order } from 'src/order/order.entity';
+import { SeatBooking } from './seat-booking.entity';
 
 @Index(['zone', 'rowIndex', 'columnIndex'])
 @Entity()
@@ -46,4 +48,7 @@ export class Seat {
     onDelete: 'SET NULL',
   })
   order: Order;
+
+  @OneToMany(() => SeatBooking, (booking) => booking.seat)
+  bookings: SeatBooking[];
 }
