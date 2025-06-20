@@ -1,41 +1,38 @@
-import { Transform } from 'class-transformer';
 import {
+  IsUUID,
   IsArray,
-  IsNotEmpty,
+  IsEnum,
+  IsInt,
   IsOptional,
   IsString,
-  IsNumber,
-  IsIn,
-  ArrayNotEmpty,
+  IsDateString,
 } from 'class-validator';
 
 export class CreateOrderDto {
+  @IsUUID()
+  userId: string;
+
   @IsString()
-  @IsNotEmpty()
   zone: string;
 
-  @IsString()
-  @IsNotEmpty()
-  orderId: string;
-
-  @Transform(({ value }) => {
-    if (Array.isArray(value)) return value;
-    if (typeof value === 'string') return value.split(',');
-    return [];
-  })
   @IsArray()
-  @ArrayNotEmpty()
-  @IsString({ each: true })
-  seats: string[];
+  @IsUUID('all', { each: true })
+  seatIds: string[];
 
-  @IsNumber()
+  @IsInt()
   total: number;
 
-  @IsString()
-  @IsIn(['qr', 'cash'], { message: 'method must be either "qr" or "cash"' })
-  method: string;
+  @IsEnum(['QR', 'TRANSFER', 'CASH'])
+  method: 'QR' | 'TRANSFER' | 'CASH';
+
+  @IsOptional()
+  @IsUUID()
+  referrerId?: string;
 
   @IsOptional()
   @IsString()
-  slipPath?: string;
+  referrerCode?: string;
+
+  @IsDateString()
+  showDate: string;
 }

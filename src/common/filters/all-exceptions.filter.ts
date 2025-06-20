@@ -38,7 +38,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       }
     } else if (exception instanceof Error) {
       message = exception.message;
-      error = exception.stack || exception.message;
+      error = exception.message;
     }
 
     this.logger.error(

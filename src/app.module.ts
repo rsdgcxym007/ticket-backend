@@ -4,9 +4,14 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { OrderModule } from './order/order.module';
 import { ConfigModule } from '@nestjs/config';
 import { PaymentModule } from './payment/payment.module';
-import { SeatsModule } from './seats/seats.module';
 import { PaymentGateway } from './payment/payment.gateway';
 import { ScheduleModule } from '@nestjs/schedule';
+import { AuthModule } from './auth/auth.module';
+import { UserModule } from './user/user.module';
+import { ZoneModule } from './zone/zone.module';
+import { SeatsModule } from './seats/seat.module';
+import { ReferrerModule } from './referrer/referrer.module';
+
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -32,6 +37,10 @@ import { ScheduleModule } from '@nestjs/schedule';
     OrderModule,
     PaymentModule,
     SeatsModule,
+    AuthModule,
+    UserModule,
+    ZoneModule,
+    ReferrerModule,
   ],
   providers: [PaymentGateway],
 })

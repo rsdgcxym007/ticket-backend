@@ -1,23 +1,22 @@
-// src/payment/payment.module.ts
 import { forwardRef, Module } from '@nestjs/common';
-import { KBankPaymentService } from './kbank-payment.service';
-import { KBankPaymentController } from './kbank-payment.controller';
-import { HttpModule } from '@nestjs/axios';
-import { PaymentService } from './payment.service';
-import { PaymentController } from './payment.controller';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { Payment } from './payment.entity';
 import { Order } from 'src/order/order.entity';
+import { PaymentController } from './payment.controller';
+import { PaymentService } from './payment.service';
 import { OrderModule } from 'src/order/order.module';
-import { PaymentGateway } from './payment.gateway';
+import { SeatsModule } from 'src/seats/seat.module';
+import { ReferrerModule } from 'src/referrer/referrer.module';
 
 @Module({
   imports: [
-    HttpModule,
-    TypeOrmModule.forFeature([Order]),
+    TypeOrmModule.forFeature([Payment, Order]),
     forwardRef(() => OrderModule),
+    forwardRef(() => SeatsModule),
+    forwardRef(() => ReferrerModule),
   ],
-  providers: [KBankPaymentService, PaymentService, PaymentGateway],
-  controllers: [KBankPaymentController, PaymentController],
-  exports: [KBankPaymentService, PaymentService],
+  controllers: [PaymentController],
+  providers: [PaymentService],
+  exports: [PaymentService],
 })
 export class PaymentModule {}

@@ -1,40 +1,61 @@
+import { Payment } from 'src/payment/payment.entity';
+import { Referrer } from 'src/referrer/referrer.entity';
+import { Seat } from 'src/seats/seat.entity';
+import { User } from 'src/user/user.entity';
 import {
   Entity,
   PrimaryGeneratedColumn,
+  ManyToOne,
   Column,
+  OneToMany,
   CreateDateColumn,
   UpdateDateColumn,
 } from 'typeorm';
 
-export type OrderStatus =
-  | 'PENDING'
-  | 'PAID'
-  | 'CONFIRMED'
-  | 'CANCELLED'
-  | 'EXPIRED';
+export enum OrderStatus {
+  PENDING = 'PENDING',
+  PAID = 'PAID',
+  CANCELLED = 'CANCELLED',
+}
+
+export enum OrderMethod {
+  QR = 'QR',
+  TRANSFER = 'TRANSFER',
+  CASH = 'CASH',
+}
 
 @Entity()
 export class Order {
-  @PrimaryGeneratedColumn()
-  id: number;
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
-  @Column({ unique: true })
-  orderId: string;
-
-  @Column()
-  zone: string;
-
-  @Column()
-  seats: string;
-
-  @Column('decimal')
-  total: number;
-
-  @Column()
-  method: string;
+  @ManyToOne(() => User, { nullable: true })
+  user: User;
 
   @Column({ nullable: true })
-  slipPath?: string;
+  referrerCode?: string;
+
+  @Column({ type: 'decimal' })
+  total: number;
+
+  @Column({
+    type: 'enum',
+    enum: OrderStatus,
+    default: OrderStatus.PENDING,
+  })
+  status: OrderStatus;
+
+  @Column({
+    type: 'enum',
+    enum: OrderMethod,
+    default: OrderMethod.QR,
+  })
+  method: OrderMethod;
+
+  @OneToMany(() => Seat, (seat) => seat.order, {
+    cascade: true,
+  })
+  seats: Seat[];
 
   @CreateDateColumn()
   createdAt: Date;
@@ -42,15 +63,18 @@ export class Order {
   @UpdateDateColumn()
   updatedAt: Date;
 
-  @Column({ type: 'varchar', length: 20, default: 'PENDING' })
-  status: OrderStatus;
-
-  @Column({ nullable: true })
-  transactionId?: string;
-
-  @Column({ nullable: true })
-  paidAt?: Date;
-
   @Column({ type: 'timestamp', nullable: true })
-  expiresAt?: Date;
+  expiresAt: Date;
+
+  @ManyToOne(() => Referrer, (ref) => ref.orders, { nullable: true })
+  referrer: Referrer;
+
+  @Column({ type: 'int', default: 0 })
+  referrerCommission: number;
+
+  @OneToMany(() => Payment, (payment) => payment.order, { cascade: true })
+  payments: Payment[];
+
+  @Column({ type: 'date' })
+  showDate: Date;
 }
