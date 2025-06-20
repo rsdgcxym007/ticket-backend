@@ -7,6 +7,7 @@ import { INestApplicationContext } from '@nestjs/common';
 async function bootstrap() {
   const app: INestApplicationContext =
     await NestFactory.createApplicationContext(AppModule);
+
   const seatService = app.get(SeatService);
   const zoneService = app.get(ZoneService);
 
@@ -14,6 +15,7 @@ async function bootstrap() {
 
   for (const zone of zones) {
     const { seatMap, id: zoneId, name } = zone;
+
     if (!Array.isArray(seatMap)) {
       console.warn(`❌ seatMap for zone "${name}" is invalid or not an array`);
       continue;
@@ -26,14 +28,13 @@ async function bootstrap() {
       if (!Array.isArray(row)) continue;
 
       for (let columnIndex = 0; columnIndex < row.length; columnIndex++) {
-        const seatNumber = row[columnIndex];
-        if (!seatNumber || typeof seatNumber !== 'string') continue;
+        const seatNumber = row[columnIndex]; // may be string or null
 
         bulkSeats.push({
-          seatNumber,
+          seatNumber: seatNumber ?? null,
           rowIndex,
           columnIndex,
-          status: 'AVAILABLE',
+          status: seatNumber ? 'AVAILABLE' : 'EMPTY', // distinguish usable seat vs gap
           zoneId,
         });
       }
@@ -41,15 +42,25 @@ async function bootstrap() {
 
     if (bulkSeats.length > 0) {
       console.log(`🚀 Seeding ${bulkSeats.length} seats for zone "${name}"`);
+
       for (const s of bulkSeats) {
         await seatService.create(s);
       }
+
+      const emptyCount = bulkSeats.filter((s) => s.status === 'EMPTY').length;
+      const availableCount = bulkSeats.filter(
+        (s) => s.status === 'AVAILABLE',
+      ).length;
+
+      console.log(
+        `✅ Done zone "${name}": ${availableCount} AVAILABLE, ${emptyCount} EMPTY`,
+      );
     } else {
       console.log(`⚠️ No valid seats found for zone "${name}"`);
     }
   }
 
-  console.log('✅ Done seeding all seats');
+  console.log('🎉 All zones seeded successfully');
   await app.close();
 }
 

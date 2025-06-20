@@ -17,8 +17,8 @@ export class Seat {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column()
-  seatNumber: string;
+  @Column({ nullable: true })
+  seatNumber: string | null;
 
   @Column({ type: 'int' })
   rowIndex: number;
