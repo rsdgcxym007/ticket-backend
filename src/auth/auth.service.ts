@@ -29,16 +29,16 @@ export class AuthService {
     });
 
     if (!auth) {
-      throw new UnauthorizedException('📧 ไม่พบอีเมลนี้ในระบบ');
+      throw new UnauthorizedException('ไม่พบอีเมลนี้ในระบบ');
     }
 
     const isPasswordValid = await bcrypt.compare(dto.password, auth.password);
     if (!isPasswordValid) {
-      throw new UnauthorizedException('🔐 รหัสผ่านไม่ถูกต้อง');
+      throw new UnauthorizedException('รหัสผ่านไม่ถูกต้อง');
     }
 
     if (!auth.user) {
-      throw new NotFoundException('❌ ไม่พบข้อมูลผู้ใช้ที่เชื่อมกับบัญชีนี้');
+      throw new NotFoundException('ไม่พบข้อมูลผู้ใช้ที่เชื่อมกับบัญชีนี้');
     }
 
     const payload = {

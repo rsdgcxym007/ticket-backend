@@ -9,6 +9,7 @@ import { SeatStatus } from './eat-status.enum';
 import { SeatFilterDto } from './dto/seat-filter.dto';
 
 @Injectable()
+@Injectable()
 export class SeatService {
   constructor(
     @InjectRepository(Seat) private readonly seatRepo: Repository<Seat>,

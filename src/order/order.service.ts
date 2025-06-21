@@ -149,7 +149,7 @@ export class OrderService {
     });
 
     if (!order) {
-      throw new Error('❌ ไม่พบออเดอร์ที่ต้องการเปลี่ยนที่นั่ง');
+      throw new Error('ไม่พบออเดอร์ที่ต้องการเปลี่ยนที่นั่ง');
     }
 
     const isPaid = order.status === OrderStatus.PAID;
@@ -165,7 +165,7 @@ export class OrderService {
     if (newSeats.length !== newSeatIds.length) {
       const foundIds = newSeats.map((s) => s.id);
       const missing = newSeatIds.filter((id) => !foundIds.includes(id));
-      throw new Error(`❌ ที่นั่งใหม่บางตัวไม่พบ: ${missing.join(', ')}`);
+      throw new Error(`ที่นั่งใหม่บางตัวไม่พบ: ${missing.join(', ')}`);
     }
 
     // ตรวจสอบว่า seat ใหม่ไม่ถูกจองแล้ว (ในวันเดียวกัน)
@@ -179,7 +179,7 @@ export class OrderService {
     });
 
     if (conflict > 0) {
-      throw new Error('❌ ที่นั่งใหม่มีบางตัวถูกจองแล้วในวันเดียวกัน');
+      throw new Error('ที่นั่งใหม่มีบางตัวถูกจองแล้วในวันเดียวกัน');
     }
 
     // ลบ seatBooking เดิมทั้งหมดของ order นี้
