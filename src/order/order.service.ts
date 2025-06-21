@@ -214,18 +214,18 @@ export class OrderService {
   }
 
   async cancel(orderId: string) {
-    const order = await this.orderRepo.findOne({
-      where: { id: orderId },
-    });
-
+    const order = await this.orderRepo.findOne({ where: { id: orderId } });
     if (!order) throw new Error('ไม่พบออเดอร์');
 
     // เปลี่ยน status order
     order.status = OrderStatus.CANCELLED;
     await this.orderRepo.save(order);
 
-    // ยกเลิก bookings
-    const bookings = await this.seatBookingRepo.find({ where: { order } });
+    // ยกเลิก bookings (ใช้ orderId)
+    const bookings = await this.seatBookingRepo.find({
+      where: { order: { id: orderId } },
+      relations: ['order'],
+    });
 
     for (const booking of bookings) {
       booking.status = BookingStatus.CANCELLED;
