@@ -15,6 +15,9 @@ export class CreateOrderDto {
   @IsString()
   zone: string;
 
+  @IsString()
+  customerName?: string;
+
   @IsArray()
   @IsUUID('all', { each: true })
   seatIds: string[];

@@ -16,6 +16,7 @@ import { success } from 'src/common/responses';
 import { Request } from 'express';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
+import { extractPagination } from 'src/utils/pagination.util';
 
 @ApiTags('Orders')
 @ApiBearerAuth()
@@ -37,8 +38,9 @@ export class OrderController {
 
   @Get()
   async findAll(@Req() req: Request) {
-    const data = await this.orderService.findAll();
-    return success(data, 'All orders', req);
+    const options = extractPagination(req);
+    const data = await this.orderService.findAll(options); // ส่ง page, limit, filter ไปให้ service
+    return success(data, 'โหลดออเดอร์สำเร็จ', req);
   }
 
   @Get(':id')

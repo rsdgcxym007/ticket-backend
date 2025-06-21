@@ -1,11 +1,22 @@
-import { IsUUID, IsNumber, IsIn, IsOptional, IsString } from 'class-validator';
+import {
+  IsUUID,
+  IsNumber,
+  IsOptional,
+  IsString,
+  IsEnum,
+} from 'class-validator';
+import { PaymentMethod } from '../payment.entity';
 
 export class CreatePaymentDto {
   @IsUUID()
   orderId: string;
 
-  @IsIn(['QR', 'TRANSFER', 'CASH'])
-  method: 'QR' | 'TRANSFER' | 'CASH';
+  @IsEnum(PaymentMethod)
+  method: PaymentMethod;
+
+  @IsOptional()
+  @IsString()
+  customerName?: string;
 
   @IsNumber()
   amount: number;
@@ -13,4 +24,7 @@ export class CreatePaymentDto {
   @IsOptional()
   @IsString()
   slipUrl?: string;
+
+  @IsString()
+  referrerCode?: string;
 }

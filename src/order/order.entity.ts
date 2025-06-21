@@ -11,12 +11,14 @@ import {
   OneToMany,
   CreateDateColumn,
   UpdateDateColumn,
+  JoinColumn,
 } from 'typeorm';
 
 export enum OrderStatus {
   PENDING = 'PENDING',
   PAID = 'PAID',
   CANCELLED = 'CANCELLED',
+  BOOKED = 'BOOKED',
 }
 
 export enum OrderMethod {
@@ -67,13 +69,20 @@ export class Order {
   @Column({ type: 'timestamp', nullable: true })
   expiresAt: Date;
 
-  @ManyToOne(() => Referrer, (ref) => ref.orders, { nullable: true })
+  @ManyToOne(() => Referrer, (referrer) => referrer.orders, {
+    nullable: true,
+    onDelete: 'SET NULL',
+  })
+  @JoinColumn({ name: 'referrerId' })
   referrer: Referrer;
+
+  @Column({ nullable: true })
+  referrerId: string;
 
   @Column({ type: 'int', default: 0 })
   referrerCommission: number;
 
-  @OneToMany(() => Payment, (payment) => payment.order, { cascade: true })
+  @OneToMany(() => Payment, (payment) => payment.order)
   payments: Payment[];
 
   @Column({ type: 'date' })
@@ -81,4 +90,7 @@ export class Order {
 
   @OneToMany(() => SeatBooking, (booking) => booking.order, { cascade: true })
   seatBookings: SeatBooking[];
+
+  @Column({ nullable: true })
+  customerName?: string;
 }

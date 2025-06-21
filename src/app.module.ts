@@ -11,6 +11,7 @@ import { UserModule } from './user/user.module';
 import { ZoneModule } from './zone/zone.module';
 import { SeatsModule } from './seats/seat.module';
 import { ReferrerModule } from './referrer/referrer.module';
+import { DashboardModule } from './dashboard/dashboard.module';
 
 @Module({
   imports: [
@@ -41,6 +42,7 @@ import { ReferrerModule } from './referrer/referrer.module';
     UserModule,
     ZoneModule,
     ReferrerModule,
+    DashboardModule,
   ],
   providers: [PaymentGateway],
 })
