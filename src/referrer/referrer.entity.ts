@@ -25,6 +25,9 @@ export class Referrer {
   @Column({ nullable: true })
   note?: string;
 
+  @Column({ default: true })
+  status: boolean;
+
   @Column({ default: 0 })
   totalCommission: number;
 

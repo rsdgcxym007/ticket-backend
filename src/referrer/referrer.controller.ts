@@ -7,6 +7,7 @@ import {
   Patch,
   Delete,
   Req,
+  Query,
 } from '@nestjs/common';
 import { ReferrerService } from './referrer.service';
 import { CreateReferrerDto } from './dto/create-referrer.dto';
@@ -27,9 +28,20 @@ export class ReferrerController {
   }
 
   @Get()
-  async findAll(@Req() req) {
-    const data = await this.service.findAll();
-    return success(data, 'All referrers', req);
+  async findAll(
+    @Query('page') page = 1,
+    @Query('limit') limit = 10,
+    @Query('status') status: string,
+    @Query('search') search: string,
+    @Req() req,
+  ) {
+    const data = await this.service.findAllWithPagination({
+      page: +page,
+      limit: +limit,
+      status,
+      search,
+    });
+    return success(data, 'Referrers fetched with pagination', req);
   }
 
   @Get(':id')

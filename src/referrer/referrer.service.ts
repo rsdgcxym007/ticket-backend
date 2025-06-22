@@ -22,6 +22,49 @@ export class ReferrerService {
     return this.repo.findOneByOrFail({ id });
   }
 
+  async findAllWithPagination({
+    page = 1,
+    limit = 10,
+    status,
+    search,
+  }: {
+    page?: number;
+    limit?: number;
+    status?: string;
+    search?: string;
+  }) {
+    const skip = (page - 1) * limit;
+
+    const qb = this.repo.createQueryBuilder('referrer');
+
+    if (status !== undefined) {
+      qb.andWhere('referrer.active = :status', {
+        status: status === 'true' || status === '1',
+      });
+    }
+
+    if (search) {
+      qb.andWhere(
+        '(referrer.name ILIKE :search OR referrer.code ILIKE :search)',
+        { search: `%${search}%` },
+      );
+    }
+
+    const [items, total] = await qb
+      .orderBy('referrer.createdAt', 'DESC')
+      .skip(skip)
+      .take(limit)
+      .getManyAndCount();
+
+    return {
+      items,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
   async update(id: string, dto: UpdateReferrerDto) {
     await this.repo.update(id, dto);
     return this.repo.findOneByOrFail({ id });
