@@ -55,6 +55,7 @@ export class PaymentService {
 
       if (dto.customerName) {
         order.customerName = dto.customerName;
+        order.referrerCode = dto.referrerCode;
         console.log('อัปเดตชื่อผู้สั่ง:', dto.customerName);
       }
 
