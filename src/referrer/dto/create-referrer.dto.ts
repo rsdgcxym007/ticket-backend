@@ -1,4 +1,4 @@
-import { IsString, IsOptional } from 'class-validator';
+import { IsString, IsOptional, IsBoolean } from 'class-validator';
 
 export class CreateReferrerDto {
   @IsString()
@@ -13,4 +13,7 @@ export class CreateReferrerDto {
   @IsOptional()
   @IsString()
   note?: string;
+
+  @IsBoolean()
+  status: boolean;
 }
