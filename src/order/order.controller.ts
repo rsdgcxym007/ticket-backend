@@ -17,6 +17,7 @@ import { Request } from 'express';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { extractPagination } from 'src/utils/pagination.util';
+import { UpdateBookedOrderDto } from './dto/update-booked-order.dto';
 
 @ApiTags('Orders')
 @ApiBearerAuth()
@@ -31,9 +32,23 @@ export class OrderController {
     return success(data, 'Order created', req);
   }
 
+  @Patch('update-booked/:id')
+  async updateBookedOrder(
+    @Param('id') id: string,
+    @Body() dto: UpdateBookedOrderDto,
+    @Req() req: Request,
+  ) {
+    const result = await this.orderService.updateBookedOrder(id, dto);
+    return success(result, 'อัปเดตออเดอร์ BOOKED เรียบร้อย', req);
+  }
+
   @Patch('change-seats/:id')
-  changeSeats(@Param('id') id: string, @Body('seatIds') seatIds: string[]) {
-    return this.orderService.changeSeats(id, seatIds);
+  changeSeats(
+    @Param('id') id: string,
+    @Body('seatIds') seatIds: string[],
+    @Body('showDate') showDate: string,
+  ) {
+    return this.orderService.changeSeats(id, seatIds, showDate);
   }
 
   @Get()

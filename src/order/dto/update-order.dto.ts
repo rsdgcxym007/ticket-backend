@@ -1,10 +1,11 @@
 import { IsEnum, IsOptional, IsString } from 'class-validator';
 
 export enum OrderStatus {
+  PENDING = 'PENDING',
   PAID = 'PAID',
   CANCELLED = 'CANCELLED',
+  BOOKED = 'BOOKED',
 }
-
 export class UpdateOrderDto {
   @IsOptional()
   @IsEnum(OrderStatus, {

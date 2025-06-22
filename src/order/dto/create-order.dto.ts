@@ -7,6 +7,7 @@ import {
   IsString,
   IsDateString,
 } from 'class-validator';
+import { OrderStatus } from '../order.entity';
 
 export class CreateOrderDto {
   @IsUUID()
@@ -38,4 +39,8 @@ export class CreateOrderDto {
 
   @IsDateString()
   showDate: string;
+
+  @IsOptional()
+  @IsEnum(OrderStatus)
+  status?: OrderStatus;
 }
