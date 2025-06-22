@@ -7,10 +7,11 @@ import { PaymentService } from './payment.service';
 import { OrderModule } from 'src/order/order.module';
 import { SeatsModule } from 'src/seats/seat.module';
 import { ReferrerModule } from 'src/referrer/referrer.module';
+import { SeatBooking } from 'src/seats/seat-booking.entity'; // ✅ IMPORT ให้ถูก
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Payment, Order]),
+    TypeOrmModule.forFeature([Payment, Order, SeatBooking]),
     forwardRef(() => OrderModule),
     forwardRef(() => SeatsModule),
     forwardRef(() => ReferrerModule),

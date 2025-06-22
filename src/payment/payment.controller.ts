@@ -10,11 +10,12 @@ import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 @UseGuards(JwtAuthGuard)
 @Controller('payments')
 export class PaymentController {
+  paymentService: any;
   constructor(private readonly service: PaymentService) {}
 
-  @Post('cash')
-  async payWithCash(@Body() dto: CreatePaymentDto, @Req() req) {
-    const result = await this.service.payWithCash(dto);
-    return success(result, 'ชำระเงินสดเรียบร้อยแล้ว', req);
+  @Post()
+  async pay(@Body() dto: CreatePaymentDto, @Req() req) {
+    const data = await this.service.payWithCash(dto);
+    return success(data, 'ชำระเงินด้วยเงินสดสำเร็จ', req);
   }
 }

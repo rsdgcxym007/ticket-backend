@@ -1,9 +1,11 @@
+import { Payment } from 'src/payment/payment.entity';
 import {
   Entity,
   Column,
   PrimaryGeneratedColumn,
   CreateDateColumn,
   UpdateDateColumn,
+  OneToMany,
 } from 'typeorm';
 
 @Entity('users')
@@ -28,4 +30,7 @@ export class User {
 
   @UpdateDateColumn()
   updatedAt: Date;
+
+  @OneToMany(() => Payment, (payment) => payment.user)
+  payments: Payment[];
 }

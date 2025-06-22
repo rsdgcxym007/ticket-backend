@@ -10,6 +10,7 @@ import { UpdateOrderDto } from './dto/update-order.dto';
 import { SeatStatus } from 'src/seats/eat-status.enum';
 import { DeepPartial } from 'typeorm';
 import { BookingStatus, SeatBooking } from 'src/seats/seat-booking.entity';
+import { PaginateOptions } from '../utils/pagination.util';
 
 @Injectable()
 export class OrderService {
@@ -127,8 +128,63 @@ export class OrderService {
     return this.orderRepo.save(order);
   }
 
-  async findAll() {
-    return this.orderRepo.find({ relations: ['seats', 'user', 'referrer'] });
+  async findAll(options: PaginateOptions) {
+    const { page, limit, status, zone, search } = options;
+    const query = this.orderRepo
+      .createQueryBuilder('order')
+      .leftJoinAndSelect('order.seats', 'seats')
+      .leftJoinAndSelect('order.seatBookings', 'seatBookings')
+      .leftJoinAndSelect('seatBookings.seat', 'bookingSeat')
+      .leftJoinAndSelect('seats.zone', 'seatZone')
+      .leftJoinAndSelect('bookingSeat.zone', 'bookingSeatZone')
+      .skip((page - 1) * limit)
+      .take(limit)
+      .orderBy('order.createdAt', 'DESC');
+
+    if (status) {
+      query.andWhere('order.status = :status', { status });
+    }
+
+    if (zone) {
+      const isUUID = /^[0-9a-fA-F-]{36}$/.test(zone);
+      if (isUUID) {
+        query.andWhere(
+          '(seatZone.id = :zoneId OR bookingSeatZone.id = :zoneId)',
+          { zoneId: zone },
+        );
+      }
+    }
+
+    if (search?.trim()) {
+      query.andWhere('CAST(order.id AS text) ILIKE :search', {
+        search: `%${search.trim()}%`,
+      });
+    }
+
+    const [items, total] = await query.getManyAndCount();
+
+    items.forEach((order) => {
+      const zoneNamesFromSeats = order.seats
+        ?.map((seat) => seat.zone?.name)
+        .filter(Boolean);
+
+      const zoneNamesFromBookings = order.seatBookings
+        ?.map((booking) => booking.seat?.zone?.name)
+        .filter(Boolean);
+
+      const allZones = [...zoneNamesFromSeats, ...zoneNamesFromBookings];
+      const uniqueZoneNames = [...new Set(allZones)];
+
+      (order as any).zoneName = uniqueZoneNames.join(', ');
+    });
+
+    return {
+      items,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
   }
 
   async findById(id: string) {
@@ -217,11 +273,9 @@ export class OrderService {
     const order = await this.orderRepo.findOne({ where: { id: orderId } });
     if (!order) throw new Error('ไม่พบออเดอร์');
 
-    // เปลี่ยน status order
     order.status = OrderStatus.CANCELLED;
     await this.orderRepo.save(order);
 
-    // ยกเลิก bookings (ใช้ orderId)
     const bookings = await this.seatBookingRepo.find({
       where: { order: { id: orderId } },
       relations: ['order'],

@@ -16,7 +16,10 @@ export class UpdateOrderDto {
   @IsString()
   slipUrl?: string;
 
+  @IsString()
+  customerName?: string;
+
   @IsOptional()
   @IsString()
-  referrerCode?: string; // ✅ เพิ่ม field นี้สำหรับแนบผู้แนะนำ
+  referrerCode?: string;
 }

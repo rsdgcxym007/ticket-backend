@@ -4,8 +4,10 @@ import {
   Column,
   CreateDateColumn,
   ManyToOne,
+  JoinColumn,
 } from 'typeorm';
 import { Order } from 'src/order/order.entity';
+import { User } from 'src/user/user.entity';
 
 export enum PaymentMethod {
   QR = 'QR',
@@ -36,11 +38,16 @@ export class Payment {
   @Column({ nullable: true })
   slipUrl?: string;
 
-  @ManyToOne(() => Order, (order) => order.payments, {
-    onDelete: 'CASCADE',
-  })
-  order: Order;
+  @ManyToOne(() => User, (user) => user.payments)
+  user: User;
 
   @CreateDateColumn()
   createdAt: Date;
+
+  @ManyToOne(() => Order, (order) => order.payments, { nullable: true })
+  @JoinColumn({ name: 'orderId' })
+  order: Order;
+
+  @Column({ nullable: true })
+  orderId: string;
 }
