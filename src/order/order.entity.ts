@@ -60,13 +60,13 @@ export class Order {
   })
   seats: Seat[];
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt: Date;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   expiresAt: Date;
 
   @ManyToOne(() => Referrer, (referrer) => referrer.orders, {

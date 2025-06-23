@@ -7,7 +7,7 @@ import { BookingStatus, SeatBooking } from 'src/seats/seat-booking.entity';
 import { Referrer } from '../referrer/referrer.entity';
 import { Seat } from 'src/seats/seat.entity';
 import moment from 'moment';
-
+import dayjs from 'dayjs';
 @Injectable()
 export class DashboardService {
   private readonly logger = new Logger(DashboardService.name);
@@ -22,18 +22,9 @@ export class DashboardService {
 
   async getDashboardData() {
     const today = new Date();
-    const todayISO = today.toISOString().split('T')[0];
-    const currentMonthStart = new Date(
-      today.getFullYear(),
-      today.getMonth(),
-      1,
-    );
-    const currentMonthEnd = new Date(
-      today.getFullYear(),
-      today.getMonth() + 1,
-      0,
-    );
-
+    const todayISO = dayjs().format('YYYY-MM-DD');
+    const currentMonthStart = dayjs().startOf('month');
+    const currentMonthEnd = dayjs().endOf('month');
     this.logger.debug(`📆 Today is ${todayISO}`);
 
     const [

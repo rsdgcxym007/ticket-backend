@@ -44,6 +44,20 @@ export class ReferrerController {
     return success(data, 'Referrers fetched with pagination', req);
   }
 
+  @Get(':id/orders')
+  async getOrdersByReferrer(
+    @Param('id') id: string,
+    @Req() req,
+    @Query('startDate') startDate: string,
+    @Query('endDate') endDate: string,
+  ) {
+    const data = await this.service.getReferrerOrders(id, {
+      startDate,
+      endDate,
+    });
+    return success(data, 'Orders fetched', req);
+  }
+
   @Get(':id')
   async findOne(@Param('id') id: string, @Req() req) {
     const data = await this.service.findOne(id);

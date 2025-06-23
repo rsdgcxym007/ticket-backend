@@ -16,6 +16,7 @@ import { DeepPartial } from 'typeorm';
 import { BookingStatus, SeatBooking } from 'src/seats/seat-booking.entity';
 import { PaginateOptions } from '../utils/pagination.util';
 import { UpdateBookedOrderDto } from './dto/update-booked-order.dto';
+import dayjs from 'dayjs';
 
 @Injectable()
 export class OrderService {
@@ -213,14 +214,12 @@ export class OrderService {
 
     const isPaid = order.status === OrderStatus.PAID;
 
-    // ✅ ใช้วันที่ใหม่ถ้ามี ไม่งั้นใช้ของเดิม
     const showDateStr = newShowDate
-      ? new Date(newShowDate).toISOString().slice(0, 10)
+      ? dayjs(newShowDate).format('YYYY-MM-DD')
       : order.showDate instanceof Date
-        ? order.showDate.toISOString().slice(0, 10)
+        ? dayjs(order.showDate).format('YYYY-MM-DD')
         : (order.showDate as string);
 
-    // ✅ โหลด seat ใหม่
     const newSeats = await this.seatRepo.find({
       where: { id: In(newSeatIds) },
       relations: ['zone'],
@@ -232,7 +231,6 @@ export class OrderService {
       throw new Error(`ที่นั่งใหม่บางตัวไม่พบ: ${missing.join(', ')}`);
     }
 
-    // ✅ ตรวจสอบว่าที่นั่งใหม่ยังไม่ถูกจองในวันเดียวกัน
     const conflict = await this.seatBookingRepo.count({
       where: {
         seat: In(newSeatIds),
@@ -246,14 +244,8 @@ export class OrderService {
       throw new Error('ที่นั่งใหม่มีบางตัวถูกจองแล้วในวันเดียวกัน');
     }
 
-    // ✅ ส่งแจ้งเตือนเจ้าหน้าที่ผ่าน WebSocket
-
-    // ✅ หากจ่ายแล้ว แจ้งระบบ payment
-
-    // ✅ ลบ booking เก่าทั้งหมด
     await this.seatBookingRepo.delete({ order: { id: orderId } });
 
-    // ✅ สร้าง booking ใหม่
     const newBookings = newSeats.map((seat) => {
       const booking = new SeatBooking();
       booking.seat = seat;
@@ -265,12 +257,10 @@ export class OrderService {
 
     await this.seatBookingRepo.save(newBookings);
 
-    // ✅ อัปเดตวันที่ใหม่ให้ order
     if (newShowDate) {
       order.showDate = new Date(newShowDate);
     }
 
-    // หากยังไม่จ่าย อัปเดต total และค่าคอมมิชชัน
     if (!isPaid) {
       order.total = newSeats.length * 1200;
 

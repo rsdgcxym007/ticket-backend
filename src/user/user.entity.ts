@@ -4,7 +4,6 @@ import {
   Column,
   PrimaryGeneratedColumn,
   CreateDateColumn,
-  UpdateDateColumn,
   OneToMany,
 } from 'typeorm';
 
@@ -25,10 +24,10 @@ export class User {
   @Column({ default: 'user' })
   role: 'user' | 'admin' | 'staff';
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 
-  @UpdateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   updatedAt: Date;
 
   @OneToMany(() => Payment, (payment) => payment.user)

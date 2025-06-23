@@ -3,7 +3,6 @@ import {
   PrimaryGeneratedColumn,
   Column,
   CreateDateColumn,
-  UpdateDateColumn,
   OneToMany,
 } from 'typeorm';
 import { Order } from 'src/order/order.entity';
@@ -31,9 +30,9 @@ export class Referrer {
   @Column({ default: 0 })
   totalCommission: number;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 
-  @UpdateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   updatedAt: Date;
 }

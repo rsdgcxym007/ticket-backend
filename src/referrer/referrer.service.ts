@@ -1,13 +1,18 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Between, FindOptionsWhere, Repository } from 'typeorm';
 import { Referrer } from './referrer.entity';
 import { CreateReferrerDto } from './dto/create-referrer.dto';
 import { UpdateReferrerDto } from './dto/update-referrer.dto';
+import { Order } from 'src/order/order.entity';
+import dayjs from 'dayjs';
 
 @Injectable()
 export class ReferrerService {
-  constructor(@InjectRepository(Referrer) private repo: Repository<Referrer>) {}
+  constructor(
+    @InjectRepository(Referrer) private repo: Repository<Referrer>,
+    @InjectRepository(Order) private orderRepo: Repository<Order>,
+  ) {}
 
   async create(dto: CreateReferrerDto) {
     const ref = this.repo.create(dto);
@@ -78,5 +83,26 @@ export class ReferrerService {
     const ref = await this.repo.findOneByOrFail({ id: referrerId });
     ref.totalCommission += seatCount * 400;
     return this.repo.save(ref);
+  }
+
+  async getReferrerOrders(
+    referrerId: string,
+    query: { startDate?: string; endDate?: string },
+  ) {
+    const where: FindOptionsWhere<Order> = {
+      referrer: { id: referrerId },
+    };
+    if (query.startDate && query.endDate) {
+      const startDate = dayjs(query.startDate).startOf('day').toDate();
+      const end = dayjs(query.endDate).endOf('day').toDate();
+      where.createdAt = Between(startDate, end);
+    }
+    return this.orderRepo.find({
+      where,
+      relations: ['user', 'seats', 'referrer'],
+      order: {
+        createdAt: 'DESC',
+      },
+    });
   }
 }

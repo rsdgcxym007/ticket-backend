@@ -4,7 +4,6 @@ import {
   Column,
   ManyToOne,
   CreateDateColumn,
-  UpdateDateColumn,
   OneToMany,
 } from 'typeorm';
 import { Zone } from 'src/zone/zone.entity';
@@ -34,10 +33,10 @@ export class Seat {
   @ManyToOne(() => Zone, (zone: any) => zone.seats, { onDelete: 'CASCADE' })
   zone: Zone;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 
-  @UpdateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   updatedAt: Date;
 
   @Column({ type: 'timestamp', nullable: true })

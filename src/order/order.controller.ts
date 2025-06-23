@@ -54,7 +54,7 @@ export class OrderController {
   @Get()
   async findAll(@Req() req: Request) {
     const options = extractPagination(req);
-    const data = await this.orderService.findAll(options); // ส่ง page, limit, filter ไปให้ service
+    const data = await this.orderService.findAll(options);
     return success(data, 'โหลดออเดอร์สำเร็จ', req);
   }
 

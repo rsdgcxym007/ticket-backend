@@ -41,7 +41,7 @@ export class Payment {
   @ManyToOne(() => User, (user) => user.payments)
   user: User;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 
   @ManyToOne(() => Order, (order) => order.payments, { nullable: true })
