@@ -1,4 +1,5 @@
 // src/common/responses.ts
+import dayjs from 'dayjs';
 import { Request } from 'express';
 
 export function success(
@@ -14,7 +15,7 @@ export function success(
     ...(req && {
       method: req.method,
       path: req.originalUrl,
-      timestamp: new Date().toISOString(),
+      timestamp: dayjs().format('YYYY-MM-DDTHH:mm:ss'),
     }),
   };
 }
@@ -32,7 +33,7 @@ export function error(
     ...(req && {
       method: req.method,
       path: req.originalUrl,
-      timestamp: new Date().toISOString(),
+      timestamp: dayjs().format('YYYY-MM-DDTHH:mm:ss'),
     }),
   };
 }
