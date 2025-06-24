@@ -43,4 +43,7 @@ export class CreateOrderDto {
   @IsOptional()
   @IsEnum(OrderStatus)
   status?: OrderStatus;
+
+  standingAdultQty?: number;
+  standingChildQty?: number;
 }
