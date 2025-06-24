@@ -17,7 +17,12 @@ import { BookingStatus, SeatBooking } from 'src/seats/seat-booking.entity';
 import { PaginateOptions } from '../utils/pagination.util';
 import { UpdateBookedOrderDto } from './dto/update-booked-order.dto';
 import dayjs from 'dayjs';
+import { PaymentMethod } from 'src/payment/payment.entity';
 
+const STANDING_ADULT_PRICE = 1500;
+const STANDING_CHILD_PRICE = 1300;
+const ADULT_COMMISSION = 300;
+const CHILD_COMMISSION = 200;
 @Injectable()
 export class OrderService {
   constructor(
@@ -88,6 +93,47 @@ export class OrderService {
 
     return savedOrder;
   }
+
+  async createOrderStanding(dto: CreateOrderDto, user: User) {
+    const { standingAdultQty = 0, standingChildQty = 0, referrerCode } = dto;
+
+    console.log('dto', dto);
+
+    const total =
+      standingAdultQty * STANDING_ADULT_PRICE +
+      standingChildQty * STANDING_CHILD_PRICE;
+    const commission =
+      standingAdultQty * ADULT_COMMISSION + standingChildQty * CHILD_COMMISSION;
+
+    let referrer: Referrer | null = null;
+    if (referrerCode) {
+      referrer = await this.referrerRepo.findOne({
+        where: { code: referrerCode },
+      });
+      if (!referrer) {
+        throw new BadRequestException('Referrer code ไม่ถูกต้อง');
+      }
+    }
+
+    const order = this.orderRepo.create({
+      standingAdultQty,
+      standingChildQty,
+      standingTotal: total,
+      customerName: dto.customerName,
+      standingCommission: commission,
+      status: OrderStatus.BOOKED,
+      method: dto.method || PaymentMethod.CASH,
+      total,
+      user,
+      referrer,
+      referrerCode: dto.referrerCode,
+      referrerCommission: commission,
+      showDate: dto.showDate,
+    } as DeepPartial<Order>);
+
+    return this.orderRepo.save(order);
+  }
+
   async update(id: string, dto: UpdateOrderDto) {
     const order = await this.orderRepo.findOne({
       where: { id },
@@ -141,6 +187,8 @@ export class OrderService {
       .createQueryBuilder('order')
       .leftJoinAndSelect('order.seats', 'seats')
       .leftJoinAndSelect('order.seatBookings', 'seatBookings')
+      .leftJoin('order.referrer', 'referrer')
+      .addSelect(['referrer.name', 'referrer.code'])
       .leftJoinAndSelect('seatBookings.seat', 'bookingSeat')
       .leftJoinAndSelect('seats.zone', 'seatZone')
       .leftJoinAndSelect('bookingSeat.zone', 'bookingSeatZone')
@@ -176,7 +224,7 @@ export class OrderService {
         .filter(Boolean);
 
       const uniqueZoneNames = [...new Set(zoneNamesFromBookings)];
-      (order as any).zoneName = uniqueZoneNames.join(', ');
+      (order as any).zoneName = uniqueZoneNames[0] || '-';
     });
 
     return {
@@ -203,23 +251,21 @@ export class OrderService {
       throw new Error('❌ ต้องระบุรายการที่นั่งใหม่');
     }
 
+    const showDateStr = dayjs(newShowDate).format('YYYY-MM-DD');
+
     const order = await this.orderRepo.findOne({
       where: { id: orderId },
       relations: ['seatBookings', 'referrer'],
     });
 
-    if (!order) {
-      throw new Error('ไม่พบออเดอร์ที่ต้องการเปลี่ยนที่นั่ง');
-    }
+    if (!order) throw new Error('❌ ไม่พบออเดอร์ที่ต้องการเปลี่ยนที่นั่ง');
 
     const isPaid = order.status === OrderStatus.PAID;
+    const showDate = newShowDate
+      ? new Date(newShowDate)
+      : new Date(order.showDate);
 
-    const showDateStr = newShowDate
-      ? dayjs(newShowDate).format('YYYY-MM-DD')
-      : order.showDate instanceof Date
-        ? dayjs(order.showDate).format('YYYY-MM-DD')
-        : (order.showDate as string);
-
+    // 🔍 โหลดข้อมูลที่นั่งใหม่
     const newSeats = await this.seatRepo.find({
       where: { id: In(newSeatIds) },
       relations: ['zone'],
@@ -228,9 +274,10 @@ export class OrderService {
     if (newSeats.length !== newSeatIds.length) {
       const foundIds = newSeats.map((s) => s.id);
       const missing = newSeatIds.filter((id) => !foundIds.includes(id));
-      throw new Error(`ที่นั่งใหม่บางตัวไม่พบ: ${missing.join(', ')}`);
+      throw new Error(`❌ ที่นั่งใหม่บางตัวไม่พบในระบบ: ${missing.join(', ')}`);
     }
 
+    // ❌ ป้องกันที่นั่งใหม่ซ้ำกับออเดอร์อื่นที่จ่ายเงินแล้ว
     const conflict = await this.seatBookingRepo.count({
       where: {
         seat: In(newSeatIds),
@@ -241,11 +288,34 @@ export class OrderService {
     });
 
     if (conflict > 0) {
-      throw new Error('ที่นั่งใหม่มีบางตัวถูกจองแล้วในวันเดียวกัน');
+      throw new Error('❌ ที่นั่งใหม่บางตัวถูกจองแล้วในวันเดียวกัน');
     }
 
-    await this.seatBookingRepo.delete({ order: { id: orderId } });
+    // ✅ ลบ booking เดิมให้หมดก่อน (ถ้ามี)
+    await this.seatBookingRepo
+      .createQueryBuilder()
+      .delete()
+      .where('orderId = :orderId', { orderId })
+      .execute();
+    order.seatBookings = [];
+    // ✅ อัปเดตวันที่ใหม่
+    order.showDate = showDate;
 
+    // ✅ ถ้าไม่ใช่จ่ายเงินแล้ว ต้องคำนวณ total และค่าคอมใหม่
+    if (!isPaid) {
+      order.total = newSeats.length * 1200;
+
+      if (order.referrer) {
+        const commission = newSeats.length * 400;
+        order.referrerCommission = commission;
+        order.referrer.totalCommission = commission;
+        await this.referrerRepo.save(order.referrer);
+      }
+    }
+
+    await this.orderRepo.save(order);
+
+    // ✅ สร้าง booking ใหม่ทั้งหมด
     const newBookings = newSeats.map((seat) => {
       const booking = new SeatBooking();
       booking.seat = seat;
@@ -257,23 +327,11 @@ export class OrderService {
 
     await this.seatBookingRepo.save(newBookings);
 
-    if (newShowDate) {
-      order.showDate = new Date(newShowDate);
-    }
-
-    if (!isPaid) {
-      order.total = newSeats.length * 1200;
-
-      if (order.referrer) {
-        order.referrerCommission = newSeats.length * 400;
-        order.referrer.totalCommission = order.referrerCommission;
-        await this.referrerRepo.save(order.referrer);
-      }
-
-      await this.orderRepo.save(order);
-    }
-
-    return order;
+    // ✅ return order พร้อม seatBookings ใหม่ทั้งหมด
+    return this.orderRepo.findOne({
+      where: { id: order.id },
+      relations: ['seatBookings', 'seatBookings.seat'],
+    });
   }
 
   async updateBookedOrder(orderId: string, dto: UpdateBookedOrderDto) {
@@ -295,10 +353,8 @@ export class OrderService {
     if (seats.length !== mergedSeatIds.length)
       throw new BadRequestException('Some seatIds are invalid');
 
-    // ❌ ลบ booking เก่า
     await this.seatBookingRepo.delete({ order: { id: orderId } });
 
-    // 🔍 ตรวจ conflict ใหม่
     const conflictBookings = await this.seatBookingRepo.find({
       where: {
         seat: seats,
@@ -316,7 +372,6 @@ export class OrderService {
       );
     }
 
-    // ✅ สร้าง booking ใหม่
     const newBookings = seats.map((seat) =>
       this.seatBookingRepo.create({
         seat,
@@ -327,7 +382,6 @@ export class OrderService {
     );
     await this.seatBookingRepo.save(newBookings);
 
-    // ✅ อัปเดตข้อมูลใน order
     order.seats = seats;
     order.total = seats.length * 1800;
     order.showDate = new Date(dto.showDate);

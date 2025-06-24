@@ -32,6 +32,12 @@ export class OrderController {
     return success(data, 'Order created', req);
   }
 
+  @Post('create-standing')
+  async createStandingOrder(@Body() dto: CreateOrderDto, @Req() req) {
+    const order = await this.orderService.createOrderStanding(dto, req.user);
+    return success(order, 'สร้างออเดอร์ตั๋วยืนแล้ว', req);
+  }
+
   @Patch('update-booked/:id')
   async updateBookedOrder(
     @Param('id') id: string,

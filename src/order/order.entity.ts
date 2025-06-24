@@ -93,4 +93,16 @@ export class Order {
 
   @Column({ nullable: true })
   customerName?: string;
+
+  @Column({ type: 'int', default: 0 })
+  standingAdultQty: number;
+
+  @Column({ type: 'int', default: 0 })
+  standingChildQty: number;
+
+  @Column({ type: 'int', default: 0 })
+  standingTotal: number;
+
+  @Column({ type: 'int', default: 0 })
+  standingCommission: number;
 }

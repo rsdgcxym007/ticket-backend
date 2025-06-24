@@ -18,4 +18,10 @@ export class PaymentController {
     const data = await this.service.payWithCash(dto);
     return success(data, 'ชำระเงินด้วยเงินสดสำเร็จ', req);
   }
+
+  @Post('pay-standing')
+  async payStanding(@Body() dto: CreatePaymentDto, @Req() req) {
+    const payment = await this.service.payWithCashStanding(dto, req.user);
+    return success(payment, 'ชำระเงินตั๋วยืนสำเร็จ', req);
+  }
 }
