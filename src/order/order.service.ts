@@ -19,7 +19,10 @@ import { UpdateBookedOrderDto } from './dto/update-booked-order.dto';
 import dayjs from 'dayjs';
 import { PaymentMethod } from 'src/payment/payment.entity';
 import { createPdfBuffer } from 'src/utils/createPdfBuffer';
-
+import utc from 'dayjs/plugin/utc';
+import timezone from 'dayjs/plugin/timezone';
+dayjs.extend(utc);
+dayjs.extend(timezone);
 const STANDING_ADULT_PRICE = 1500;
 const STANDING_CHILD_PRICE = 1300;
 const ADULT_COMMISSION = 300;
@@ -309,7 +312,9 @@ export class OrderService {
       throw new Error('❌ ต้องระบุรายการที่นั่งใหม่');
     }
 
-    const showDateStr = dayjs(newShowDate).format('YYYY-MM-DD');
+    const showDateStr = dayjs(newShowDate)
+      .tz('Asia/Bangkok')
+      .format('YYYY-MM-DD');
 
     const order = await this.orderRepo.findOne({
       where: { id: orderId },
@@ -458,8 +463,8 @@ export class OrderService {
         referrerId,
         status: OrderStatus.PAID,
         createdAt: Between(
-          dayjs(startDate).startOf('day').toDate(),
-          dayjs(endDate).endOf('day').toDate(),
+          dayjs(startDate).tz('Asia/Bangkok').startOf('day').toDate(),
+          dayjs(endDate).tz('Asia/Bangkok').endOf('day').toDate(),
         ),
       },
       relations: ['user', 'payment', 'payment.user', 'seats'],
@@ -480,7 +485,7 @@ export class OrderService {
 
       return [
         {
-          text: dayjs(order.createdAt).format('DD/MM/YYYY'),
+          text: dayjs(order.createdAt).tz('Asia/Bangkok').format('DD/MM/YYYY'),
           alignment: 'center',
         },
         { text: 'THAI BOXING', alignment: 'center' },
@@ -554,7 +559,7 @@ export class OrderService {
                       margin: [0, 0, 0, 4],
                     },
                     {
-                      text: `DATE ${dayjs(startDate).format('D MMMM YYYY').toUpperCase()}`,
+                      text: `DATE ${dayjs(startDate).tz('Asia/Bangkok').format('D MMMM YYYY').toUpperCase()}`,
                       bold: true,
                       margin: [0, 0, 0, 2],
                     },
