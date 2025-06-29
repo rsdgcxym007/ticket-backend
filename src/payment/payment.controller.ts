@@ -15,7 +15,7 @@ export class PaymentController {
 
   @Post()
   async pay(@Body() dto: CreatePaymentDto, @Req() req) {
-    const data = await this.service.payWithCash(dto);
+    const data = await this.service.payWithCash(dto, req.user);
     return success(data, 'ชำระเงินด้วยเงินสดสำเร็จ', req);
   }
 

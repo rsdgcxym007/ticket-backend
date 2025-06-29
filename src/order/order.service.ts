@@ -97,8 +97,6 @@ export class OrderService {
   async createOrderStanding(dto: CreateOrderDto, user: User) {
     const { standingAdultQty = 0, standingChildQty = 0, referrerCode } = dto;
 
-    console.log('dto', dto);
-
     const total =
       standingAdultQty * STANDING_ADULT_PRICE +
       standingChildQty * STANDING_CHILD_PRICE;
@@ -127,7 +125,7 @@ export class OrderService {
       user,
       referrer,
       referrerCode: dto.referrerCode,
-      referrerCommission: commission,
+      referrerCommission: 0,
       showDate: dto.showDate,
     } as DeepPartial<Order>);
 

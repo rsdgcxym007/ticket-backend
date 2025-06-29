@@ -92,17 +92,59 @@ export class ReferrerService {
     const where: FindOptionsWhere<Order> = {
       referrer: { id: referrerId },
     };
+
     if (query.startDate && query.endDate) {
       const startDate = dayjs(query.startDate).startOf('day').toDate();
       const end = dayjs(query.endDate).endOf('day').toDate();
       where.createdAt = Between(startDate, end);
     }
-    return this.orderRepo.find({
+
+    const orders = await this.orderRepo.find({
       where,
-      relations: ['user', 'seats', 'referrer'],
+      relations: ['user', 'seats', 'referrer', 'payment', 'payment.user'],
       order: {
         createdAt: 'DESC',
       },
     });
+
+    return orders.map((order) => ({
+      id: order.id,
+      total: order.total,
+      status: order.status,
+      method: order.method,
+      createdAt: order.createdAt,
+      showDate: order.showDate,
+      customerName: order.customerName,
+      standingAdultQty: order.standingAdultQty,
+      standingChildQty: order.standingChildQty,
+      standingTotal: order.standingTotal,
+      standingCommission: order.standingCommission,
+      referrerCommission: order.referrerCommission,
+      user: order.user
+        ? {
+            name: order.user.name,
+            role: order.user.role,
+          }
+        : null,
+      referrer: {
+        name: order.referrer?.name,
+        code: order.referrer?.code,
+      },
+      seats: order.seats?.map((s) => ({
+        seatNumber: s.seatNumber,
+      })),
+      payment: order.payment
+        ? {
+            method: order.payment.method,
+            amount: order.payment.amount,
+            paidAt: order.payment.paidAt,
+            user: order.payment.user
+              ? {
+                  name: order.payment.user.name,
+                }
+              : null,
+          }
+        : null,
+    }));
   }
 }

@@ -12,6 +12,7 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   JoinColumn,
+  OneToOne,
 } from 'typeorm';
 
 export enum OrderStatus {
@@ -32,8 +33,12 @@ export class Order {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @ManyToOne(() => User, { nullable: true })
-  user: User;
+  @ManyToOne(() => User, { nullable: true, eager: false })
+  @JoinColumn({ name: 'userId' })
+  user?: User;
+
+  @Column({ nullable: true })
+  userId?: string;
 
   @Column({ nullable: true })
   referrerCode?: string;
@@ -82,8 +87,9 @@ export class Order {
   @Column({ type: 'int', default: 0 })
   referrerCommission: number;
 
-  @OneToMany(() => Payment, (payment) => payment.order)
-  payments: Payment[];
+  @OneToOne(() => Payment, (payment) => payment.order, { nullable: true })
+  @JoinColumn({ name: 'paymentId' })
+  payment: Payment;
 
   @Column({ type: 'date' })
   showDate: Date;
