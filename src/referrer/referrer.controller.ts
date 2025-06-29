@@ -8,18 +8,25 @@ import {
   Delete,
   Req,
   Query,
+  Res,
+  Header,
 } from '@nestjs/common';
 import { ReferrerService } from './referrer.service';
 import { CreateReferrerDto } from './dto/create-referrer.dto';
 import { UpdateReferrerDto } from './dto/update-referrer.dto';
 import { success } from 'src/common/responses';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
+import { OrderService } from 'src/order/order.service';
+import { Response } from 'express';
 
 @ApiTags('Referrers')
 @ApiBearerAuth()
 @Controller('referrers')
 export class ReferrerController {
-  constructor(private readonly service: ReferrerService) {}
+  constructor(
+    private readonly service: ReferrerService,
+    private readonly orderService: OrderService,
+  ) {}
 
   @Post()
   async create(@Body() dto: CreateReferrerDto, @Req() req) {
@@ -56,6 +63,51 @@ export class ReferrerController {
       endDate,
     });
     return success(data, 'Orders fetched', req);
+  }
+
+  @Get(':id/export-pdf')
+  async exportReferrerPdf(
+    @Param('id') id: string,
+    @Query('startDate') startDate: string,
+    @Query('endDate') endDate: string,
+    @Res() res: Response,
+  ) {
+    console.log('exportReferrerPdf');
+
+    const buffer = await this.orderService.generateReferrerPdf(
+      id,
+      startDate,
+      endDate,
+    );
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename=referrer-report-${startDate}_to_${endDate}.pdf`,
+    );
+    res.send(buffer);
+  }
+
+  @Get(':id/preview-pdf')
+  @Header('Content-Type', 'application/pdf')
+  async previewReferrerPdf(
+    @Param('id') id: string,
+    @Query('startDate') startDate: string,
+    @Query('endDate') endDate: string,
+    @Res() res: Response,
+  ) {
+    const buffer = await this.orderService.generateReferrerPdf(
+      id,
+      startDate,
+      endDate,
+    );
+
+    res.setHeader('Content-Type', 'application/pdf');
+
+    res.setHeader('Content-Disposition', 'inline; filename="referrer.pdf"');
+
+    res.setHeader('Access-Control-Allow-Origin', '*');
+
+    res.send(buffer);
   }
 
   @Get(':id')
