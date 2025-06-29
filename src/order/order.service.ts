@@ -132,6 +132,63 @@ export class OrderService {
     return this.orderRepo.save(order);
   }
 
+  async updateOrderStanding(orderId: string, dto: CreateOrderDto, user: User) {
+    const order = await this.orderRepo.findOne({
+      where: { id: orderId },
+      relations: ['referrer'],
+    });
+
+    if (!order) {
+      throw new NotFoundException('ไม่พบคำสั่งซื้อ');
+    }
+
+    // ✅ อัปเดตข้อมูลลูกค้า
+    order.customerName = dto.customerName || order.customerName;
+    if (
+      dto.method &&
+      Object.values(OrderMethod).includes(dto.method as OrderMethod)
+    ) {
+      order.method = dto.method as OrderMethod;
+    }
+    if (dto.showDate) {
+      order.showDate = new Date(dto.showDate);
+    }
+
+    // ✅ อัปเดตจำนวนและคำนวณยอดรวม
+    const standingAdultQty = dto.standingAdultQty ?? order.standingAdultQty;
+    const standingChildQty = dto.standingChildQty ?? order.standingChildQty;
+
+    order.standingAdultQty = standingAdultQty;
+    order.standingChildQty = standingChildQty;
+
+    order.standingTotal =
+      standingAdultQty * STANDING_ADULT_PRICE +
+      standingChildQty * STANDING_CHILD_PRICE;
+
+    order.standingCommission =
+      standingAdultQty * ADULT_COMMISSION + standingChildQty * CHILD_COMMISSION;
+
+    order.total = order.standingTotal;
+
+    // ✅ อัปเดต Referrer (หากส่งมาใหม่)
+    if (dto.referrerCode && dto.referrerCode !== order.referrerCode) {
+      const referrer = await this.referrerRepo.findOne({
+        where: { code: dto.referrerCode },
+      });
+
+      if (!referrer) {
+        throw new BadRequestException('Referrer code ไม่ถูกต้อง');
+      }
+
+      order.referrer = referrer;
+      order.referrerCode = referrer.code;
+    }
+
+    order.user = user; // เผื่ออยาก track ว่าใครเป็นคนอัปเดตล่าสุด
+
+    return this.orderRepo.save(order);
+  }
+
   async update(id: string, dto: UpdateOrderDto) {
     const order = await this.orderRepo.findOne({
       where: { id },
@@ -184,12 +241,14 @@ export class OrderService {
     const query = this.orderRepo
       .createQueryBuilder('order')
       .leftJoinAndSelect('order.seats', 'seats')
+      .leftJoinAndSelect('seats.zone', 'seatZone')
       .leftJoinAndSelect('order.seatBookings', 'seatBookings')
+      .leftJoinAndSelect('seatBookings.seat', 'bookingSeat')
+      .leftJoinAndSelect('bookingSeat.zone', 'bookingSeatZone')
+      .leftJoinAndSelect('order.payment', 'payment')
+      .leftJoinAndSelect('payment.user', 'paymentUser')
       .leftJoin('order.referrer', 'referrer')
       .addSelect(['referrer.name', 'referrer.code'])
-      .leftJoinAndSelect('seatBookings.seat', 'bookingSeat')
-      .leftJoinAndSelect('seats.zone', 'seatZone')
-      .leftJoinAndSelect('bookingSeat.zone', 'bookingSeatZone')
       .skip((page - 1) * limit)
       .take(limit)
       .orderBy('order.createdAt', 'DESC');
