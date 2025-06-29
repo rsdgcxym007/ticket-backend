@@ -6,7 +6,10 @@ import { CreateReferrerDto } from './dto/create-referrer.dto';
 import { UpdateReferrerDto } from './dto/update-referrer.dto';
 import { Order } from 'src/order/order.entity';
 import dayjs from 'dayjs';
-
+import utc from 'dayjs/plugin/utc';
+import timezone from 'dayjs/plugin/timezone';
+dayjs.extend(utc);
+dayjs.extend(timezone);
 @Injectable()
 export class ReferrerService {
   constructor(
@@ -94,8 +97,11 @@ export class ReferrerService {
     };
 
     if (query.startDate && query.endDate) {
-      const startDate = dayjs(query.startDate).startOf('day').toDate();
-      const end = dayjs(query.endDate).endOf('day').toDate();
+      const startDate = dayjs(query.startDate)
+        .tz('Asia/Bangkok')
+        .startOf('day')
+        .toDate();
+      const end = dayjs(query.endDate).tz('Asia/Bangkok').endOf('day').toDate();
       where.createdAt = Between(startDate, end);
     }
 
