@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Order, OrderMethod, OrderStatus } from './order.entity';
-import { In, Not, Repository } from 'typeorm';
+import { Between, In, Not, Repository } from 'typeorm';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { Seat } from '../seats/seat.entity';
 import { User } from '../user/user.entity';
@@ -18,6 +18,7 @@ import { PaginateOptions } from '../utils/pagination.util';
 import { UpdateBookedOrderDto } from './dto/update-booked-order.dto';
 import dayjs from 'dayjs';
 import { PaymentMethod } from 'src/payment/payment.entity';
+import { createPdfBuffer } from 'src/utils/createPdfBuffer';
 
 const STANDING_ADULT_PRICE = 1500;
 const STANDING_CHILD_PRICE = 1300;
@@ -445,6 +446,206 @@ export class OrderService {
     if (dto.method) order.method = OrderMethod[dto.method];
 
     return this.orderRepo.save(order);
+  }
+
+  async generateReferrerPdf(
+    referrerId: string,
+    startDate: string,
+    endDate: string,
+  ) {
+    const orders = await this.orderRepo.find({
+      where: {
+        referrerId,
+        status: OrderStatus.PAID,
+        createdAt: Between(
+          dayjs(startDate).startOf('day').toDate(),
+          dayjs(endDate).endOf('day').toDate(),
+        ),
+      },
+      relations: ['user', 'payment', 'payment.user', 'seats'],
+      order: { createdAt: 'ASC' },
+    });
+
+    const rows = orders.map((order) => {
+      const total = +order.total || 0;
+      const commission =
+        Number(order.referrerCommission || 0) +
+        Number(order.standingCommission || 0);
+      const netTotal = total - commission;
+      const qty =
+        (order.seats?.length || 0) +
+        order.standingAdultQty +
+        order.standingChildQty;
+      const unitPrice = qty > 0 ? netTotal / qty : 0;
+
+      return [
+        {
+          text: dayjs(order.createdAt).format('DD/MM/YYYY'),
+          alignment: 'center',
+        },
+        { text: 'THAI BOXING', alignment: 'center' },
+        { text: '', alignment: 'center' },
+        { text: `${qty}`, alignment: 'center' },
+        { text: unitPrice.toFixed(2), alignment: 'right' },
+        { text: netTotal.toLocaleString(), alignment: 'right' },
+      ];
+    });
+
+    const MAX_ROWS = 124;
+    const emptyRow = [
+      { text: '', alignment: 'center' },
+      { text: '', alignment: 'center' },
+      { text: '', alignment: 'center' },
+      { text: '', alignment: 'center' },
+      { text: '', alignment: 'right' },
+      { text: '', alignment: 'right' },
+    ];
+
+    const offset = rows.length * 5;
+
+    const rowsToFill = Math.max(0, MAX_ROWS - rows.length - offset);
+
+    for (let i = 0; i < rowsToFill; i++) {
+      rows.push(emptyRow);
+    }
+
+    const total = orders.reduce((sum, o) => sum + +o.total, 0);
+    const commission = orders.reduce(
+      (sum, o) =>
+        sum +
+        Number(o.referrerCommission || 0) +
+        Number(o.standingCommission || 0),
+      0,
+    );
+    const netTotal = total - commission;
+    const randomInvoice = Math.floor(Math.random() * 900000 + 100000);
+
+    const docDefinition = {
+      pageOrientation: 'portrait',
+      pageMargins: [20, 40, 20, 30], // เว้นขอบ ซ บ ข ล
+      content: [
+        {
+          text: 'BOXING STADIUM PATONG BEACH',
+          alignment: 'center',
+          bold: true,
+          fontSize: 45,
+          margin: [0, 0, 0, 2],
+        },
+        {
+          text:
+            '2/59 Soi Keb Sub 2, Sai Nam Yen RD, Patong Beach, Phuket 83150\n' +
+            'Tel. 076-345578, 086-4761724, 080-5354042',
+          alignment: 'center',
+          fontSize: 20,
+          margin: [0, -10, 0, 0], //ซ บ ข ล
+        },
+        {
+          table: {
+            widths: ['*', 'auto'], // ซ้ายขวา
+            body: [
+              [
+                {
+                  stack: [
+                    {
+                      text: 'Invoice',
+                      alignment: 'center',
+                      bold: true,
+                      fontSize: 20,
+                      margin: [0, 0, 0, 4],
+                    },
+                    {
+                      text: `DATE ${dayjs(startDate).format('D MMMM YYYY').toUpperCase()}`,
+                      bold: true,
+                      margin: [0, 0, 0, 2],
+                    },
+                    { text: 'FRESHY TOUR', bold: true },
+                    { text: 'PHUKET THAILAND', bold: true },
+                  ],
+                },
+                {
+                  text: `NO. ${randomInvoice}`,
+                  alignment: 'right',
+                  bold: true,
+                  margin: [0, 20, 0, 0],
+                },
+              ],
+            ],
+          },
+          layout: {
+            hLineWidth: (i) => {
+              // แสดงเฉพาะเส้นขอบบนเท่านั้น
+              return i === 0 ? 0.5 : 0;
+            },
+
+            vLineWidth: (i, node) => {
+              // ซ้ายสุด (i=0) และขวาสุด (i=columns.length): แสดงเส้น
+              // คอลัมน์ตรงกลาง (i=1): ไม่ต้องแสดง
+              return i === 0 || i === node.table.widths.length ? 0.5 : 0;
+            },
+          },
+          margin: [0, 0, 0, 0],
+        },
+        {
+          table: {
+            headerRows: 1,
+            widths: ['15%', '15%', '15%', '10%', '22.5%', '22.5%'],
+            body: [
+              [
+                { text: 'วันที่', bold: true, alignment: 'center' },
+                { text: 'รายการ', bold: true, alignment: 'center' },
+                { text: 'V/C', bold: true, alignment: 'center' },
+                { text: 'จำนวน', bold: true, alignment: 'center' },
+                { text: 'ราคา', bold: true, alignment: 'center' },
+                { text: 'ราคารวม', bold: true, alignment: 'center' },
+              ],
+              ...rows,
+            ],
+          },
+          layout: {
+            hLineWidth: (i) => {
+              // เฉพาะ header บนเท่านั้น
+              return i === 0 || i === 1 ? 0.5 : 0;
+            },
+            vLineWidth: () => 0.5,
+            hLineColor: () => '#000000',
+            vLineColor: () => '#000000',
+          },
+        },
+        {
+          margin: [0, 0, 0, 0],
+          table: {
+            widths: ['*', '*'],
+            body: [
+              [
+                { text: 'CASH ON TOUR', bold: true, color: 'red' },
+                {
+                  text: `${total.toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
+                  alignment: 'right',
+                  color: 'red',
+                },
+              ],
+              [
+                { text: '' },
+                {
+                  text: `${netTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
+                  alignment: 'right',
+                },
+              ],
+            ],
+          },
+          layout: {
+            hLineWidth: () => 0.5,
+            vLineWidth: () => 0.5,
+          },
+        },
+      ],
+      defaultStyle: {
+        font: 'THSarabunNew',
+        fontSize: 14,
+      },
+    };
+
+    return await createPdfBuffer(docDefinition);
   }
 
   async cancel(orderId: string) {
