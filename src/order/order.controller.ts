@@ -8,6 +8,8 @@ import {
   Body,
   Req,
   UseGuards,
+  Put,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import { OrderService } from './order.service';
 import { CreateOrderDto } from './dto/create-order.dto';
@@ -35,7 +37,23 @@ export class OrderController {
   @Post('create-standing')
   async createStandingOrder(@Body() dto: CreateOrderDto, @Req() req) {
     const order = await this.orderService.createOrderStanding(dto, req.user);
+    console.log('order', order);
+
     return success(order, 'สร้างออเดอร์ตั๋วยืนแล้ว', req);
+  }
+
+  @Put(':id/update-standing')
+  async updateStandingOrder(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: CreateOrderDto,
+    @Req() req,
+  ) {
+    const updated = await this.orderService.updateOrderStanding(
+      id,
+      dto,
+      req.user,
+    );
+    return success(updated, 'อัปเดตคำสั่งซื้อตั๋วยืนสำเร็จ', req);
   }
 
   @Patch('update-booked/:id')

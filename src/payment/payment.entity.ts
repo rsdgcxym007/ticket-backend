@@ -5,6 +5,7 @@ import {
   CreateDateColumn,
   ManyToOne,
   JoinColumn,
+  OneToOne,
 } from 'typeorm';
 import { Order } from 'src/order/order.entity';
 import { User } from 'src/user/user.entity';
@@ -38,16 +39,33 @@ export class Payment {
   @Column({ nullable: true })
   slipUrl?: string;
 
-  @ManyToOne(() => User, (user) => user.payments)
-  user: User;
+  @Column({ nullable: true })
+  userId?: string;
 
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 
-  @ManyToOne(() => Order, (order) => order.payments, { nullable: true })
+  @Column({ nullable: true })
+  orderId: string;
+
+  @CreateDateColumn({ type: 'timestamptz' })
+  paidAt: Date;
+
+  @ManyToOne(() => User, { nullable: true })
+  @JoinColumn({ name: 'createdById' })
+  createdBy?: User;
+
+  @Column({ nullable: true })
+  createdById?: string;
+
+  @OneToOne(() => Order, (order) => order.payment, { nullable: true })
   @JoinColumn({ name: 'orderId' })
   order: Order;
 
-  @Column({ nullable: true })
-  orderId: string;
+  @ManyToOne(() => User, (user) => user.payments, {
+    nullable: true,
+    eager: true,
+  })
+  @JoinColumn({ name: 'userId' })
+  user?: User;
 }

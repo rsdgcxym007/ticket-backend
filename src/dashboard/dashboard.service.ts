@@ -110,7 +110,12 @@ export class DashboardService {
         .select('referrer.code', 'referrer')
         .addSelect('referrer.name', 'name')
         .addSelect('COUNT(order.id)', 'orders')
-        .addSelect('SUM(order.referrerCommission)', 'commission')
+        .addSelect('SUM(order.referrerCommission)', 'referrerCommission')
+        .addSelect('SUM(order.standingCommission)', 'standingCommission')
+        .addSelect(
+          'SUM(order.referrerCommission + order.standingCommission)',
+          'commission',
+        )
         .where('order.status = :status', { status: 'PAID' })
         .andWhere('order.referrerId IS NOT NULL')
         .groupBy('referrer.code')
@@ -139,7 +144,7 @@ export class DashboardService {
 
     const paidOrders = await this.orderRepo
       .createQueryBuilder('order')
-      .leftJoinAndSelect('order.payments', 'payment')
+      .leftJoinAndSelect('order.payment', 'payment')
       .leftJoinAndSelect('order.seatBookings', 'booking')
       .leftJoinAndSelect('booking.seat', 'seat')
       .leftJoinAndSelect('seat.zone', 'zone')

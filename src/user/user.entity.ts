@@ -32,4 +32,7 @@ export class User {
 
   @OneToMany(() => Payment, (payment) => payment.user)
   payments: Payment[];
+
+  @Column({ nullable: true })
+  userId: string;
 }

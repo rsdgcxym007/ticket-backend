@@ -24,7 +24,7 @@ export class PaymentService {
     @InjectRepository(SeatBooking) private bookingRepo: Repository<SeatBooking>,
   ) {}
 
-  async payWithCash(dto: CreatePaymentDto) {
+  async payWithCash(dto: CreatePaymentDto, user: User) {
     try {
       const order = await this.orderRepo.findOne({
         where: { id: dto.orderId },
@@ -49,7 +49,6 @@ export class PaymentService {
         }
 
         order.referrer = referrer;
-        console.log('ผูก referrer เข้ากับ order:', referrer.code);
       }
 
       if (dto.customerName) {
@@ -67,8 +66,6 @@ export class PaymentService {
         throw new Error('ไม่มี booking ที่เกี่ยวข้องกับ order นี้');
       }
 
-      console.log(`พบ booking ${bookings.length} รายการ`);
-
       for (const b of bookings) {
         b.status = BookingStatus.PAID;
       }
@@ -82,23 +79,24 @@ export class PaymentService {
           (order.referrer.totalCommission || 0) + commission;
 
         await this.referrerRepo.save(order.referrer);
-        console.log(`เพิ่มค่าคอม ${commission} บาท ให้ referrer`);
       }
 
       order.status = OrderStatus.PAID;
       await this.orderRepo.save(order);
-      console.log('อัปเดตสถานะออเดอร์เป็น PAID');
 
       const payment = this.paymentRepo.create({
+        order,
         orderId: order.id,
         amount: dto.amount,
         method: dto.method,
         paidAt: new Date(),
+        createdBy: user,
+        user,
       } as DeepPartial<Payment>);
 
       const savedPayment = await this.paymentRepo.save(payment);
-      console.log('Payment บันทึกแล้ว:', savedPayment.id);
-
+      order.payment = savedPayment;
+      await this.orderRepo.save(order);
       return savedPayment;
     } catch (err) {
       console.error('Critical Error in payWithCash():', err);
@@ -141,34 +139,31 @@ export class PaymentService {
         }
         order.referrer = referrer;
         order.referrerCode = referrer.code;
-        console.log('ผูก referrer เข้ากับ order:', referrer.code);
       }
 
       // ✅ อัปเดตชื่อผู้สั่ง (ถ้ามี)
       if (dto.customerName) {
         order.customerName = dto.customerName;
-        console.log('อัปเดตชื่อผู้สั่ง:', dto.customerName);
       }
 
       // ✅ คำนวณค่าคอมจากตั๋วยืน
-      const commission =
-        (order.standingAdultQty || 0) * 300 +
-        (order.standingChildQty || 0) * 200;
+      // const commission =
+      //   (order.standingAdultQty || 0) * 300 +
+      //   (order.standingChildQty || 0) * 200;
 
-      order.referrerCommission = commission;
+      // order.referrerCommission = commission;
 
       // ✅ อัปเดตค่าคอมรวมของ referrer (ถ้ามี)
       if (order.referrer) {
-        order.referrer.totalCommission =
-          (order.referrer.totalCommission || 0) + commission;
+        order.referrer.totalCommission = 0;
+        // order.referrer.totalCommission =
+        //   (order.referrer.totalCommission || 0) + commission;
         await this.referrerRepo.save(order.referrer);
-        console.log(`เพิ่มค่าคอม ${commission} บาทให้ referrer`);
       }
 
       // ✅ อัปเดตสถานะ order
       order.status = OrderStatus.PAID;
       await this.orderRepo.save(order);
-      console.log('อัปเดตสถานะ order เป็น PAID');
 
       // ✅ สร้าง payment
       const payment = this.paymentRepo.create({
@@ -177,11 +172,12 @@ export class PaymentService {
         method: PaymentMethod.CASH,
         paidAt: new Date(),
         createdBy: user,
+        user,
       } as DeepPartial<Payment>);
 
       const savedPayment = await this.paymentRepo.save(payment);
-      console.log('Payment บันทึกแล้ว:', savedPayment.id);
-
+      order.payment = savedPayment;
+      await this.orderRepo.save(order);
       return savedPayment;
     } catch (err) {
       console.error('Critical Error in payWithCashStanding():', err);
