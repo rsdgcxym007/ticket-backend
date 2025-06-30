@@ -54,6 +54,7 @@
     "socket.io": "^4.8.1",
     "socket.io-client": "^4.8.1",
     "swagger-ui-express": "^5.0.1",
+    "thai-baht-text": "^2.0.5",
     "typeorm": "^0.3.24",
     "uuid": "^11.1.0"
   },
