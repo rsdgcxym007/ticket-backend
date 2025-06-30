@@ -21,6 +21,7 @@ import { PaymentMethod } from 'src/payment/payment.entity';
 import { createPdfBuffer } from 'src/utils/createPdfBuffer';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
+import ThaiBaht from 'thai-baht-text';
 dayjs.extend(utc);
 dayjs.extend(timezone);
 const STANDING_ADULT_PRICE = 1500;
@@ -467,35 +468,49 @@ export class OrderService {
           dayjs(endDate).tz('Asia/Bangkok').endOf('day').toDate(),
         ),
       },
-      relations: ['user', 'payment', 'payment.user', 'seats'],
+      relations: ['user', 'payment', 'payment.user', 'seats', 'referrer'],
       order: { createdAt: 'ASC' },
     });
+    console.log('orders', orders);
 
-    const rows = orders.map((order) => {
-      const total = +order.total || 0;
-      const commission =
-        Number(order.referrerCommission || 0) +
-        Number(order.standingCommission || 0);
-      const netTotal = total - commission;
-      const qty =
-        (order.seats?.length || 0) +
-        order.standingAdultQty +
-        order.standingChildQty;
-      const unitPrice = qty > 0 ? netTotal / qty : 0;
+    const rows = orders
+      .filter((e) => e.status === OrderStatus.PAID)
+      .map((order) => {
+        const total = +order.total || 0;
+        const commission =
+          Number(order.referrerCommission || 0) +
+          Number(order.standingCommission || 0);
+        const netTotal = total - commission;
+        const qty =
+          (order.seats?.length || 0) +
+          order.standingAdultQty +
+          order.standingChildQty;
+        const unitPrice = qty > 0 ? netTotal / qty : 0;
 
-      return [
-        {
-          text: dayjs(order.createdAt).tz('Asia/Bangkok').format('DD/MM/YYYY'),
-          alignment: 'center',
-        },
-        { text: 'THAI BOXING', alignment: 'center' },
-        { text: '', alignment: 'center' },
-        { text: `${qty}`, alignment: 'center' },
-        { text: unitPrice.toFixed(2), alignment: 'right' },
-        { text: netTotal.toLocaleString(), alignment: 'right' },
-      ];
-    });
-
+        return [
+          {
+            text: dayjs(order.createdAt)
+              .tz('Asia/Bangkok')
+              .format('DD/MM/YYYY'),
+            alignment: 'center',
+          },
+          { text: 'THAI BOXING', alignment: 'center' },
+          { text: order.customerName, alignment: 'center' },
+          { text: `${qty}`, alignment: 'center' },
+          {
+            text: unitPrice.toLocaleString(undefined, {
+              minimumFractionDigits: 2,
+            }),
+            alignment: 'right',
+          },
+          {
+            text: netTotal.toLocaleString(undefined, {
+              minimumFractionDigits: 2,
+            }),
+            alignment: 'right',
+          },
+        ];
+      });
     const MAX_ROWS = 124;
     const emptyRow = [
       { text: '', alignment: 'center' },
@@ -561,9 +576,9 @@ export class OrderService {
                     {
                       text: `DATE ${dayjs(startDate).tz('Asia/Bangkok').format('D MMMM YYYY').toUpperCase()}`,
                       bold: true,
-                      margin: [0, 0, 0, 2],
+                      margin: [0, 0, 0, 0], //ซ บ ข ล
                     },
-                    { text: 'FRESHY TOUR', bold: true },
+                    { text: orders[0]?.referrer?.name, bold: true },
                     { text: 'PHUKET THAILAND', bold: true },
                   ],
                 },
@@ -593,7 +608,7 @@ export class OrderService {
         {
           table: {
             headerRows: 1,
-            widths: ['15%', '15%', '15%', '10%', '22.5%', '22.5%'],
+            widths: ['15%', '15%', '20%', '10%', '20%', '20%'],
             body: [
               [
                 { text: 'วันที่', bold: true, alignment: 'center' },
@@ -622,7 +637,12 @@ export class OrderService {
             widths: ['*', '*'],
             body: [
               [
-                { text: 'CASH ON TOUR', bold: true, color: 'red' },
+                {
+                  text: 'CASH ON TOUR',
+                  bold: true,
+                  color: 'red',
+                  alignment: 'center',
+                },
                 {
                   text: `${total.toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
                   alignment: 'right',
@@ -630,7 +650,11 @@ export class OrderService {
                 },
               ],
               [
-                { text: '' },
+                {
+                  text: ThaiBaht(netTotal),
+                  bold: true,
+                  alignment: 'center',
+                },
                 {
                   text: `${netTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
                   alignment: 'right',

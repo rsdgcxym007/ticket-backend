@@ -6,10 +6,7 @@ const fonts = {
     normal: path.resolve(__dirname, '../../fonts/THSarabunNew.ttf'),
     bold: path.resolve(__dirname, '../../fonts/THSarabunNew-Bold.ttf'),
     italics: path.resolve(__dirname, '../../fonts/THSarabunNew-Italic.ttf'),
-    bolditalics: path.resolve(
-      __dirname,
-      '../../fonts/THSarabunNew-BoldItalic.ttf',
-    ),
+    bolditalics: path.resolve(__dirname, '../../fonts/THSarabunNew-Italic.ttf'),
   },
 };
 
