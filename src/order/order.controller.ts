@@ -75,6 +75,12 @@ export class OrderController {
     return this.orderService.changeSeats(id, seatIds, showDate);
   }
 
+  @Get(':id/tickets')
+  async generateTickets(@Param('id') id: string, @Req() req: Request) {
+    const tickets = await this.orderService.generateTickets(id);
+    return success(tickets, 'ออกตั๋วสำเร็จ', req);
+  }
+
   @Get()
   async findAll(@Req() req: Request) {
     const options = extractPagination(req);

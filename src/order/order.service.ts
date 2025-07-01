@@ -676,6 +676,59 @@ export class OrderService {
 
     return await createPdfBuffer(docDefinition);
   }
+  async generateTickets(orderId: string) {
+    const order = await this.orderRepo.findOne({
+      where: { id: orderId, status: OrderStatus.PAID },
+      relations: ['seats', 'user'],
+    });
+    if (!order) throw new NotFoundException('Order not found or not PAID');
+
+    const tickets: any[] = [];
+
+    // กรณีมีเลขที่นั่ง
+    if (order.seats && order.seats.length > 0) {
+      for (const seat of order.seats) {
+        tickets.push({
+          type: 'SEAT',
+          seatNumber: seat.seatNumber,
+          customerName: order.customerName,
+          showDate: dayjs(order.showDate)
+            .tz('Asia/Bangkok')
+            .format('DD/MM/YYYY'),
+          orderId: order.id,
+        });
+      }
+    }
+
+    // กรณีตั๋วยืน
+    if (order.standingAdultQty && order.standingAdultQty > 0) {
+      for (let i = 0; i < order.standingAdultQty; i++) {
+        tickets.push({
+          type: 'STANDING_ADULT',
+          customerName: order.customerName,
+          showDate: dayjs(order.showDate)
+            .tz('Asia/Bangkok')
+            .format('DD/MM/YYYY'),
+          orderId: order.id,
+          index: i + 1,
+        });
+      }
+    }
+    if (order.standingChildQty && order.standingChildQty > 0) {
+      for (let i = 0; i < order.standingChildQty; i++) {
+        tickets.push({
+          type: 'STANDING_CHILD',
+          customerName: order.customerName,
+          showDate: dayjs(order.showDate)
+            .tz('Asia/Bangkok')
+            .format('DD/MM/YYYY'),
+          orderId: order.id,
+          index: i + 1,
+        });
+      }
+    }
+    return tickets;
+  }
 
   async cancel(orderId: string) {
     const order = await this.orderRepo.findOne({ where: { id: orderId } });
