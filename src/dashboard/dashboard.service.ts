@@ -3,11 +3,12 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Not, Repository } from 'typeorm';
 import { Payment } from '../payment/payment.entity';
 import { Order } from '../order/order.entity';
-import { BookingStatus, SeatBooking } from 'src/seats/seat-booking.entity';
+import { SeatBooking } from '../seats/seat-booking.entity';
 import { Referrer } from '../referrer/referrer.entity';
-import { Seat } from 'src/seats/seat.entity';
+import { Seat } from '../seats/seat.entity';
 import moment from 'moment';
 import dayjs from 'dayjs';
+import { BookingStatus, OrderStatus } from '../common/enums';
 @Injectable()
 export class DashboardService {
   private readonly logger = new Logger(DashboardService.name);
@@ -248,6 +249,228 @@ export class DashboardService {
       nextShowDate: nextDateISO,
       nextShowAvailable,
       nextShowBooked,
+    };
+  }
+
+  // ========================================
+  // 📊 ADDITIONAL DASHBOARD METHODS
+  // ========================================
+  async getStatistics() {
+    const todayStart = dayjs().startOf('day').toDate();
+    const todayEnd = dayjs().endOf('day').toDate();
+    const weekStart = dayjs().startOf('week').toDate();
+    const monthStart = dayjs().startOf('month').toDate();
+
+    const [todayOrders, weekOrders, monthOrders] = await Promise.all([
+      this.orderRepo.count({
+        where: {
+          createdAt: { $gte: todayStart, $lte: todayEnd } as any,
+        },
+      }),
+      this.orderRepo.count({
+        where: {
+          createdAt: { $gte: weekStart } as any,
+        },
+      }),
+      this.orderRepo.count({
+        where: {
+          createdAt: { $gte: monthStart } as any,
+        },
+      }),
+    ]);
+
+    return {
+      today: { orders: todayOrders },
+      week: { orders: weekOrders },
+      month: { orders: monthOrders },
+    };
+  }
+
+  async getRevenueAnalytics(period: string = 'weekly') {
+    const startDate = dayjs().subtract(7, 'days').toDate();
+
+    const revenueData = await this.paymentRepo
+      .createQueryBuilder('payment')
+      .select("DATE_TRUNC('day', payment.createdAt)", 'period')
+      .addSelect('SUM(payment.amount)', 'revenue')
+      .where('payment.status = :status', { status: 'PAID' })
+      .andWhere('payment.createdAt >= :startDate', { startDate })
+      .groupBy("DATE_TRUNC('day', payment.createdAt)")
+      .orderBy('period', 'ASC')
+      .getRawMany();
+
+    return {
+      period,
+      revenueData: revenueData.map((r) => ({
+        period: r.period,
+        revenue: parseFloat(r.revenue) || 0,
+      })),
+    };
+  }
+
+  async getSeatOccupancy(showDate?: string) {
+    const targetDate = showDate ? new Date(showDate) : new Date();
+    const dateStr = dayjs(targetDate).format('YYYY-MM-DD');
+
+    const [totalSeats, bookedSeats] = await Promise.all([
+      this.seatRepo.count(),
+      this.bookingRepo
+        .createQueryBuilder('booking')
+        .where('DATE(booking.showDate) = :date', { date: dateStr })
+        .andWhere('booking.status IN (:...statuses)', {
+          statuses: [BookingStatus.PAID, BookingStatus.BOOKED],
+        })
+        .getCount(),
+    ]);
+
+    const occupancyRate = totalSeats > 0 ? (bookedSeats / totalSeats) * 100 : 0;
+
+    return {
+      showDate: dateStr,
+      totalSeats,
+      bookedSeats,
+      availableSeats: totalSeats - bookedSeats,
+      occupancyRate: Math.round(occupancyRate * 100) / 100,
+    };
+  }
+
+  async getPerformanceMetrics() {
+    const last30Days = dayjs().subtract(30, 'days').toDate();
+
+    const [totalOrders, paidOrders] = await Promise.all([
+      this.orderRepo.count({
+        where: {
+          createdAt: { $gte: last30Days } as any,
+        },
+      }),
+      this.orderRepo.count({
+        where: {
+          status: OrderStatus.CONFIRMED,
+          createdAt: { $gte: last30Days } as any,
+        },
+      }),
+    ]);
+
+    const conversionRate =
+      totalOrders > 0 ? (paidOrders / totalOrders) * 100 : 0;
+
+    return {
+      totalOrders,
+      paidOrders,
+      conversionRate: Math.round(conversionRate * 100) / 100,
+    };
+  }
+
+  async getReferrerAnalytics() {
+    const topReferrers = await this.orderRepo
+      .createQueryBuilder('order')
+      .leftJoin('order.referrer', 'referrer')
+      .select('referrer.code', 'referrerCode')
+      .addSelect('referrer.name', 'referrerName')
+      .addSelect('COUNT(order.id)', 'totalOrders')
+      .addSelect('SUM(order.totalAmount)', 'totalRevenue')
+      .where('order.referrerId IS NOT NULL')
+      .andWhere('order.status = :status', { status: OrderStatus.CONFIRMED })
+      .groupBy('referrer.code')
+      .addGroupBy('referrer.name')
+      .orderBy('totalRevenue', 'DESC')
+      .limit(10)
+      .getRawMany();
+
+    return {
+      topReferrers: topReferrers.map((r) => ({
+        code: r.referrerCode,
+        name: r.referrerName,
+        totalOrders: parseInt(r.totalOrders) || 0,
+        totalRevenue: parseFloat(r.totalRevenue) || 0,
+      })),
+    };
+  }
+
+  async getRecentActivities() {
+    const [recentOrders, recentPayments] = await Promise.all([
+      this.orderRepo
+        .createQueryBuilder('order')
+        .select([
+          'order.id',
+          'order.orderNumber',
+          'order.customerName',
+          'order.totalAmount',
+          'order.status',
+          'order.createdAt',
+        ])
+        .orderBy('order.createdAt', 'DESC')
+        .limit(10)
+        .getMany(),
+
+      this.paymentRepo
+        .createQueryBuilder('payment')
+        .leftJoin('payment.order', 'order')
+        .select([
+          'payment.id',
+          'payment.amount',
+          'payment.method',
+          'payment.status',
+          'payment.createdAt',
+          'order.orderNumber',
+        ])
+        .orderBy('payment.createdAt', 'DESC')
+        .limit(10)
+        .getMany(),
+    ]);
+
+    return {
+      recentOrders: recentOrders.map((order) => ({
+        id: order.id,
+        orderNumber: order.orderNumber,
+        customerName: order.customerName,
+        totalAmount: order.totalAmount,
+        status: order.status,
+        createdAt: order.createdAt,
+      })),
+      recentPayments: recentPayments.map((payment) => ({
+        id: payment.id,
+        amount: payment.amount,
+        method: payment.method,
+        status: payment.status,
+        createdAt: payment.createdAt,
+      })),
+    };
+  }
+
+  async getAlerts() {
+    const alerts = [];
+    const last24Hours = dayjs().subtract(24, 'hours').toDate();
+
+    // ตรวจสอบออเดอร์ที่ยกเลิกมากผิดปกติ
+    const cancellationsLast24h = await this.orderRepo.count({
+      where: {
+        status: OrderStatus.CANCELLED,
+        updatedAt: { $gte: last24Hours } as any,
+      },
+    });
+
+    if (cancellationsLast24h > 5) {
+      alerts.push({
+        type: 'warning',
+        message: `มีการยกเลิกออเดอร์ ${cancellationsLast24h} รายการใน 24 ชั่วโมงที่ผ่านมา`,
+        timestamp: new Date(),
+      });
+    }
+
+    // ตรวจสอบความจุที่นั่ง
+    const todayOccupancy = await this.getSeatOccupancy();
+    if (todayOccupancy.occupancyRate > 80) {
+      alerts.push({
+        type: 'info',
+        message: `อัตราการใช้ที่นั่งวันนี้ ${todayOccupancy.occupancyRate}% - ใกล้เต็มแล้ว`,
+        timestamp: new Date(),
+      });
+    }
+
+    return {
+      alerts,
+      count: alerts.length,
     };
   }
 }

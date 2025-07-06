@@ -15,7 +15,7 @@ import { FacebookAuthGuard } from './guards/facebook-auth.guard';
 import { LineAuthGuard } from './guards/line-auth.guard';
 import { Response } from 'express';
 import { LoginDto } from './dto/login.dto';
-import { success } from 'src/common/responses';
+import { success } from '../common/responses';
 import { RegisterDto } from './dto/register.dto';
 import { ApiTags } from '@nestjs/swagger';
 

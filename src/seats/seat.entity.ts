@@ -6,10 +6,10 @@ import {
   CreateDateColumn,
   OneToMany,
 } from 'typeorm';
-import { Zone } from 'src/zone/zone.entity';
-import { SeatStatus } from './eat-status.enum';
+import { Zone } from '../zone/zone.entity';
+import { SeatStatus } from '../common/enums';
 import { Index } from 'typeorm';
-import { Order } from 'src/order/order.entity';
+import { Order } from '../order/order.entity';
 import { SeatBooking } from './seat-booking.entity';
 
 @Index(['zone', 'rowIndex', 'columnIndex'])

@@ -7,43 +7,64 @@ import {
   IsString,
   IsDateString,
 } from 'class-validator';
-import { OrderStatus } from '../order.entity';
+import { TicketType, PaymentMethod, OrderSource } from '../../common/enums';
 
 export class CreateOrderDto {
+  @IsOptional()
   @IsUUID()
-  userId: string;
+  userId?: string;
 
   @IsString()
-  zone: string;
+  customerName: string;
 
+  @IsOptional()
   @IsString()
-  customerName?: string;
+  customerPhone?: string;
 
+  @IsOptional()
+  @IsString()
+  customerEmail?: string;
+
+  @IsEnum(TicketType)
+  ticketType: TicketType;
+
+  @IsOptional()
+  @IsInt()
+  quantity?: number;
+
+  @IsOptional()
   @IsArray()
   @IsUUID('all', { each: true })
-  seatIds: string[];
+  seatIds?: string[];
 
-  @IsInt()
-  total: number;
+  @IsDateString()
+  showDate: string;
 
-  @IsEnum(['QR', 'TRANSFER', 'CASH'])
-  method: 'QR' | 'TRANSFER' | 'CASH';
+  @IsOptional()
+  @IsString()
+  referrerCode?: string;
+
+  @IsOptional()
+  @IsEnum(PaymentMethod)
+  paymentMethod?: PaymentMethod;
+
+  @IsOptional()
+  @IsString()
+  note?: string;
+
+  @IsOptional()
+  @IsEnum(OrderSource)
+  source?: OrderSource;
 
   @IsOptional()
   @IsUUID()
   referrerId?: string;
 
   @IsOptional()
-  @IsString()
-  referrerCode?: string;
-
-  @IsDateString()
-  showDate: string;
+  @IsInt()
+  standingAdultQty?: number;
 
   @IsOptional()
-  @IsEnum(OrderStatus)
-  status?: OrderStatus;
-
-  standingAdultQty?: number;
+  @IsInt()
   standingChildQty?: number;
 }

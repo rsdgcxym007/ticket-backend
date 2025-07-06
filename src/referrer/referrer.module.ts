@@ -3,10 +3,10 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Referrer } from './referrer.entity';
 import { ReferrerService } from './referrer.service';
 import { ReferrerController } from './referrer.controller';
-import { PaymentModule } from 'src/payment/payment.module';
-import { Order } from 'src/order/order.entity';
+import { PaymentModule } from '../payment/payment.module';
+import { Order } from '../order/order.entity';
 import { forwardRef, Module } from '@nestjs/common';
-import { OrderModule } from 'src/order/order.module';
+import { OrderModule } from '../order/order.module';
 
 @Module({
   imports: [

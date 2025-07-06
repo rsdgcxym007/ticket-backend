@@ -1,296 +1,366 @@
 import {
-  BadRequestException,
   Injectable,
+  Logger,
+  BadRequestException,
+  ForbiddenException,
   NotFoundException,
+  InternalServerErrorException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Order, OrderMethod, OrderStatus } from './order.entity';
-import { Between, In, Not, Repository } from 'typeorm';
-import { CreateOrderDto } from './dto/create-order.dto';
+import { Repository, Between, In } from 'typeorm';
+import { ConfigService } from '@nestjs/config';
+import { Cron, CronExpression } from '@nestjs/schedule';
+
+// ========================================
+// 📊 ENTITIES
+// ========================================
+import { Order } from './order.entity';
+import { SeatBooking } from '../seats/seat-booking.entity';
 import { Seat } from '../seats/seat.entity';
 import { User } from '../user/user.entity';
 import { Referrer } from '../referrer/referrer.entity';
-import { UpdateOrderDto } from './dto/update-order.dto';
-import { SeatStatus } from 'src/seats/eat-status.enum';
-import { DeepPartial } from 'typeorm';
-import { BookingStatus, SeatBooking } from 'src/seats/seat-booking.entity';
-import { PaginateOptions } from '../utils/pagination.util';
-import { UpdateBookedOrderDto } from './dto/update-booked-order.dto';
+import { Payment } from '../payment/payment.entity';
+import { AuditLog } from '../audit/audit-log.entity';
+
+// ========================================
+// 🔧 ENUMS & INTERFACES
+// ========================================
+import {
+  OrderStatus,
+  BookingStatus,
+  PaymentStatus,
+  TicketType,
+  PaymentMethod,
+  UserRole,
+  OrderSource,
+  AuditAction,
+} from '../common/enums';
+
+import {
+  BOOKING_LIMITS,
+  TIME_LIMITS,
+  TICKET_PRICES,
+  COMMISSION_RATES,
+} from '../common/constants';
+
+import {
+  DateTimeHelper,
+  ReferenceGenerator,
+  BusinessLogicHelper,
+} from '../common/utils';
+
+import { OrderData } from '../common/interfaces';
 import dayjs from 'dayjs';
-import { PaymentMethod } from 'src/payment/payment.entity';
-import { createPdfBuffer } from 'src/utils/createPdfBuffer';
-import utc from 'dayjs/plugin/utc';
-import timezone from 'dayjs/plugin/timezone';
-import ThaiBaht from 'thai-baht-text';
-dayjs.extend(utc);
-dayjs.extend(timezone);
-const STANDING_ADULT_PRICE = 1500;
-const STANDING_CHILD_PRICE = 1300;
-const ADULT_COMMISSION = 300;
-const CHILD_COMMISSION = 200;
+
+// ========================================
+// 📝 DTOs
+// ========================================
+export interface CreateOrderRequest {
+  userId?: string;
+  ticketType: TicketType;
+  quantity?: number;
+  seatIds?: string[];
+  showDate: string;
+  customerName: string;
+  customerPhone?: string;
+  customerEmail?: string;
+  referrerCode?: string;
+  paymentMethod?: PaymentMethod;
+  note?: string;
+  source?: string;
+  standingAdultQty?: number; // จำนวนตั๋วผู้ใหญ่
+  standingChildQty?: number; // จำนวนตั๋วเด็ก
+}
+
+export interface FindAllOptions {
+  page?: number;
+  limit?: number;
+  status?: string;
+  search?: string;
+  zone?: string;
+  referrerCode?: string;
+  showDate?: string;
+  dateFrom?: string;
+  dateTo?: string;
+}
+
 @Injectable()
 export class OrderService {
+  private readonly logger = new Logger(OrderService.name);
+
   constructor(
-    @InjectRepository(Order) private orderRepo: Repository<Order>,
-    @InjectRepository(Seat) private seatRepo: Repository<Seat>,
-    @InjectRepository(User) private userRepo: Repository<User>,
-    @InjectRepository(Referrer) private referrerRepo: Repository<Referrer>,
+    @InjectRepository(Order)
+    private orderRepo: Repository<Order>,
     @InjectRepository(SeatBooking)
     private seatBookingRepo: Repository<SeatBooking>,
-  ) {}
+    @InjectRepository(Seat)
+    private seatRepo: Repository<Seat>,
+    @InjectRepository(User)
+    private userRepo: Repository<User>,
+    @InjectRepository(Referrer)
+    private referrerRepo: Repository<Referrer>,
+    @InjectRepository(Payment)
+    private paymentRepo: Repository<Payment>,
+    @InjectRepository(AuditLog)
+    private auditRepo: Repository<AuditLog>,
+    private configService: ConfigService,
+  ) {
+    // Add console.log to verify logger initialization
+    console.log('Logger initialized:', this.logger);
+  }
 
-  async create(dto: CreateOrderDto) {
-    if (!dto.seatIds?.length) throw new Error('Seat IDs are required');
-    if (!dto.showDate) throw new Error('Show date is required');
+  // ========================================
+  // 🎫 CREATE ORDER
+  // ========================================
+  async createOrder(
+    request: CreateOrderRequest,
+    userId: string,
+  ): Promise<OrderData> {
+    // Add logger usage for debugging
+    this.logger.log(`🎫 Creating new order for user: ${userId}`);
+    this.logger.log('Request received:', request);
 
-    const seats = await this.seatRepo.findByIds(dto.seatIds);
-    if (seats.length !== dto.seatIds.length) throw new Error('Invalid seatIds');
-
-    const conflicts = await this.seatBookingRepo.find({
-      where: {
-        seat: seats,
-        showDate: dto.showDate,
-        status: In([SeatStatus.BOOKED, SeatStatus.PAID]),
-      },
-      relations: ['seat'],
+    // Get user from database
+    const user = await this.userRepo.findOne({
+      where: { id: userId },
     });
 
-    if (conflicts.length) {
-      const conflictNumbers = conflicts.map((b) => b.seat.seatNumber);
-      throw new Error(`ที่นั่ง ${conflictNumbers.join(', ')} ถูกจองแล้ว`);
+    if (!user) {
+      throw new BadRequestException('User not found');
     }
 
-    const user = await this.userRepo.findOne({ where: { id: dto.userId } });
-    if (!user) throw new Error('User not found');
+    request.userId = user.id;
 
+    await this.validateBookingLimits(user, request);
+    this.logger.log(`Booking limits validated for user: ${user.id}`);
+
+    // Validate seat availability
+    if (request.seatIds && request.seatIds.length > 0) {
+      await this.validateSeatAvailability(request.seatIds, request.showDate);
+    }
+
+    // Validate referrer
     let referrer = null;
-    if (dto.referrerCode) {
+    if (request.referrerCode) {
+      // Add logger for referrer validation
+      this.logger.log(`Validating referrer code: ${request.referrerCode}`);
       referrer = await this.referrerRepo.findOne({
-        where: { code: dto.referrerCode },
-      });
-      if (!referrer) throw new Error('Invalid referrerCode');
-    }
-
-    const total = seats.length * 1800;
-    const order = this.orderRepo.create({
-      user,
-      method: dto.method,
-      seats,
-      total,
-      referrerCode: dto.referrerCode,
-      referrer,
-      showDate: dto.showDate,
-      status: dto.status ?? OrderStatus.PENDING,
-    } as DeepPartial<Order>);
-
-    const savedOrder = await this.orderRepo.save(order);
-
-    const bookings = seats.map((seat) =>
-      this.seatBookingRepo.create({
-        seat,
-        order: savedOrder,
-        showDate: dto.showDate,
-        bookingStatus: SeatStatus.BOOKED,
-      } as DeepPartial<SeatBooking>),
-    );
-
-    await this.seatBookingRepo.save(bookings);
-
-    return savedOrder;
-  }
-
-  async createOrderStanding(dto: CreateOrderDto, user: User) {
-    const { standingAdultQty = 0, standingChildQty = 0, referrerCode } = dto;
-
-    const total =
-      standingAdultQty * STANDING_ADULT_PRICE +
-      standingChildQty * STANDING_CHILD_PRICE;
-    const commission =
-      standingAdultQty * ADULT_COMMISSION + standingChildQty * CHILD_COMMISSION;
-
-    let referrer: Referrer | null = null;
-    if (referrerCode) {
-      referrer = await this.referrerRepo.findOne({
-        where: { code: referrerCode },
-      });
-      if (!referrer) {
-        throw new BadRequestException('Referrer code ไม่ถูกต้อง');
-      }
-    }
-
-    const order = this.orderRepo.create({
-      standingAdultQty,
-      standingChildQty,
-      standingTotal: total,
-      customerName: dto.customerName,
-      standingCommission: commission,
-      status: OrderStatus.BOOKED,
-      method: dto.method || PaymentMethod.CASH,
-      total,
-      user,
-      referrer,
-      referrerCode: dto.referrerCode,
-      referrerCommission: 0,
-      showDate: dto.showDate,
-    } as DeepPartial<Order>);
-
-    return this.orderRepo.save(order);
-  }
-
-  async updateOrderStanding(orderId: string, dto: CreateOrderDto, user: User) {
-    const order = await this.orderRepo.findOne({
-      where: { id: orderId },
-      relations: ['referrer'],
-    });
-
-    if (!order) {
-      throw new NotFoundException('ไม่พบคำสั่งซื้อ');
-    }
-
-    // ✅ อัปเดตข้อมูลลูกค้า
-    order.customerName = dto.customerName || order.customerName;
-    if (
-      dto.method &&
-      Object.values(OrderMethod).includes(dto.method as OrderMethod)
-    ) {
-      order.method = dto.method as OrderMethod;
-    }
-    if (dto.showDate) {
-      order.showDate = new Date(dto.showDate);
-    }
-
-    // ✅ อัปเดตจำนวนและคำนวณยอดรวม
-    const standingAdultQty = dto.standingAdultQty ?? order.standingAdultQty;
-    const standingChildQty = dto.standingChildQty ?? order.standingChildQty;
-
-    order.standingAdultQty = standingAdultQty;
-    order.standingChildQty = standingChildQty;
-
-    order.standingTotal =
-      standingAdultQty * STANDING_ADULT_PRICE +
-      standingChildQty * STANDING_CHILD_PRICE;
-
-    order.standingCommission =
-      standingAdultQty * ADULT_COMMISSION + standingChildQty * CHILD_COMMISSION;
-
-    order.total = order.standingTotal;
-
-    // ✅ อัปเดต Referrer (หากส่งมาใหม่)
-    if (dto.referrerCode && dto.referrerCode !== order.referrerCode) {
-      const referrer = await this.referrerRepo.findOne({
-        where: { code: dto.referrerCode },
+        where: { code: request.referrerCode, isActive: true },
       });
 
       if (!referrer) {
-        throw new BadRequestException('Referrer code ไม่ถูกต้อง');
+        this.logger.warn(`Invalid referrer code: ${request.referrerCode}`);
+        throw new BadRequestException('Invalid referrer code');
       }
-
-      order.referrer = referrer;
-      order.referrerCode = referrer.code;
     }
 
-    order.user = user; // เผื่ออยาก track ว่าใครเป็นคนอัปเดตล่าสุด
+    // Calculate pricing
+    const pricing = this.calculateOrderPricing(request);
+    this.logger.log('Order pricing calculated:', pricing);
 
-    return this.orderRepo.save(order);
+    // Create orderlog
+    const orderNumber = ReferenceGenerator.generateOrderNumber();
+    this.logger.log('Generated order number:', orderNumber);
+
+    // Prepare order data
+    const orderData: any = {
+      orderNumber,
+      userId: user.id,
+      customerName: request.customerName,
+      customerPhone: request.customerPhone,
+      customerEmail: request.customerEmail,
+      ticketType: request.ticketType,
+      quantity: request.quantity || 0,
+      total: pricing.totalAmount,
+      totalAmount: pricing.totalAmount,
+      status: OrderStatus.PENDING,
+      paymentMethod: request.paymentMethod,
+      method: request.paymentMethod || PaymentMethod.QR_CODE,
+      showDate: new Date(request.showDate),
+      referrerCode: request.referrerCode,
+      referrerId: referrer?.id,
+      referrerCommission: pricing.commission,
+      note: request.note,
+      source: (request.source as OrderSource) || OrderSource.DIRECT,
+      expiresAt: BusinessLogicHelper.calculateExpiryTime(
+        DateTimeHelper.now(),
+        this.configService.get(
+          'RESERVATION_TIMEOUT_MINUTES',
+          TIME_LIMITS.RESERVATION_MINUTES,
+        ),
+      ),
+    };
+
+    // Handle standing tickets BEFORE saving
+    if (request.ticketType === TicketType.STANDING) {
+      const adultQty = request.standingAdultQty || 0;
+      const childQty = request.standingChildQty || 0;
+
+      // Validate constants
+      if (
+        typeof TICKET_PRICES.STANDING_ADULT !== 'number' ||
+        typeof TICKET_PRICES.STANDING_CHILD !== 'number' ||
+        typeof COMMISSION_RATES.STANDING_ADULT !== 'number' ||
+        typeof COMMISSION_RATES.STANDING_CHILD !== 'number'
+      ) {
+        this.logger.error(
+          `Invalid constants: TICKET_PRICES.STANDING_ADULT=${TICKET_PRICES.STANDING_ADULT}, TICKET_PRICES.STANDING_CHILD=${TICKET_PRICES.STANDING_CHILD}, COMMISSION_RATES.STANDING_ADULT=${COMMISSION_RATES.STANDING_ADULT}, COMMISSION_RATES.STANDING_CHILD=${COMMISSION_RATES.STANDING_CHILD}`,
+        );
+        throw new InternalServerErrorException(
+          'Invalid ticket pricing or commission rates. Please contact support.',
+        );
+      }
+
+      const adultTotal = adultQty * TICKET_PRICES.STANDING_ADULT;
+      const childTotal = childQty * TICKET_PRICES.STANDING_CHILD;
+      const standingTotal = adultTotal + childTotal;
+
+      // Validate calculations
+      if (isNaN(adultTotal) || isNaN(childTotal) || isNaN(standingTotal)) {
+        throw new BadRequestException(
+          'Invalid standing ticket calculations. Please check ticket quantities and pricing.',
+        );
+      }
+
+      // Set standing ticket fields in order data
+      orderData.standingAdultQty = adultQty;
+      orderData.standingChildQty = childQty;
+      orderData.standingTotal = standingTotal;
+      orderData.standingCommission =
+        adultQty * COMMISSION_RATES.STANDING_ADULT +
+        childQty * COMMISSION_RATES.STANDING_CHILD;
+      orderData.quantity = adultQty + childQty;
+      orderData.total = standingTotal;
+      orderData.totalAmount = standingTotal;
+
+      // Debugging logs for standing ticket calculations
+      this.logger.log(
+        `Standing Adult Qty: ${adultQty}, Standing Child Qty: ${childQty}`,
+      );
+      this.logger.log(
+        `Adult Total: ${adultTotal}, Child Total: ${childTotal}, Standing Total: ${standingTotal}`,
+      );
+      this.logger.log(`Standing Commission: ${orderData.standingCommission}`);
+    }
+
+    if (request.ticketType === TicketType.STANDING) {
+      if (
+        new Date(request.showDate).toDateString() === new Date().toDateString()
+      ) {
+        orderData.status = OrderStatus.PENDING;
+      } else {
+        orderData.status = OrderStatus.BOOKED;
+      }
+      orderData.expiresAt = new Date(request.showDate);
+      orderData.expiresAt.setHours(21, 0, 0, 0); // Set expiry time to 21:00 on showDate
+    }
+
+    if (request.ticketType !== TicketType.STANDING) {
+      request.quantity = request.seatIds?.length || 0;
+    }
+
+    // Update orderData to ensure quantity is set correctly
+    orderData.quantity = request.quantity;
+
+    const order = this.orderRepo.create(orderData);
+    const savedOrderResult = await this.orderRepo.save(order);
+    const savedOrder = Array.isArray(savedOrderResult)
+      ? savedOrderResult[0]
+      : savedOrderResult;
+
+    if (!savedOrder) {
+      throw new Error('Order not found after saving');
+    }
+
+    // Create seat bookings
+    if (request.seatIds && request.seatIds.length > 0) {
+      await this.createSeatBookings(
+        savedOrder,
+        request.seatIds,
+        request.showDate,
+      );
+    }
+
+    // Reload savedOrder with seatBookings relation
+    const reloadedOrder = await this.orderRepo.findOne({
+      where: { id: savedOrder.id },
+      relations: [
+        'seatBookings',
+        'seatBookings.seat',
+        'seatBookings.seat.zone',
+      ],
+    });
+
+    if (!reloadedOrder) {
+      throw new Error('Order not found after reloading');
+    }
+
+    return {
+      ...reloadedOrder,
+      customerName: reloadedOrder.customerName,
+      ticketType: reloadedOrder.ticketType,
+      price: reloadedOrder.totalAmount,
+      paymentStatus: PaymentStatus.PENDING,
+      showDate:
+        reloadedOrder.showDate instanceof Date
+          ? reloadedOrder.showDate.toISOString()
+          : new Date(reloadedOrder.showDate).toISOString(),
+      seats:
+        reloadedOrder.seatBookings?.map((booking) => {
+          return {
+            id: booking.seat.id,
+            seatNumber: booking.seat.seatNumber,
+            zone: booking.seat.zone
+              ? {
+                  id: booking.seat.zone.id,
+                  name: booking.seat.zone.name,
+                }
+              : null,
+          };
+        }) || [],
+    };
   }
 
-  async update(id: string, dto: UpdateOrderDto) {
-    const order = await this.orderRepo.findOne({
-      where: { id },
-      relations: ['seats', 'referrer'],
-    });
-    if (!order) throw new Error('Order not found');
+  // ==============================================================
+  // 🔍 FIND ALL ORDERS
+  // ========================================
+  async findAll(options: FindAllOptions, userId?: string): Promise<any> {
+    const { page = 1, limit = 10, status, search } = options;
 
-    if (dto.referrerCode && !order.referrerCode) {
-      const ref = await this.referrerRepo.findOne({
-        where: { code: dto.referrerCode },
-      });
-      if (!ref) throw new Error('Invalid referrerCode');
-      order.referrerCode = dto.referrerCode;
-      order.referrer = ref;
-    } else if (dto.referrerCode && order.referrerCode) {
-      throw new Error('referrerCode already set');
-    }
-
-    const bookings = await this.seatBookingRepo.find({
-      where: { order: { id } },
-      relations: ['seat'],
-    });
-
-    if (dto.status === OrderStatus.PAID) {
-      for (const booking of bookings) {
-        booking.status = BookingStatus.PAID;
-      }
-      await this.seatBookingRepo.save(bookings);
-
-      if (order.referrer) {
-        order.referrer.totalCommission += bookings.length * 400;
-        await this.referrerRepo.save(order.referrer);
-      }
-
-      order.status = OrderStatus.PAID;
-    } else if (dto.status === OrderStatus.CANCELLED) {
-      for (const booking of bookings) {
-        booking.status = BookingStatus.AVAILABLE;
-        booking.order = null;
-      }
-      await this.seatBookingRepo.save(bookings);
-      order.status = OrderStatus.CANCELLED;
-    }
-
-    return this.orderRepo.save(order);
-  }
-
-  async findAll(options: PaginateOptions) {
-    const { page, limit, status, zone, search } = options;
     const query = this.orderRepo
       .createQueryBuilder('order')
-      .leftJoinAndSelect('order.seats', 'seats')
-      .leftJoinAndSelect('seats.zone', 'seatZone')
+      .leftJoinAndSelect('order.user', 'user')
+      .leftJoinAndSelect('order.referrer', 'referrer')
       .leftJoinAndSelect('order.seatBookings', 'seatBookings')
-      .leftJoinAndSelect('seatBookings.seat', 'bookingSeat')
-      .leftJoinAndSelect('bookingSeat.zone', 'bookingSeatZone')
-      .leftJoinAndSelect('order.payment', 'payment')
-      .leftJoinAndSelect('payment.user', 'paymentUser')
-      .leftJoin('order.referrer', 'referrer')
-      .addSelect(['referrer.name', 'referrer.code'])
+      .leftJoinAndSelect('seatBookings.seat', 'seat')
+      .leftJoinAndSelect('seat.zone', 'zone')
+      .orderBy('order.createdAt', 'DESC')
       .skip((page - 1) * limit)
-      .take(limit)
-      .orderBy('order.createdAt', 'DESC');
+      .take(limit);
+
+    // User can only see their own orders
+    if (userId) {
+      const user = await this.userRepo.findOne({ where: { id: userId } });
+      if (user && user.role === UserRole.USER) {
+        query.andWhere('order.userId = :userId', { userId });
+      }
+    }
 
     if (status) {
       query.andWhere('order.status = :status', { status });
     }
 
-    if (zone) {
-      const isUUID = /^[0-9a-fA-F-]{36}$/.test(zone);
-      if (isUUID) {
-        query.andWhere(
-          '(seatZone.id = :zoneId OR bookingSeatZone.id = :zoneId)',
-          { zoneId: zone },
-        );
-      }
-    }
-
-    if (search?.trim()) {
-      query.andWhere('CAST(order.id AS text) ILIKE :search', {
-        search: `%${search.trim()}%`,
-      });
+    if (search) {
+      query.andWhere(
+        '(order.orderNumber LIKE :search OR order.customerName LIKE :search OR order.customerPhone LIKE :search)',
+        { search: `%${search}%` },
+      );
     }
 
     const [items, total] = await query.getManyAndCount();
 
-    items.forEach((order) => {
-      const zoneNamesFromBookings = order.seatBookings
-        ?.map((booking) => booking.seat?.zone?.name)
-        .filter(Boolean);
-
-      const uniqueZoneNames = [...new Set(zoneNamesFromBookings)];
-      (order as any).zoneName = uniqueZoneNames[0] || '-';
-    });
-
     return {
-      items,
+      items: items.map((order) => this.mapToOrderData(order)),
       total,
       page,
       limit,
@@ -298,461 +368,1084 @@ export class OrderService {
     };
   }
 
-  async findById(id: string) {
-    return this.orderRepo.findOne({
-      where: { id },
-      relations: ['seats', 'user', 'referrer'],
-    });
-  }
-  async changeSeats(
-    orderId: string,
-    newSeatIds: string[],
-    newShowDate?: string,
-  ) {
-    if (!newSeatIds || newSeatIds.length === 0) {
-      throw new Error('❌ ต้องระบุรายการที่นั่งใหม่');
-    }
-
-    const showDateStr = dayjs(newShowDate)
-      .tz('Asia/Bangkok')
-      .format('YYYY-MM-DD');
-
+  // ===================================================================
+  // 🔍 FIND BY ID
+  // ========================================
+  async findById(id: string, userId?: string): Promise<OrderData | null> {
     const order = await this.orderRepo.findOne({
-      where: { id: orderId },
-      relations: ['seatBookings', 'referrer'],
+      where: { id },
+      relations: [
+        'user',
+        'referrer',
+        'seatBookings',
+        'seatBookings.seat',
+        'seatBookings.seat.zone',
+        'payment',
+      ],
     });
 
-    if (!order) throw new Error('❌ ไม่พบออเดอร์ที่ต้องการเปลี่ยนที่นั่ง');
-
-    const isPaid = order.status === OrderStatus.PAID;
-    const showDate = newShowDate
-      ? new Date(newShowDate)
-      : new Date(order.showDate);
-
-    // 🔍 โหลดข้อมูลที่นั่งใหม่
-    const newSeats = await this.seatRepo.find({
-      where: { id: In(newSeatIds) },
-      relations: ['zone'],
-    });
-
-    if (newSeats.length !== newSeatIds.length) {
-      const foundIds = newSeats.map((s) => s.id);
-      const missing = newSeatIds.filter((id) => !foundIds.includes(id));
-      throw new Error(`❌ ที่นั่งใหม่บางตัวไม่พบในระบบ: ${missing.join(', ')}`);
+    if (!order) {
+      return null;
     }
 
-    // ❌ ป้องกันที่นั่งใหม่ซ้ำกับออเดอร์อื่นที่จ่ายเงินแล้ว
-    const conflict = await this.seatBookingRepo.count({
-      where: {
-        seat: In(newSeatIds),
-        showDate: showDateStr,
-        status: BookingStatus.PAID,
-        order: Not(orderId),
-      },
-    });
+    console.log('order', order);
 
-    if (conflict > 0) {
-      throw new Error('❌ ที่นั่งใหม่บางตัวถูกจองแล้วในวันเดียวกัน');
-    }
-
-    // ✅ ลบ booking เดิมให้หมดก่อน (ถ้ามี)
-    await this.seatBookingRepo
-      .createQueryBuilder()
-      .delete()
-      .where('orderId = :orderId', { orderId })
-      .execute();
-    order.seatBookings = [];
-    // ✅ อัปเดตวันที่ใหม่
-    order.showDate = showDate;
-
-    // ✅ ถ้าไม่ใช่จ่ายเงินแล้ว ต้องคำนวณ total และค่าคอมใหม่
-    if (!isPaid) {
-      order.total = newSeats.length * 1200;
-
-      if (order.referrer) {
-        const commission = newSeats.length * 400;
-        order.referrerCommission = commission;
-        order.referrer.totalCommission = commission;
-        await this.referrerRepo.save(order.referrer);
+    // Permission check for users
+    if (userId) {
+      const user = await this.userRepo.findOne({ where: { id: userId } });
+      if (user && user.role === UserRole.USER && order.userId !== userId) {
+        throw new ForbiddenException('You can only view your own orders');
       }
     }
 
-    await this.orderRepo.save(order);
-
-    // ✅ สร้าง booking ใหม่ทั้งหมด
-    const newBookings = newSeats.map((seat) => {
-      const booking = new SeatBooking();
-      booking.seat = seat;
-      booking.order = order;
-      booking.showDate = showDateStr;
-      booking.status = isPaid ? BookingStatus.PAID : BookingStatus.BOOKED;
-      return booking;
-    });
-
-    await this.seatBookingRepo.save(newBookings);
-
-    // ✅ return order พร้อม seatBookings ใหม่ทั้งหมด
-    return this.orderRepo.findOne({
-      where: { id: order.id },
-      relations: ['seatBookings', 'seatBookings.seat'],
-    });
+    return this.mapToOrderData(order);
   }
 
-  async updateBookedOrder(orderId: string, dto: UpdateBookedOrderDto) {
+  // =================================================================
+  // ✏️ UPDATE ORDER
+  // ======================================================================
+  async update(
+    id: string,
+    updates: Partial<OrderData>,
+    userId: string,
+  ): Promise<OrderData> {
+    this.logger.log(`✏️ Updating order ${id} by user ${userId}`);
+
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new BadRequestException('User not found');
+    }
+
     const order = await this.orderRepo.findOne({
-      where: { id: orderId },
-      relations: ['seats', 'seatBookings'],
+      where: { id },
+      relations: ['user', 'seatBookings'],
     });
 
-    if (!order) throw new NotFoundException('Order not found');
-    if (order.status !== OrderStatus.BOOKED)
-      throw new BadRequestException('Only BOOKED orders can be updated');
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
 
-    const existingSeatIds = order.seats.map((seat) => seat.id);
-    const mergedSeatIds = Array.from(
-      new Set([...existingSeatIds, ...dto.seatIds]),
-    );
+    // Permission check
+    if (user.role === UserRole.USER && order.userId !== userId) {
+      throw new ForbiddenException('You can only update your own orders');
+    }
 
-    const seats = await this.seatRepo.findByIds(mergedSeatIds);
-    if (seats.length !== mergedSeatIds.length)
-      throw new BadRequestException('Some seatIds are invalid');
+    // Status validation
+    if (
+      order.status === OrderStatus.CONFIRMED &&
+      user.role !== UserRole.ADMIN
+    ) {
+      throw new BadRequestException('Cannot update confirmed orders');
+    }
 
-    await this.seatBookingRepo.delete({ order: { id: orderId } });
+    // Update order
+    await this.orderRepo.update(id, {
+      ...updates,
+      updatedAt: DateTimeHelper.now(),
+      updatedBy: userId,
+    } as any);
 
-    const conflictBookings = await this.seatBookingRepo.find({
-      where: {
-        seat: seats,
-        showDate: dto.showDate,
-        status: In([SeatStatus.BOOKED, SeatStatus.PAID]),
-        order: Not(orderId), // ห้ามชนกับ order อื่น
-      },
-      relations: ['seat'],
+    // Create audit log
+    await this.createAuditLog(AuditAction.UPDATE, 'Order', id, userId, updates);
+
+    return this.findById(id);
+  }
+
+  // ==================================================================
+  // ❌ CANCEL ORDER
+  // ======================================================================
+  async cancel(
+    id: string,
+    userId: string,
+  ): Promise<{ success: boolean; message: string }> {
+    this.logger.log(`❌ Cancelling order ${id} by user ${userId}`);
+
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new BadRequestException('User not found');
+    }
+
+    const order = await this.orderRepo.findOne({
+      where: { id },
+      relations: ['user', 'seatBookings'],
     });
 
-    if (conflictBookings.length > 0) {
-      const seatNumbers = conflictBookings.map((b) => b.seat.seatNumber);
-      throw new BadRequestException(
-        `ที่นั่ง ${seatNumbers.join(', ')} ถูกจองแล้ว`,
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    // Permission check
+    if (user.role === UserRole.USER && order.userId !== userId) {
+      throw new ForbiddenException('You can only cancel your own orders');
+    }
+
+    // Status validation
+    if (
+      order.status === OrderStatus.CONFIRMED &&
+      user.role !== UserRole.ADMIN
+    ) {
+      throw new BadRequestException('Cannot cancel confirmed orders');
+    }
+
+    if (order.status === OrderStatus.CANCELLED) {
+      throw new BadRequestException('Order is already cancelled');
+    }
+
+    // Cancel order
+    await this.orderRepo.update(id, {
+      status: OrderStatus.CANCELLED,
+      updatedAt: DateTimeHelper.now(),
+      updatedBy: userId,
+    });
+
+    // Release seat bookings
+    if (order.seatBookings) {
+      await this.seatBookingRepo.update(
+        { orderId: id },
+        { status: BookingStatus.CANCELLED, updatedAt: DateTimeHelper.now() },
       );
     }
 
-    const newBookings = seats.map((seat) =>
-      this.seatBookingRepo.create({
-        seat,
-        order,
-        showDate: dto.showDate,
-        bookingStatus: SeatStatus.BOOKED,
-      } as DeepPartial<SeatBooking>),
-    );
-    await this.seatBookingRepo.save(newBookings);
+    // Create audit log
+    await this.createAuditLog(AuditAction.CANCEL, 'Order', id, userId, {
+      reason: 'Order cancelled by user',
+    });
 
-    order.seats = seats;
-    order.total = seats.length * 1800;
-    order.showDate = new Date(dto.showDate);
-    if (dto.method) order.method = OrderMethod[dto.method];
-
-    return this.orderRepo.save(order);
+    return { success: true, message: 'Order cancelled successfully' };
   }
 
-  async generateReferrerPdf(
-    referrerId: string,
-    startDate: string,
-    endDate: string,
-  ) {
-    const orders = await this.orderRepo.find({
-      where: {
-        referrerId,
-        status: OrderStatus.PAID,
-        createdAt: Between(
-          dayjs(startDate).tz('Asia/Bangkok').startOf('day').toDate(),
-          dayjs(endDate).tz('Asia/Bangkok').endOf('day').toDate(),
-        ),
-      },
-      relations: ['user', 'payment', 'payment.user', 'seats', 'referrer'],
-      order: { createdAt: 'ASC' },
-    });
-    console.log('orders', orders);
+  // ===============================================================
+  // ✅ CONFIRM PAYMENT
+  // ==============================================================
+  async confirmPayment(
+    id: string,
+    userId: string,
+  ): Promise<{ success: boolean; message: string }> {
+    this.logger.log(`✅ Confirming payment for order ${id} by user ${userId}`);
 
-    const rows = orders
-      .filter((e) => e.status === OrderStatus.PAID)
-      .map((order) => {
-        const total = +order.total || 0;
-        const commission =
-          Number(order.referrerCommission || 0) +
-          Number(order.standingCommission || 0);
-        const netTotal = total - commission;
-        const qty =
-          (order.seats?.length || 0) +
-          order.standingAdultQty +
-          order.standingChildQty;
-        const unitPrice = qty > 0 ? netTotal / qty : 0;
-
-        return [
-          {
-            text: dayjs(order.createdAt)
-              .tz('Asia/Bangkok')
-              .format('DD/MM/YYYY'),
-            alignment: 'center',
-          },
-          { text: 'THAI BOXING', alignment: 'center' },
-          { text: order.customerName, alignment: 'center' },
-          { text: `${qty}`, alignment: 'center' },
-          {
-            text: unitPrice.toLocaleString(undefined, {
-              minimumFractionDigits: 2,
-            }),
-            alignment: 'right',
-          },
-          {
-            text: netTotal.toLocaleString(undefined, {
-              minimumFractionDigits: 2,
-            }),
-            alignment: 'right',
-          },
-        ];
-      });
-    const MAX_ROWS = 124;
-    const emptyRow = [
-      { text: '', alignment: 'center' },
-      { text: '', alignment: 'center' },
-      { text: '', alignment: 'center' },
-      { text: '', alignment: 'center' },
-      { text: '', alignment: 'right' },
-      { text: '', alignment: 'right' },
-    ];
-
-    const offset = rows.length * 5;
-
-    const rowsToFill = Math.max(0, MAX_ROWS - rows.length - offset);
-
-    for (let i = 0; i < rowsToFill; i++) {
-      rows.push(emptyRow);
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new BadRequestException('User not found');
     }
 
-    const total = orders.reduce((sum, o) => sum + +o.total, 0);
-    const commission = orders.reduce(
-      (sum, o) =>
-        sum +
-        Number(o.referrerCommission || 0) +
-        Number(o.standingCommission || 0),
-      0,
-    );
-    const netTotal = total - commission;
-    const randomInvoice = Math.floor(Math.random() * 900000 + 100000);
+    const order = await this.orderRepo.findOne({
+      where: { id },
+      relations: ['seatBookings'],
+    });
 
-    const docDefinition = {
-      pageOrientation: 'portrait',
-      pageMargins: [20, 40, 20, 30], // เว้นขอบ ซ บ ข ล
-      content: [
-        {
-          text: 'BOXING STADIUM PATONG BEACH',
-          alignment: 'center',
-          bold: true,
-          fontSize: 45,
-          margin: [0, 0, 0, 2],
-        },
-        {
-          text:
-            '2/59 Soi Keb Sub 2, Sai Nam Yen RD, Patong Beach, Phuket 83150\n' +
-            'Tel. 076-345578, 086-4761724, 080-5354042',
-          alignment: 'center',
-          fontSize: 20,
-          margin: [0, -10, 0, 0], //ซ บ ข ล
-        },
-        {
-          table: {
-            widths: ['*', 'auto'], // ซ้ายขวา
-            body: [
-              [
-                {
-                  stack: [
-                    {
-                      text: 'Invoice',
-                      alignment: 'center',
-                      bold: true,
-                      fontSize: 20,
-                      margin: [0, 0, 0, 4],
-                    },
-                    {
-                      text: `DATE ${dayjs(startDate).tz('Asia/Bangkok').format('D MMMM YYYY').toUpperCase()}`,
-                      bold: true,
-                      margin: [0, 0, 0, 0], //ซ บ ข ล
-                    },
-                    { text: orders[0]?.referrer?.name, bold: true },
-                    { text: 'PHUKET THAILAND', bold: true },
-                  ],
-                },
-                {
-                  text: `NO. ${randomInvoice}`,
-                  alignment: 'right',
-                  bold: true,
-                  margin: [0, 20, 0, 0],
-                },
-              ],
-            ],
-          },
-          layout: {
-            hLineWidth: (i) => {
-              // แสดงเฉพาะเส้นขอบบนเท่านั้น
-              return i === 0 ? 0.5 : 0;
-            },
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
 
-            vLineWidth: (i, node) => {
-              // ซ้ายสุด (i=0) และขวาสุด (i=columns.length): แสดงเส้น
-              // คอลัมน์ตรงกลาง (i=1): ไม่ต้องแสดง
-              return i === 0 || i === node.table.widths.length ? 0.5 : 0;
-            },
-          },
-          margin: [0, 0, 0, 0],
-        },
-        {
-          table: {
-            headerRows: 1,
-            widths: ['15%', '15%', '20%', '10%', '20%', '20%'],
-            body: [
-              [
-                { text: 'วันที่', bold: true, alignment: 'center' },
-                { text: 'รายการ', bold: true, alignment: 'center' },
-                { text: 'V/C', bold: true, alignment: 'center' },
-                { text: 'จำนวน', bold: true, alignment: 'center' },
-                { text: 'ราคา', bold: true, alignment: 'center' },
-                { text: 'ราคารวม', bold: true, alignment: 'center' },
-              ],
-              ...rows,
-            ],
-          },
-          layout: {
-            hLineWidth: (i) => {
-              // เฉพาะ header บนเท่านั้น
-              return i === 0 || i === 1 ? 0.5 : 0;
-            },
-            vLineWidth: () => 0.5,
-            hLineColor: () => '#000000',
-            vLineColor: () => '#000000',
-          },
-        },
-        {
-          margin: [0, 0, 0, 0],
-          table: {
-            widths: ['*', '*'],
-            body: [
-              [
-                {
-                  text: 'CASH ON TOUR',
-                  bold: true,
-                  color: 'red',
-                  alignment: 'center',
-                },
-                {
-                  text: `${total.toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
-                  alignment: 'right',
-                  color: 'red',
-                },
-              ],
-              [
-                {
-                  text: ThaiBaht(netTotal),
-                  bold: true,
-                  alignment: 'center',
-                },
-                {
-                  text: `${netTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
-                  alignment: 'right',
-                },
-              ],
-            ],
-          },
-          layout: {
-            hLineWidth: () => 0.5,
-            vLineWidth: () => 0.5,
-          },
-        },
+    // Only staff and admin can confirm payment
+    if (user.role !== UserRole.STAFF && user.role !== UserRole.ADMIN) {
+      throw new ForbiddenException('Only staff and admin can confirm payments');
+    }
+
+    if (order.status !== OrderStatus.PENDING) {
+      throw new BadRequestException(
+        'Can only confirm payment for pending orders',
+      );
+    }
+
+    // Update order status
+    await this.orderRepo.update(id, {
+      status: OrderStatus.CONFIRMED,
+      updatedAt: DateTimeHelper.now(),
+      updatedBy: userId,
+    });
+
+    // Update seat bookings
+    if (order.seatBookings) {
+      await this.seatBookingRepo.update(
+        { orderId: id },
+        { status: BookingStatus.CONFIRMED, updatedAt: DateTimeHelper.now() },
+      );
+    }
+
+    // Create audit log
+    await this.createAuditLog(AuditAction.CONFIRM, 'Order', id, userId, {
+      reason: 'Payment confirmed by staff',
+    });
+
+    return { success: true, message: 'Payment confirmed successfully' };
+  }
+
+  // ============================================================
+  // 🎟️ GENERATE TICKETS
+  // ========================================
+  async generateTickets(id: string, userId: string): Promise<any> {
+    this.logger.log(`🎟️ Generating tickets for order ${id} by user ${userId}`);
+
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new BadRequestException('User not found');
+    }
+
+    const order = await this.orderRepo.findOne({
+      where: { id },
+      relations: [
+        'user',
+        'seatBookings',
+        'seatBookings.seat',
+        'seatBookings.seat.zone',
       ],
-      defaultStyle: {
-        font: 'THSarabunNew',
-        fontSize: 14,
-      },
+    });
+
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    // Permission check
+    if (user.role === UserRole.USER && order.userId !== userId) {
+      throw new ForbiddenException(
+        'You can only generate tickets for your own orders',
+      );
+    }
+
+    if (order.status !== OrderStatus.CONFIRMED) {
+      throw new BadRequestException(
+        'Can only generate tickets for confirmed orders',
+      );
+    }
+
+    // Generate tickets (mock implementation)
+    const tickets = order.seatBookings.map((booking) => ({
+      id: booking.id,
+      orderNumber: order.orderNumber,
+      seatNumber: booking.seat.seatNumber,
+      zone: booking.seat.zone
+        ? {
+            id: booking.seat.zone.id,
+            name: booking.seat.zone.name,
+          }
+        : null,
+      customerName: order.customerName,
+      showDate: DateTimeHelper.formatDate(order.showDate),
+      qrCode: `QR_${order.orderNumber}_${booking.seat.seatNumber}`,
+    }));
+
+    // Create audit log
+    await this.createAuditLog(AuditAction.VIEW, 'Order', id, userId, {
+      action: 'Tickets generated',
+      ticketCount: tickets.length,
+    });
+
+    return { tickets, totalTickets: tickets.length };
+  }
+
+  // =================================================================
+  // 🔄 CHANGE SEATS - COMPREHENSIVE VERSION
+  // =================================================================
+  async changeSeats(
+    id: string,
+    newSeatNumbers: string[],
+    userId: string,
+    newReferrerCode?: string,
+    newCustomerName?: string,
+    newCustomerPhone?: string,
+    newCustomerEmail?: string,
+    newShowDate?: string,
+  ): Promise<{ success: boolean; message: string; updatedOrder?: any }> {
+    this.logger.log(`🔄 Changing seats for order ${id} by user ${userId}`);
+
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new BadRequestException('User not found');
+    }
+
+    const order = await this.orderRepo.findOne({
+      where: { id },
+      relations: ['seatBookings', 'seatBookings.seat', 'referrer', 'payment'],
+    });
+
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    // Only staff and admin can change seats
+    if (user.role !== UserRole.STAFF && user.role !== UserRole.ADMIN) {
+      throw new ForbiddenException('Only staff and admin can change seats');
+    }
+
+    // Validate order status
+    if (
+      ![OrderStatus.PENDING, OrderStatus.BOOKED, OrderStatus.PAID].includes(
+        order.status,
+      )
+    ) {
+      throw new BadRequestException(
+        'Cannot change seats for orders with status: ' + order.status,
+      );
+    }
+
+    // Validate ticket type
+    if (order.ticketType === TicketType.STANDING) {
+      throw new BadRequestException('Cannot change seats for standing tickets');
+    }
+
+    // Convert seat numbers to seat IDs
+    const newSeatIds = await this.convertSeatNumbersToIds(newSeatNumbers);
+
+    // Get current seat count
+    const currentSeatCount = order.seatBookings?.length || 0;
+    const newSeatCount = newSeatIds.length;
+
+    this.logger.log(
+      `Current seats: ${currentSeatCount}, New seats: ${newSeatCount}`,
+    );
+
+    // Handle different order statuses
+    switch (order.status) {
+      case OrderStatus.PENDING:
+      case OrderStatus.BOOKED:
+        return await this.changePendingBookedSeats(
+          order,
+          newSeatIds,
+          userId,
+          user,
+          newReferrerCode,
+          newCustomerName,
+          newCustomerPhone,
+          newCustomerEmail,
+          newShowDate,
+        );
+
+      case OrderStatus.PAID:
+        return await this.changePaidSeats(
+          order,
+          newSeatIds,
+          userId,
+          user,
+          currentSeatCount,
+          newSeatCount,
+          newShowDate,
+        );
+
+      default:
+        throw new BadRequestException('Invalid order status for seat changes');
+    }
+  }
+
+  /**
+   * Handle seat changes for PENDING/BOOKED orders
+   * - Can change seat count
+   * - Can update customer info
+   * - Can change referrer
+   * - Can change show date
+   * - Recalculate pricing
+   */
+  private async changePendingBookedSeats(
+    order: Order,
+    newSeatIds: string[],
+    userId: string,
+    user: User,
+    newReferrerCode?: string,
+    newCustomerName?: string,
+    newCustomerPhone?: string,
+    newCustomerEmail?: string,
+    newShowDate?: string,
+  ): Promise<{ success: boolean; message: string; updatedOrder?: any }> {
+    this.logger.log(`🔄 Changing seats for PENDING/BOOKED order ${order.id}`);
+
+    const oldSeatIds = order.seatBookings?.map((b) => b.seat.id) || [];
+    const oldSeatCount = oldSeatIds.length;
+    const newSeatCount = newSeatIds.length;
+
+    // Determine the show date to use for validation
+    const showDateToUse = newShowDate
+      ? newShowDate
+      : dayjs(order.showDate).format('YYYY-MM-DDTHH:mm');
+
+    // Validate new seat availability (excluding current order)
+    await this.validateSeatAvailabilityExcludingOrder(
+      newSeatIds,
+      showDateToUse,
+      order.id,
+    );
+
+    // Handle referrer changes
+    let newReferrer = order.referrer;
+    if (newReferrerCode && newReferrerCode !== order.referrerCode) {
+      if (newReferrerCode === 'REMOVE') {
+        newReferrer = null;
+      } else {
+        const referrer = await this.referrerRepo.findOne({
+          where: { code: newReferrerCode, isActive: true },
+        });
+        if (!referrer) {
+          throw new BadRequestException(
+            `Invalid referrer code: ${newReferrerCode}`,
+          );
+        }
+        newReferrer = referrer;
+      }
+    }
+
+    // Calculate new pricing
+    const newPricing = this.calculateSeatPricing(
+      order.ticketType,
+      newSeatCount,
+    );
+    const newCommission = newReferrer
+      ? newPricing.totalAmount * COMMISSION_RATES.REFERRER
+      : 0;
+
+    // Update order details
+    const orderUpdates: any = {
+      quantity: newSeatCount,
+      totalAmount: newPricing.totalAmount,
+      total: newPricing.totalAmount,
+      referrer: newReferrer,
+      referrerId: newReferrer?.id || null,
+      referrerCode: newReferrer?.code || null,
+      referrerCommission: newCommission,
+      updatedAt: DateTimeHelper.now(),
+      updatedBy: userId,
     };
 
-    return await createPdfBuffer(docDefinition);
-  }
-  async generateTickets(orderId: string) {
-    const order = await this.orderRepo.findOne({
-      where: { id: orderId, status: OrderStatus.PAID },
-      relations: ['seats', 'user'],
+    // Update customer info if provided
+    if (newCustomerName && newCustomerName !== order.customerName) {
+      orderUpdates.customerName = newCustomerName;
+    }
+    if (newCustomerPhone && newCustomerPhone !== order.customerPhone) {
+      orderUpdates.customerPhone = newCustomerPhone;
+    }
+    if (newCustomerEmail && newCustomerEmail !== order.customerEmail) {
+      orderUpdates.customerEmail = newCustomerEmail;
+    }
+
+    if (
+      newShowDate &&
+      new Date(newShowDate).toISOString() !==
+        new Date(order.showDate).toISOString()
+    ) {
+      orderUpdates.showDate = new Date(newShowDate);
+    }
+
+    // Remove old seat bookings
+    if (order.seatBookings?.length > 0) {
+      await this.seatBookingRepo.delete({ orderId: order.id });
+    }
+
+    // Create new seat bookings
+    await this.createSeatBookings(order, newSeatIds, showDateToUse);
+
+    // Update order
+    await this.orderRepo.update(order.id, orderUpdates);
+
+    // Create audit log
+    await this.createAuditLog(AuditAction.UPDATE, 'Order', order.id, userId, {
+      action: 'Seats changed (PENDING/BOOKED)',
+      oldSeats: oldSeatIds,
+      newSeats: newSeatIds,
+      oldSeatCount,
+      newSeatCount,
+      oldAmount: order.totalAmount,
+      newAmount: newPricing.totalAmount,
+      oldReferrer: order.referrerCode,
+      newReferrer: newReferrer?.code,
+      oldShowDate: order.showDate.toISOString(),
+      newShowDate: newShowDate || order.showDate.toISOString(),
+      customerUpdates: {
+        name:
+          newCustomerName !== order.customerName ? newCustomerName : undefined,
+        phone:
+          newCustomerPhone !== order.customerPhone
+            ? newCustomerPhone
+            : undefined,
+        email:
+          newCustomerEmail !== order.customerEmail
+            ? newCustomerEmail
+            : undefined,
+      },
     });
-    if (!order) throw new NotFoundException('Order not found or not PAID');
 
-    const tickets: any[] = [];
+    const updatedOrder = await this.findById(order.id);
 
-    // กรณีมีเลขที่นั่ง
-    if (order.seats && order.seats.length > 0) {
-      for (const seat of order.seats) {
-        tickets.push({
-          type: 'SEAT',
-          seatNumber: seat.seatNumber,
-          customerName: order.customerName,
-          showDate: dayjs(order.showDate)
-            .tz('Asia/Bangkok')
-            .format('DD/MM/YYYY'),
-          orderId: order.id,
-        });
-      }
-    }
-
-    // กรณีตั๋วยืน
-    if (order.standingAdultQty && order.standingAdultQty > 0) {
-      for (let i = 0; i < order.standingAdultQty; i++) {
-        tickets.push({
-          type: 'STANDING_ADULT',
-          customerName: order.customerName,
-          showDate: dayjs(order.showDate)
-            .tz('Asia/Bangkok')
-            .format('DD/MM/YYYY'),
-          orderId: order.id,
-          index: i + 1,
-        });
-      }
-    }
-    if (order.standingChildQty && order.standingChildQty > 0) {
-      for (let i = 0; i < order.standingChildQty; i++) {
-        tickets.push({
-          type: 'STANDING_CHILD',
-          customerName: order.customerName,
-          showDate: dayjs(order.showDate)
-            .tz('Asia/Bangkok')
-            .format('DD/MM/YYYY'),
-          orderId: order.id,
-          index: i + 1,
-        });
-      }
-    }
-    return tickets;
+    return {
+      success: true,
+      message: `Seats changed successfully. ${oldSeatCount} → ${newSeatCount} seats. Amount: ฿${order.totalAmount} → ฿${newPricing.totalAmount}`,
+      updatedOrder,
+    };
   }
 
-  async cancel(orderId: string) {
-    const order = await this.orderRepo.findOne({ where: { id: orderId } });
-    if (!order) throw new Error('ไม่พบออเดอร์');
+  /**
+   * Handle seat changes for PAID orders
+   * - Can only change to same or fewer seats
+   * - Cannot change pricing or referrer
+   * - Cannot change customer info
+   * - Can change show date
+   */
+  private async changePaidSeats(
+    order: Order,
+    newSeatIds: string[],
+    userId: string,
+    user: User,
+    currentSeatCount: number,
+    newSeatCount: number,
+    newShowDate?: string,
+  ): Promise<{ success: boolean; message: string; updatedOrder?: any }> {
+    this.logger.log(`🔄 Changing seats for PAID order ${order.id}`);
 
-    order.status = OrderStatus.CANCELLED;
-    await this.orderRepo.save(order);
+    // Validate seat count (cannot exceed paid seats)
+    if (newSeatCount > currentSeatCount) {
+      throw new BadRequestException(
+        `Cannot increase seat count for paid order. Current: ${currentSeatCount}, Requested: ${newSeatCount}`,
+      );
+    }
 
-    const bookings = await this.seatBookingRepo.find({
-      where: { order: { id: orderId } },
+    const oldSeatIds = order.seatBookings?.map((b) => b.seat.id) || [];
+
+    // Determine the show date to use for validation
+
+    const showDateToUse = newShowDate
+      ? newShowDate
+      : dayjs(order.showDate).toISOString();
+
+    // Validate new seat availability (excluding current order)
+    await this.validateSeatAvailabilityExcludingOrder(
+      newSeatIds,
+      showDateToUse,
+      order.id,
+    );
+
+    // Remove old seat bookings
+    if (order.seatBookings?.length > 0) {
+      await this.seatBookingRepo.delete({ orderId: order.id });
+    }
+
+    // Create new seat bookings with PAID status
+    const seats = await this.seatRepo.findByIds(newSeatIds);
+    const newBookings = seats.map((seat) => ({
+      order,
+      orderId: order.id,
+      seat,
+      showDate: showDateToUse,
+      status: BookingStatus.PAID, // Keep PAID status
+      createdAt: DateTimeHelper.now(),
+      updatedAt: DateTimeHelper.now(),
+    }));
+
+    await this.seatBookingRepo.save(newBookings);
+
+    // Update order if seat count or show date changed
+    const orderUpdates: any = {};
+    let hasUpdates = false;
+
+    if (newSeatCount !== currentSeatCount) {
+      orderUpdates.quantity = newSeatCount;
+      hasUpdates = true;
+    }
+
+    if (newShowDate && !dayjs(newShowDate).isSame(dayjs(order.showDate))) {
+      orderUpdates.showDate = dayjs(newShowDate).toDate();
+      hasUpdates = true;
+    }
+
+    if (hasUpdates) {
+      orderUpdates.updatedAt = DateTimeHelper.now();
+      orderUpdates.updatedBy = userId;
+      await this.orderRepo.update(order.id, orderUpdates);
+    }
+
+    // Create audit log
+    await this.createAuditLog(AuditAction.UPDATE, 'Order', order.id, userId, {
+      action: 'Seats changed (PAID)',
+      oldSeats: oldSeatIds,
+      newSeats: newSeatIds,
+      oldSeatCount: currentSeatCount,
+      newSeatCount,
+      oldShowDate: dayjs(order.showDate).toISOString(),
+      newShowDate: newShowDate || dayjs(order.showDate).toISOString(),
+      note: 'Paid order - pricing unchanged',
+    });
+
+    const updatedOrder = await this.findById(order.id);
+
+    let message = `Seats changed successfully for paid order.`;
+    if (newSeatCount < currentSeatCount) {
+      message += ` Reduced from ${currentSeatCount} to ${newSeatCount} seats.`;
+    } else {
+      message += ` ${newSeatCount} seats maintained.`;
+    }
+
+    return {
+      success: true,
+      message,
+      updatedOrder,
+    };
+  }
+
+  /**
+   * Calculate pricing for seated tickets
+   */
+  private calculateSeatPricing(
+    ticketType: TicketType,
+    seatCount: number,
+  ): {
+    totalAmount: number;
+    commission: number;
+  } {
+    const pricePerSeat = TICKET_PRICES[ticketType];
+
+    if (typeof pricePerSeat !== 'number') {
+      throw new InternalServerErrorException(
+        `Invalid ticket price for type: ${ticketType}`,
+      );
+    }
+
+    const totalAmount = seatCount * pricePerSeat;
+    const commission = totalAmount * COMMISSION_RATES.REFERRER;
+
+    return { totalAmount, commission };
+  }
+
+  // =============================================================
+  // 📊 ORDER STATISTICS
+  // ==============================================
+  async getOrderStats(): Promise<any> {
+    this.logger.log('📊 Getting order statistics');
+
+    const [
+      totalOrders,
+      confirmedOrders,
+      pendingOrders,
+      cancelledOrders,
+      expiredOrders,
+    ] = await Promise.all([
+      this.orderRepo.count(),
+      this.orderRepo.count({ where: { status: OrderStatus.CONFIRMED } }),
+      this.orderRepo.count({ where: { status: OrderStatus.PENDING } }),
+      this.orderRepo.count({ where: { status: OrderStatus.CANCELLED } }),
+      this.orderRepo.count({ where: { status: OrderStatus.EXPIRED } }),
+    ]);
+
+    const totalRevenue = await this.orderRepo
+      .createQueryBuilder('order')
+      .select('SUM(order.totalAmount)', 'total')
+      .where('order.status = :status', { status: OrderStatus.CONFIRMED })
+      .getRawOne();
+
+    return {
+      totalOrders,
+      confirmedOrders,
+      pendingOrders,
+      cancelledOrders,
+      expiredOrders,
+      totalRevenue: totalRevenue.total || 0,
+    };
+  }
+
+  // ================================================================
+  // 🗑️ REMOVE ORDER
+  // ======================================================================
+  async remove(
+    id: string,
+    userId: string,
+  ): Promise<{ success: boolean; message: string }> {
+    this.logger.log(`🗑️ Removing order ${id} by user ${userId}`);
+
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new BadRequestException('User not found');
+    }
+
+    const order = await this.orderRepo.findOne({
+      where: { id },
+      relations: ['seatBookings'],
+    });
+
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    // Only admin can remove orders
+    if (user.role !== UserRole.ADMIN) {
+      throw new ForbiddenException('Only admin can remove orders');
+    }
+
+    // Remove seat bookings first
+    if (order.seatBookings) {
+      await this.seatBookingRepo.delete({ orderId: id });
+    }
+
+    // Remove order
+    await this.orderRepo.delete(id);
+
+    // Create audit log
+    await this.createAuditLog(AuditAction.DELETE, 'Order', id, userId, {
+      reason: 'Order removed by admin',
+    });
+
+    return { success: true, message: 'Order removed successfully' };
+  }
+
+  // ==============================================================
+  // 🕐 SCHEDULED TASKS
+  // =================================================
+  @Cron(CronExpression.EVERY_MINUTE)
+  async handleExpiredOrders() {
+    this.logger.debug('🕐 Checking for expired orders...');
+
+    const expiredOrders = await this.orderRepo.find({
+      where: {
+        status: OrderStatus.PENDING,
+        expiresAt: Between(new Date('1970-01-01'), DateTimeHelper.now()),
+      },
+      relations: ['seatBookings'],
+    });
+
+    for (const order of expiredOrders) {
+      // Update order status
+      await this.orderRepo.update(order.id, {
+        status: OrderStatus.EXPIRED,
+        updatedAt: DateTimeHelper.now(),
+      });
+
+      // Release seat bookings
+      if (order.seatBookings) {
+        await this.seatBookingRepo.update(
+          { orderId: order.id },
+          { status: BookingStatus.EXPIRED, updatedAt: DateTimeHelper.now() },
+        );
+      }
+
+      this.logger.log(
+        `⏰ Order ${order.orderNumber} expired and seats released`,
+      );
+    }
+  }
+
+  // =======================================================
+  // 🔧 PRIVATE HELPER METHODS
+  // ===============================================
+  private async validateBookingLimits(
+    user: User,
+    request: CreateOrderRequest,
+  ): Promise<void> {
+    const limits = BOOKING_LIMITS[user.role];
+    const totalSeats = (request.quantity || 0) + (request.seatIds?.length || 0);
+
+    this.logger.log(
+      `Validating booking limits for user: ${user.id}, role: ${user.role}, totalSeats: ${totalSeats}`,
+    );
+
+    if (totalSeats > limits.maxSeatsPerOrder) {
+      this.logger.warn(
+        `User ${user.id} exceeded max seats per order: ${totalSeats} > ${limits.maxSeatsPerOrder}`,
+      );
+      throw new ForbiddenException(
+        `${user.role} สามารถจองได้สูงสุด ${limits.maxSeatsPerOrder} ที่นั่งต่อคำสั่ง`,
+      );
+    }
+
+    const today = DateTimeHelper.startOfDay(DateTimeHelper.now());
+    const todayOrders = await this.orderRepo.count({
+      where: {
+        userId: user.id,
+        createdAt: Between(today, DateTimeHelper.now()),
+      },
+    });
+
+    this.logger.log(
+      `User ${user.id} has made ${todayOrders} orders today, max allowed: ${limits.maxOrdersPerDay}`,
+    );
+
+    if (todayOrders >= limits.maxOrdersPerDay) {
+      this.logger.warn(
+        `User ${user.id} exceeded max orders per day: ${todayOrders} >= ${limits.maxOrdersPerDay}`,
+      );
+      throw new ForbiddenException(
+        `${user.role} สามารถทำรายการได้สูงสุด ${limits.maxOrdersPerDay} ครั้งต่อวัน`,
+      );
+    }
+  }
+
+  private async validateSeatAvailability(
+    seatIds: string[],
+    showDate: string,
+  ): Promise<void> {
+    const seats = await this.seatRepo.findByIds(seatIds);
+
+    if (seats.length !== seatIds.length) {
+      throw new BadRequestException('ไม่พบที่นั่งบางที่');
+    }
+
+    const bookedSeats = await this.seatBookingRepo.find({
+      where: {
+        seat: { id: In(seatIds) },
+        showDate: showDate,
+        status: In([BookingStatus.PENDING, BookingStatus.CONFIRMED]),
+      },
+    });
+
+    if (bookedSeats.length > 0) {
+      throw new BadRequestException('Some seats are already booked');
+    }
+  }
+
+  private calculateOrderPricing(request: CreateOrderRequest): {
+    totalAmount: number;
+    commission: number;
+  } {
+    const { ticketType, quantity = 0, seatIds = [] } = request;
+    const totalSeats = quantity + seatIds.length;
+
+    let pricePerSeat;
+    if (ticketType === TicketType.STANDING) {
+      pricePerSeat = TICKET_PRICES.STANDING_ADULT;
+    } else {
+      pricePerSeat = TICKET_PRICES[ticketType];
+    }
+    const commissionRate = COMMISSION_RATES.REFERRER;
+    console.log('pricePerSeat', pricePerSeat);
+
+    // Validate constants
+    if (
+      typeof pricePerSeat !== 'number' ||
+      typeof commissionRate !== 'number'
+    ) {
+      this.logger.error(
+        `Invalid constants: pricePerSeat=${pricePerSeat}, commissionRate=${commissionRate}`,
+      );
+      throw new InternalServerErrorException(
+        'Invalid ticket pricing or commission rates. Please contact support.',
+      );
+    }
+
+    this.logger.log(`Calculating pricing for ticketType: ${ticketType}`);
+    this.logger.log(`TICKET_PRICES: ${JSON.stringify(TICKET_PRICES)}`);
+    this.logger.log(`COMMISSION_RATES: ${JSON.stringify(COMMISSION_RATES)}`);
+
+    const totalAmount = totalSeats * pricePerSeat;
+    const commission = totalAmount * COMMISSION_RATES.REFERRER;
+
+    return { totalAmount, commission };
+  }
+
+  private async createSeatBookings(
+    order: Order,
+    seatIds: string[],
+    showDate: string,
+  ): Promise<void> {
+    const seats = await this.seatRepo.findByIds(seatIds);
+
+    const bookings = seats.map((seat) => ({
+      order,
+      orderId: order.id,
+      seat,
+      showDate: showDate,
+      status: BookingStatus.PENDING,
+      createdAt: DateTimeHelper.now(),
+      updatedAt: DateTimeHelper.now(),
+    }));
+
+    await this.seatBookingRepo.save(bookings);
+  }
+
+  private async createAuditLog(
+    action: AuditAction,
+    entityType: string,
+    entityId: string,
+    userId: string,
+    metadata?: any,
+  ): Promise<void> {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+
+    if (!user) {
+      throw new BadRequestException('User not found');
+    }
+
+    const auditLog = this.auditRepo.create({
+      action,
+      entityType,
+      entityId,
+      userId,
+      userRole: user.role, // Assign user role
+      metadata,
+      timestamp: DateTimeHelper.now(),
+    } as AuditLog);
+
+    await this.auditRepo.save(auditLog);
+  }
+
+  private mapToOrderData(order: Order): OrderData {
+    return {
+      id: order.id,
+      orderNumber: order.orderNumber,
+      customerName: order.customerName,
+      customerPhone: order.customerPhone,
+      email: order.customerEmail,
+      ticketType: order.ticketType,
+      quantity: order.quantity,
+      price: order.totalAmount,
+      totalAmount: order.totalAmount,
+      status: order.status,
+      paymentMethod: order.paymentMethod,
+      // paymentStatus: order.payment.status || PaymentStatus.PENDING,
+      paymentStatus: order?.payment?.status || PaymentStatus.PENDING,
+      showDate: DateTimeHelper.formatDate(order.showDate),
+      createdAt: order.createdAt,
+      updatedAt: order.updatedAt,
+      expiresAt: order.expiresAt,
+      referrerCode: order.referrerCode,
+      source: order.source,
+      note: order.note,
+      createdBy: order.userId,
+      updatedBy: order.updatedBy,
+      standingAdultQty: order.standingAdultQty,
+      standingChildQty: order.standingChildQty,
+      standingTotal: order.standingTotal,
+      standingCommission: order.standingCommission,
+      seats:
+        order.seatBookings?.map((booking) => {
+          return {
+            id: booking.seat.id,
+            seatNumber: booking.seat.seatNumber,
+            zone: booking.seat.zone
+              ? {
+                  id: booking.seat.zone.id,
+                  name: booking.seat.zone.name,
+                }
+              : null,
+          };
+        }) || [],
+    };
+  }
+
+  // =================================================================
+  // ✏️ UPDATE ORDER FOR TICKET TYPE: STANDING
+  // ======================================================================
+  async updateStandingOrder(
+    id: string,
+    updates: Partial<OrderData>,
+    userId: string,
+  ): Promise<OrderData> {
+    this.logger.log(`✏️ Updating standing order ${id} by user ${userId}`);
+
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new BadRequestException('User not found');
+    }
+
+    const order = await this.orderRepo.findOne({
+      where: { id },
+      relations: ['user'],
+    });
+
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    // Permission check
+    if (user.role === UserRole.USER && order.userId !== userId) {
+      throw new ForbiddenException('You can only update your own orders');
+    }
+
+    // Status validation
+    if (
+      order.status === OrderStatus.CONFIRMED &&
+      user.role !== UserRole.ADMIN
+    ) {
+      throw new BadRequestException('Cannot update confirmed orders');
+    }
+
+    // Update order
+    await this.orderRepo.update(id, {
+      ...updates,
+      updatedAt: DateTimeHelper.now(),
+      updatedBy: userId,
+    } as any);
+
+    // Create audit log
+    await this.createAuditLog(AuditAction.UPDATE, 'Order', id, userId, updates);
+
+    return this.findById(id);
+  }
+
+  // =================================================================
+  // 🔄 CONVERT SEAT NUMBERS TO IDS
+  // =================================================================
+  private async convertSeatNumbersToIds(
+    seatNumbers: string[],
+  ): Promise<string[]> {
+    this.logger.log(
+      `🔄 Converting seat numbers to IDs: ${seatNumbers.join(', ')}`,
+    );
+
+    const seats = await this.seatRepo.find({
+      where: { seatNumber: In(seatNumbers) },
+      select: ['id', 'seatNumber'],
+    });
+
+    if (seats.length !== seatNumbers.length) {
+      const foundSeatNumbers = seats.map((seat) => seat.seatNumber);
+      const missingSeatNumbers = seatNumbers.filter(
+        (num) => !foundSeatNumbers.includes(num),
+      );
+      throw new BadRequestException(
+        `ไม่พบหมายเลขที่นั่งต่อไปนี้: ${missingSeatNumbers.join(', ')}`,
+      );
+    }
+
+    const seatIds = seats.map((seat) => seat.id);
+    this.logger.log(`✅ Converted seat numbers to IDs: ${seatIds.join(', ')}`);
+
+    return seatIds;
+  }
+
+  // =================================================================
+  // 🔄 VALIDATE SEAT AVAILABILITY EXCLUDING CURRENT ORDER
+  // =================================================================
+  private async validateSeatAvailabilityExcludingOrder(
+    seatIds: string[],
+    showDate: string,
+    currentOrderId: string,
+  ): Promise<void> {
+    this.logger.log(
+      `🔄 Validating seat availability excluding order: ${currentOrderId}`,
+    );
+
+    const seats = await this.seatRepo.findByIds(seatIds);
+
+    if (seats.length !== seatIds.length) {
+      throw new BadRequestException('ไม่พบที่นั่งบางที่');
+    }
+
+    const bookedSeats = await this.seatBookingRepo.find({
+      where: {
+        seat: { id: In(seatIds) },
+        showDate: showDate,
+        status: In([
+          BookingStatus.PENDING,
+          BookingStatus.CONFIRMED,
+          BookingStatus.PAID,
+        ]),
+      },
       relations: ['order'],
     });
 
-    for (const booking of bookings) {
-      booking.status = BookingStatus.CANCELLED;
-      booking.order = null;
+    // Filter out bookings from the current order
+    const conflictingBookings = bookedSeats.filter(
+      (booking) => booking.order.id !== currentOrderId,
+    );
+
+    if (conflictingBookings.length > 0) {
+      const conflictingSeatNumbers = await Promise.all(
+        conflictingBookings.map(async (booking) => {
+          const seat = await this.seatRepo.findOne({
+            where: { id: booking.seat.id },
+          });
+          return seat?.seatNumber || booking.seat.id;
+        }),
+      );
+
+      throw new BadRequestException(
+        `ที่นั่งหมายเลข ${conflictingSeatNumbers.join(', ')} ถูกจองไปแล้วในวันที่แสดงนี้`,
+      );
     }
 
-    await this.seatBookingRepo.save(bookings);
-
-    return order;
-  }
-
-  async remove(id: string) {
-    return this.orderRepo.delete(id);
+    this.logger.log(`✅ All seats are available for the show date`);
   }
 }

@@ -1,11 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
-import { Zone } from 'src/zone/zone.entity';
+import { Zone } from '../zone/zone.entity';
 import { Seat } from './seat.entity';
 import { SeatBooking } from './seat-booking.entity';
 import { CreateSeatDto } from './dto/create-seat.dto';
-import { SeatStatus } from './eat-status.enum';
+import { SeatStatus } from '../common/enums';
 import { SeatFilterDto } from './dto/seat-filter.dto';
 
 @Injectable()
@@ -48,7 +48,7 @@ export class SeatService {
       relations: ['seat'],
     });
 
-    // 3. Map seatId → bookingStatus ('PAID', 'BOOKED')
+    // 3. Map seatId → bookingStatus ('PENDING', 'PAID', 'BOOKED')
     const bookingMap = new Map<string, string>();
     for (const booking of bookings) {
       bookingMap.set(booking.seat.id, booking.status);

@@ -1,0 +1,39 @@
+{
+  "name": "ticket-booking-tests",
+  "version": "1.0.0",
+  "description": "Comprehensive test suite for ticket booking system",
+  "scripts": {
+    "test": "npm run test:unit && npm run test:integration && npm run test:e2e",
+    "test:unit": "jest --testPathPattern='\\.unit\\.spec\\.ts$'",
+    "test:integration": "jest --testPathPattern='\\.integration\\.spec\\.ts$'",
+    "test:e2e": "jest --testPathPattern='\\.e2e-spec\\.ts$' --forceExit",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
+    "test:api": "newman run test/api-collection.json",
+    "test:load": "artillery run test/load-test.yml",
+    "test:security": "npm audit && snyk test",
+    "test:all": "./test-runner.sh"
+  },
+  "jest": {
+    "moduleFileExtensions": [
+      "js",
+      "json",
+      "ts"
+    ],
+    "rootDir": ".",
+    "testRegex": ".*\\.spec\\.ts$",
+    "transform": {
+      "^.+\\.(t|j)s$": "ts-jest"
+    },
+    "collectCoverageFrom": [
+      "src/**/*.(t|j)s",
+      "!src/main.ts",
+      "!src/**/*.spec.ts",
+      "!src/**/*.d.ts"
+    ],
+    "coverageDirectory": "./coverage",
+    "testEnvironment": "node",
+    "setupFilesAfterEnv": ["<rootDir>/test/jest.setup.ts"]
+  }
+}
