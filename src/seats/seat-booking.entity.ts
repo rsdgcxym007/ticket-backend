@@ -1,13 +1,14 @@
-import { Entity, PrimaryGeneratedColumn, ManyToOne, Column } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  ManyToOne,
+  Column,
+  CreateDateColumn,
+  UpdateDateColumn,
+} from 'typeorm';
 import { Seat } from '../seats/seat.entity';
 import { Order } from '../order/order.entity';
-
-export enum BookingStatus {
-  BOOKED = 'BOOKED',
-  PAID = 'PAID',
-  CANCELLED = 'CANCELLED',
-  AVAILABLE = 'AVAILABLE',
-}
+import { BookingStatus } from '../common/enums';
 
 @Entity()
 export class SeatBooking {
@@ -22,9 +23,18 @@ export class SeatBooking {
   })
   order: Order;
 
+  @Column({ nullable: true })
+  orderId?: string;
+
   @Column({ type: 'date' })
   showDate: string;
 
   @Column({ type: 'enum', enum: BookingStatus, default: BookingStatus.BOOKED })
   status: BookingStatus;
+
+  @CreateDateColumn({ type: 'timestamptz' })
+  createdAt: Date;
+
+  @UpdateDateColumn({ type: 'timestamptz' })
+  updatedAt: Date;
 }

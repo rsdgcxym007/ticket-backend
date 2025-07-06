@@ -1,0 +1,1520 @@
+{
+  "info": {
+    "name": "🎫 Ticket Booking API Collection",
+    "description": "Complete API collection for ticket booking system with test data",
+    "version": "1.0.0",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000/api/v1"
+    },
+    {
+      "key": "token",
+      "value": "your-jwt-token-here"
+    },
+    {
+      "key": "userId",
+      "value": "user-uuid-here"
+    },
+    {
+      "key": "orderId",
+      "value": "order-uuid-here"
+    },
+    {
+      "key": "seatId",
+      "value": "seat-uuid-here"
+    },
+    {
+      "key": "zoneId",
+      "value": "zone-uuid-here"
+    },
+    {
+      "key": "referrerId",
+      "value": "referrer-uuid-here"
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "🔐 Authentication",
+      "item": [
+        {
+          "name": "Register (สมัครสมาชิก)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"testuser@example.com\",\n  \"password\": \"password123\",\n  \"name\": \"ผู้ใช้ทดสอบ\",\n  \"phone\": \"0901234567\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "register"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Login (เข้าสู่ระบบ)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"testuser@example.com\",\n  \"password\": \"password123\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "login"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Profile (ดูข้อมูลผู้ใช้)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/profile",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "profile"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Google Login",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/google",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "google"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Facebook Login",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/facebook",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "facebook"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "LINE Login",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/line",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "line"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "🏟️ Zones & Seats",
+      "item": [
+        {
+          "name": "Get All Zones (ดูโซนทั้งหมด)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/zones",
+              "host": ["{{baseUrl}}"],
+              "path": ["zones"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Zone by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/zones/{{zoneId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["zones", "{{zoneId}}"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Zone (สร้างโซน)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Ringside VIP\",\n  \"description\": \"นั่งใกล้เวทีที่สุด\",\n  \"price\": 2000,\n  \"seatMap\": [\n    [\"A1\", \"A2\", \"A3\", \"A4\", \"A5\"],\n    [\"B1\", \"B2\", \"B3\", \"B4\", \"B5\"],\n    [\"C1\", \"C2\", \"C3\", \"C4\", \"C5\"]\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/zones",
+              "host": ["{{baseUrl}}"],
+              "path": ["zones"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Zone",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Ringside Premium\",\n  \"description\": \"นั่งใกล้เวทีสุดพิเศษ\",\n  \"price\": 2500\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/zones/{{zoneId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["zones", "{{zoneId}}"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Zone",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/zones/{{zoneId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["zones", "{{zoneId}}"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get All Seats (ดูที่นั่งทั้งหมด)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/seats",
+              "host": ["{{baseUrl}}"],
+              "path": ["seats"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Seats by Zone (ดูที่นั่งตามโซน)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/seats/by-zone/{{zoneId}}?showDate=2024-12-31T19:00:00Z",
+              "host": ["{{baseUrl}}"],
+              "path": ["seats", "by-zone", "{{zoneId}}"],
+              "query": [
+                {
+                  "key": "showDate",
+                  "value": "2024-12-31T19:00:00Z"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Seat by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/seats/{{seatId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["seats", "{{seatId}}"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Seat",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"seatNumber\": \"D1\",\n  \"rowIndex\": 3,\n  \"columnIndex\": 0,\n  \"zoneId\": \"{{zoneId}}\",\n  \"status\": \"AVAILABLE\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/seats",
+              "host": ["{{baseUrl}}"],
+              "path": ["seats"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Seat",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"MAINTENANCE\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/seats/{{seatId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["seats", "{{seatId}}"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Seat",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/seats/{{seatId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["seats", "{{seatId}}"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "🎫 Orders",
+      "item": [
+        {
+          "name": "Create Order (สร้างออเดอร์)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerName\": \"นายทดสอบ ระบบ\",\n  \"customerPhone\": \"0901234567\",\n  \"customerEmail\": \"customer@example.com\",\n  \"ticketType\": \"RINGSIDE\",\n  \"quantity\": 2,\n  \"seatIds\": [\"{{seatId}}\"],\n  \"showDate\": \"2024-12-31T19:00:00Z\",\n  \"referrerCode\": \"REF001\",\n  \"paymentMethod\": \"QR_CODE\",\n  \"note\": \"ขอที่นั่งใกล้กัน\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get All Orders (ดูออเดอร์ทั้งหมด)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders?page=1&limit=10&status=PENDING&search=ทดสอบ",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                },
+                {
+                  "key": "status",
+                  "value": "PENDING"
+                },
+                {
+                  "key": "search",
+                  "value": "ทดสอบ"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Order by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{orderId}}"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Order (แก้ไขออเดอร์)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerName\": \"นายทดสอบ ระบบใหม่\",\n  \"customerPhone\": \"0987654321\",\n  \"note\": \"แก้ไขข้อมูลลูกค้า\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{orderId}}"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Cancel Order (ยกเลิกออเดอร์)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/cancel",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{orderId}}", "cancel"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Confirm Payment (ยืนยันการชำระเงิน)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/confirm-payment",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{orderId}}", "confirm-payment"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Generate Tickets (ออกตั๋ว)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/tickets",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{orderId}}", "tickets"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Change Seats (เปลี่ยนที่นั่ง)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"seatIds\": [\"{{seatId}}\"]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/change-seats",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{orderId}}", "change-seats"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Order Statistics (สถิติออเดอร์)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders/stats/overview",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "stats", "overview"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Orders by Date Range",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders/by-date?startDate=2024-01-01&endDate=2024-12-31",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "by-date"],
+              "query": [
+                {
+                  "key": "startDate",
+                  "value": "2024-01-01"
+                },
+                {
+                  "key": "endDate",
+                  "value": "2024-12-31"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "💳 Payments",
+      "item": [
+        {
+          "name": "Create Payment (สร้างการชำระเงิน)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": \"{{orderId}}\",\n  \"amount\": 3000,\n  \"paymentMethod\": \"CASH\",\n  \"note\": \"ชำระเงินสดที่เคาน์เตอร์\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/payments",
+              "host": ["{{baseUrl}}"],
+              "path": ["payments"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Pay Standing Ticket (ชำระตั๋วยืน)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerName\": \"นายยืน ดูมวย\",\n  \"customerPhone\": \"0901234567\",\n  \"quantity\": 3,\n  \"amount\": 1500,\n  \"referrerCode\": \"REF001\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/payments/pay-standing",
+              "host": ["{{baseUrl}}"],
+              "path": ["payments", "pay-standing"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get All Payments",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/payments?page=1&limit=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["payments"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Payment by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/payments/{{paymentId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["payments", "{{paymentId}}"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Upload Payment Slip (อัพโหลดสลิป)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "/path/to/payment-slip.jpg"
+                },
+                {
+                  "key": "orderId",
+                  "value": "{{orderId}}",
+                  "type": "text"
+                },
+                {
+                  "key": "amount",
+                  "value": "3000",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/payments/upload-slip",
+              "host": ["{{baseUrl}}"],
+              "path": ["payments", "upload-slip"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "👥 Users",
+      "item": [
+        {
+          "name": "Get All Users (ดูผู้ใช้ทั้งหมด)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users?page=1&limit=10&search=ทดสอบ",
+              "host": ["{{baseUrl}}"],
+              "path": ["users"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                },
+                {
+                  "key": "search",
+                  "value": "ทดสอบ"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get User by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/{{userId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["users", "{{userId}}"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create User (สร้างผู้ใช้)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"newuser@example.com\",\n  \"password\": \"password123\",\n  \"name\": \"ผู้ใช้ใหม่\",\n  \"phone\": \"0901234567\",\n  \"role\": \"USER\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/users",
+              "host": ["{{baseUrl}}"],
+              "path": ["users"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update User (แก้ไขผู้ใช้)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"ผู้ใช้ใหม่ (แก้ไขแล้ว)\",\n  \"phone\": \"0987654321\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/users/{{userId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["users", "{{userId}}"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete User (ลบผู้ใช้)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/{{userId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["users", "{{userId}}"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Change User Role (เปลี่ยนบทบาท)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"role\": \"STAFF\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/users/{{userId}}/role",
+              "host": ["{{baseUrl}}"],
+              "path": ["users", "{{userId}}", "role"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "🏷️ Referrers",
+      "item": [
+        {
+          "name": "Get All Referrers (ดูผู้แนะนำทั้งหมด)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/referrers?page=1&limit=10&search=ทดสอบ",
+              "host": ["{{baseUrl}}"],
+              "path": ["referrers"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                },
+                {
+                  "key": "search",
+                  "value": "ทดสอบ"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Referrer by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/referrers/{{referrerId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["referrers", "{{referrerId}}"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Referrer (สร้างผู้แนะนำ)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"นายแนะนำ ระบบ\",\n  \"phone\": \"0901234567\",\n  \"email\": \"referrer@example.com\",\n  \"code\": \"REF001\",\n  \"commissionRate\": 10\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/referrers",
+              "host": ["{{baseUrl}}"],
+              "path": ["referrers"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Referrer (แก้ไขผู้แนะนำ)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"นายแนะนำ ระบบใหม่\",\n  \"commissionRate\": 12\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/referrers/{{referrerId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["referrers", "{{referrerId}}"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Referrer (ลบผู้แนะนำ)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/referrers/{{referrerId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["referrers", "{{referrerId}}"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Orders by Referrer (ดูออเดอร์ของผู้แนะนำ)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/referrers/{{referrerId}}/orders?startDate=2024-01-01&endDate=2024-12-31",
+              "host": ["{{baseUrl}}"],
+              "path": ["referrers", "{{referrerId}}", "orders"],
+              "query": [
+                {
+                  "key": "startDate",
+                  "value": "2024-01-01"
+                },
+                {
+                  "key": "endDate",
+                  "value": "2024-12-31"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Export Referrer PDF (ออกรายงาน PDF)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/referrers/{{referrerId}}/export-pdf?startDate=2024-01-01&endDate=2024-12-31",
+              "host": ["{{baseUrl}}"],
+              "path": ["referrers", "{{referrerId}}", "export-pdf"],
+              "query": [
+                {
+                  "key": "startDate",
+                  "value": "2024-01-01"
+                },
+                {
+                  "key": "endDate",
+                  "value": "2024-12-31"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "📊 Dashboard & Analytics",
+      "item": [
+        {
+          "name": "Get Dashboard Overview (ภาพรวมแดชบอร์ด)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/dashboard/overview",
+              "host": ["{{baseUrl}}"],
+              "path": ["dashboard", "overview"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Sales Analytics (วิเคราะห์ยอดขาย)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/dashboard/sales?startDate=2024-01-01&endDate=2024-12-31",
+              "host": ["{{baseUrl}}"],
+              "path": ["dashboard", "sales"],
+              "query": [
+                {
+                  "key": "startDate",
+                  "value": "2024-01-01"
+                },
+                {
+                  "key": "endDate",
+                  "value": "2024-12-31"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Popular Zones (โซนยอดนิยม)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/dashboard/popular-zones",
+              "host": ["{{baseUrl}}"],
+              "path": ["dashboard", "popular-zones"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Customer Analytics (วิเคราะห์ลูกค้า)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/dashboard/customers",
+              "host": ["{{baseUrl}}"],
+              "path": ["dashboard", "customers"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "📱 Mobile APIs",
+      "item": [
+        {
+          "name": "Get Mobile Config (การตั้งค่าแอปมือถือ)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/mobile/config",
+              "host": ["{{baseUrl}}"],
+              "path": ["mobile", "config"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Mobile Dashboard",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/mobile/dashboard",
+              "host": ["{{baseUrl}}"],
+              "path": ["mobile", "dashboard"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Mobile Orders",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/mobile/orders",
+              "host": ["{{baseUrl}}"],
+              "path": ["mobile", "orders"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "🔔 Notifications",
+      "item": [
+        {
+          "name": "Get All Notifications (ดูการแจ้งเตือนทั้งหมด)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/notifications",
+              "host": ["{{baseUrl}}"],
+              "path": ["notifications"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Send Notification (ส่งการแจ้งเตือน)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"การแจ้งเตือนทดสอบ\",\n  \"message\": \"นี่คือข้อความทดสอบ\",\n  \"type\": \"ORDER_CONFIRMED\",\n  \"userId\": \"{{userId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/notifications",
+              "host": ["{{baseUrl}}"],
+              "path": ["notifications"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Mark as Read (อ่านแล้ว)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/notifications/{{notificationId}}/read",
+              "host": ["{{baseUrl}}"],
+              "path": ["notifications", "{{notificationId}}", "read"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "🔧 Utilities",
+      "item": [
+        {
+          "name": "Upload File (อัพโหลดไฟล์)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "/path/to/file.jpg"
+                },
+                {
+                  "key": "type",
+                  "value": "payment-slip",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/upload",
+              "host": ["{{baseUrl}}"],
+              "path": ["upload"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "OCR Text Recognition (อ่านข้อความจากรูป)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "/path/to/image.jpg"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/ocr/read-text",
+              "host": ["{{baseUrl}}"],
+              "path": ["ocr", "read-text"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Generate QR Code (สร้าง QR Code)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"data\": \"ORDER-240101-001\",\n  \"size\": 200\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/utils/qr-code",
+              "host": ["{{baseUrl}}"],
+              "path": ["utils", "qr-code"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "🏥 Health Check",
+      "item": [
+        {
+          "name": "Health Check (ตรวจสุขภาพระบบ)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Database Health (ตรวจสุขภาพฐานข้อมูล)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health/db",
+              "host": ["{{baseUrl}}"],
+              "path": ["health", "db"]
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Auto-generate UUIDs for testing",
+          "if (!pm.globals.get('testUserId')) {",
+          "    pm.globals.set('testUserId', '12345678-1234-1234-1234-123456789012');",
+          "}",
+          "",
+          "if (!pm.globals.get('testOrderId')) {",
+          "    pm.globals.set('testOrderId', '12345678-1234-1234-1234-123456789013');",
+          "}",
+          "",
+          "if (!pm.globals.get('testSeatId')) {",
+          "    pm.globals.set('testSeatId', '12345678-1234-1234-1234-123456789014');",
+          "}",
+          "",
+          "if (!pm.globals.get('testZoneId')) {",
+          "    pm.globals.set('testZoneId', '12345678-1234-1234-1234-123456789015');",
+          "}",
+          "",
+          "if (!pm.globals.get('testReferrerId')) {",
+          "    pm.globals.set('testReferrerId', '12345678-1234-1234-1234-123456789016');",
+          "}"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Auto-save token from login responses",
+          "if (pm.response.code === 200 || pm.response.code === 201) {",
+          "    try {",
+          "        const response = pm.response.json();",
+          "        ",
+          "        // Save token from login/register",
+          "        if (response.access_token) {",
+          "            pm.globals.set('token', response.access_token);",
+          "            console.log('Token saved:', response.access_token);",
+          "        }",
+          "        ",
+          "        // Save IDs from create responses",
+          "        if (response.data && response.data.id) {",
+          "            const endpoint = pm.info.requestName.toLowerCase();",
+          "            if (endpoint.includes('order')) {",
+          "                pm.globals.set('orderId', response.data.id);",
+          "            } else if (endpoint.includes('user')) {",
+          "                pm.globals.set('userId', response.data.id);",
+          "            } else if (endpoint.includes('seat')) {",
+          "                pm.globals.set('seatId', response.data.id);",
+          "            } else if (endpoint.includes('zone')) {",
+          "                pm.globals.set('zoneId', response.data.id);",
+          "            } else if (endpoint.includes('referrer')) {",
+          "                pm.globals.set('referrerId', response.data.id);",
+          "            }",
+          "        }",
+          "    } catch (e) {",
+          "        // Handle non-JSON responses",
+          "    }",
+          "}",
+          "",
+          "// Basic test for successful responses",
+          "pm.test('Status code is successful', function () {",
+          "    pm.expect(pm.response.code).to.be.oneOf([200, 201, 204]);",
+          "});",
+          "",
+          "pm.test('Response time is less than 5000ms', function () {",
+          "    pm.expect(pm.response.responseTime).to.be.below(5000);",
+          "});"
+        ]
+      }
+    }
+  ]
+}

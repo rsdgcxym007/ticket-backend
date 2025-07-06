@@ -5,7 +5,7 @@ import {
   IsString,
   IsEnum,
 } from 'class-validator';
-import { PaymentMethod } from '../payment.entity';
+import { PaymentMethod } from '../../common/enums';
 
 export class CreatePaymentDto {
   @IsUUID()
@@ -18,6 +18,14 @@ export class CreatePaymentDto {
   @IsString()
   customerName?: string;
 
+  @IsOptional()
+  @IsString()
+  customerPhone?: string;
+
+  @IsOptional()
+  @IsString()
+  customerEmail?: string;
+
   @IsNumber()
   amount: number;
 
@@ -25,6 +33,7 @@ export class CreatePaymentDto {
   @IsString()
   slipUrl?: string;
 
+  @IsOptional()
   @IsString()
   referrerCode?: string;
 }

@@ -11,8 +11,8 @@ import {
   Query,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
-import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
-import { success } from 'src/common/responses';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { success } from '../common/responses';
 import { CreateSeatDto } from './dto/create-seat.dto';
 import { UpdateSeatDto, UpdateSeatStatusDto } from './dto/update-seat.dto';
 import { SeatService } from './seat.service';

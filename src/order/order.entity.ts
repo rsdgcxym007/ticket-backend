@@ -1,8 +1,8 @@
-import { Payment } from 'src/payment/payment.entity';
-import { Referrer } from 'src/referrer/referrer.entity';
-import { SeatBooking } from 'src/seats/seat-booking.entity';
-import { Seat } from 'src/seats/seat.entity';
-import { User } from 'src/user/user.entity';
+import { Payment } from '../payment/payment.entity';
+import { Referrer } from '../referrer/referrer.entity';
+import { SeatBooking } from '../seats/seat-booking.entity';
+import { Seat } from '../seats/seat.entity';
+import { User } from '../user/user.entity';
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -14,24 +14,20 @@ import {
   JoinColumn,
   OneToOne,
 } from 'typeorm';
-
-export enum OrderStatus {
-  PENDING = 'PENDING',
-  PAID = 'PAID',
-  CANCELLED = 'CANCELLED',
-  BOOKED = 'BOOKED',
-}
-
-export enum OrderMethod {
-  QR = 'QR',
-  TRANSFER = 'TRANSFER',
-  CASH = 'CASH',
-}
+import {
+  OrderStatus,
+  PaymentMethod,
+  TicketType,
+  OrderSource,
+} from '../common/enums';
 
 @Entity()
 export class Order {
   @PrimaryGeneratedColumn('uuid')
   id: string;
+
+  @Column({ unique: true })
+  orderNumber: string;
 
   @ManyToOne(() => User, { nullable: true, eager: false })
   @JoinColumn({ name: 'userId' })
@@ -43,8 +39,21 @@ export class Order {
   @Column({ nullable: true })
   referrerCode?: string;
 
+  @Column({ type: 'int', default: 1 })
+  quantity: number;
+
   @Column({ type: 'decimal' })
   total: number;
+
+  @Column({ type: 'decimal' })
+  totalAmount: number;
+
+  @Column({
+    type: 'enum',
+    enum: PaymentMethod,
+    default: PaymentMethod.QR_CODE,
+  })
+  paymentMethod: PaymentMethod;
 
   @Column({
     type: 'enum',
@@ -55,10 +64,10 @@ export class Order {
 
   @Column({
     type: 'enum',
-    enum: OrderMethod,
-    default: OrderMethod.QR,
+    enum: PaymentMethod,
+    default: PaymentMethod.QR_CODE,
   })
-  method: OrderMethod;
+  method: PaymentMethod;
 
   @OneToMany(() => Seat, (seat) => seat.order, {
     cascade: true,
@@ -99,6 +108,86 @@ export class Order {
 
   @Column({ nullable: true })
   customerName?: string;
+
+  @Column({ nullable: true })
+  customerPhone?: string;
+
+  @Column({ nullable: true })
+  customerEmail?: string;
+
+  @Column({ nullable: true })
+  slipUrl?: string;
+
+  @Column({ type: 'boolean', default: false })
+  slipVerified: boolean;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  slipVerifiedAt?: Date;
+
+  @Column({ nullable: true })
+  slipVerifiedBy?: string;
+
+  @Column({ nullable: true })
+  transactionId?: string;
+
+  @Column({ nullable: true })
+  cancelReason?: string;
+
+  @Column({ nullable: true })
+  refundReason?: string;
+
+  @Column({ type: 'decimal', default: 0 })
+  refundAmount: number;
+
+  @Column({ nullable: true })
+  specialRequests?: string;
+
+  @Column({ type: 'boolean', default: false })
+  requiresPickup: boolean;
+
+  @Column({ type: 'boolean', default: false })
+  requiresDropoff: boolean;
+
+  @Column({ nullable: true })
+  pickupHotel?: string;
+
+  @Column({ nullable: true })
+  dropoffLocation?: string;
+
+  @Column({ nullable: true })
+  pickupTime?: string;
+
+  @Column({ nullable: true })
+  dropoffTime?: string;
+
+  @Column({ type: 'date', nullable: true })
+  travelDate?: Date;
+
+  @Column({ nullable: true })
+  voucherCode?: string;
+
+  @Column({ nullable: true })
+  referenceNo?: string;
+
+  @Column({
+    type: 'enum',
+    enum: OrderSource,
+    default: OrderSource.DIRECT,
+  })
+  source: OrderSource;
+
+  @Column({
+    type: 'enum',
+    enum: TicketType,
+    nullable: true,
+  })
+  ticketType?: TicketType;
+
+  @Column({ type: 'text', nullable: true })
+  note?: string;
+
+  @Column({ nullable: true })
+  updatedBy?: string;
 
   @Column({ type: 'int', default: 0 })
   standingAdultQty: number;

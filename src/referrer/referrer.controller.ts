@@ -14,9 +14,9 @@ import {
 import { ReferrerService } from './referrer.service';
 import { CreateReferrerDto } from './dto/create-referrer.dto';
 import { UpdateReferrerDto } from './dto/update-referrer.dto';
-import { success } from 'src/common/responses';
+import { success } from '../common/responses';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
-import { OrderService } from 'src/order/order.service';
+import { OrderService } from '../order/order.service';
 import { Response } from 'express';
 
 @ApiTags('Referrers')
@@ -74,7 +74,7 @@ export class ReferrerController {
   ) {
     console.log('exportReferrerPdf');
 
-    const buffer = await this.orderService.generateReferrerPdf(
+    const buffer = await this.service.generateReferrerPdf(
       id,
       startDate,
       endDate,
@@ -95,7 +95,7 @@ export class ReferrerController {
     @Query('endDate') endDate: string,
     @Res() res: Response,
   ) {
-    const buffer = await this.orderService.generateReferrerPdf(
+    const buffer = await this.service.generateReferrerPdf(
       id,
       startDate,
       endDate,

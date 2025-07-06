@@ -11,7 +11,7 @@ import { Auth } from './auth.entity';
 import { LoginDto } from './dto/login.dto';
 import * as bcrypt from 'bcrypt';
 import { RegisterDto } from './dto/register.dto';
-import { User } from 'src/user/user.entity';
+import { User } from '../user/user.entity';
 @Injectable()
 export class AuthService {
   constructor(

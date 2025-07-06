@@ -1,5 +1,5 @@
 import { IsString, IsUUID, IsInt, IsEnum } from 'class-validator';
-import { SeatStatus } from '../eat-status.enum';
+import { SeatStatus } from '../../common/enums';
 
 export class CreateSeatDto {
   @IsString()

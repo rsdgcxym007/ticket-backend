@@ -7,20 +7,9 @@ import {
   JoinColumn,
   OneToOne,
 } from 'typeorm';
-import { Order } from 'src/order/order.entity';
-import { User } from 'src/user/user.entity';
-
-export enum PaymentMethod {
-  QR = 'QR',
-  TRANSFER = 'TRANSFER',
-  CASH = 'CASH',
-}
-
-export enum PaymentStatus {
-  PAID = 'PAID',
-  PENDING = 'PENDING',
-  FAILED = 'FAILED',
-}
+import { Order } from '../order/order.entity';
+import { User } from '../user/user.entity';
+import { PaymentMethod, PaymentStatus } from '../common/enums';
 
 @Entity()
 export class Payment {

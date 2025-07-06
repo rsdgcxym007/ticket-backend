@@ -4,7 +4,7 @@ import { Between, FindOptionsWhere, Repository } from 'typeorm';
 import { Referrer } from './referrer.entity';
 import { CreateReferrerDto } from './dto/create-referrer.dto';
 import { UpdateReferrerDto } from './dto/update-referrer.dto';
-import { Order } from 'src/order/order.entity';
+import { Order } from '../order/order.entity';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
@@ -152,5 +152,35 @@ export class ReferrerService {
           }
         : null,
     }));
+  }
+
+  /**
+   * Generate PDF report for referrer
+   * TODO: Implement actual PDF generation
+   */
+  async generateReferrerPdf(
+    id: string,
+    startDate: string,
+    endDate: string,
+  ): Promise<Buffer> {
+    // This is a placeholder implementation
+    // TODO: Implement actual PDF generation using libraries like puppeteer or pdf-lib
+
+    const referrer = await this.findOne(id);
+
+    // Create a simple PDF placeholder
+    const pdfContent = `
+      Referrer Report
+      ================
+
+      Referrer: ${referrer.name}
+      Code: ${referrer.code}
+      Period: ${startDate} to ${endDate}
+
+      This is a placeholder PDF.
+      Please implement actual PDF generation.
+    `;
+
+    return Buffer.from(pdfContent, 'utf-8');
   }
 }
