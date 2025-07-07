@@ -7,7 +7,12 @@ import {
   IsString,
   IsDateString,
 } from 'class-validator';
-import { TicketType, PaymentMethod, OrderSource } from '../../common/enums';
+import {
+  TicketType,
+  PaymentMethod,
+  OrderSource,
+  OrderStatus,
+} from '../../common/enums';
 
 export class CreateOrderDto {
   @IsOptional()
@@ -55,6 +60,10 @@ export class CreateOrderDto {
   @IsOptional()
   @IsEnum(OrderSource)
   source?: OrderSource;
+
+  @IsOptional()
+  @IsEnum(OrderStatus)
+  status?: OrderStatus;
 
   @IsOptional()
   @IsUUID()

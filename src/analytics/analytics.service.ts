@@ -11,7 +11,7 @@ import {
   TicketType,
   BookingStatus,
 } from '../common/enums';
-import { DateTimeHelper } from '../common/utils';
+import { ThailandTimeHelper } from '../common/utils';
 import { GetCustomReportDto, ExportReportDto } from './dto/analytics.dto';
 
 export interface DailySalesReport {
@@ -117,8 +117,8 @@ export class AnalyticsService {
   async getDailySalesReport(date: string): Promise<DailySalesReport> {
     this.logger.log(`📊 สร้างรายงานยอดขายวันที่ ${date}`);
 
-    const startDate = DateTimeHelper.startOfDay(new Date(date));
-    const endDate = DateTimeHelper.endOfDay(new Date(date));
+    const startDate = ThailandTimeHelper.startOfDay(date);
+    const endDate = ThailandTimeHelper.endOfDay(date);
 
     // ข้อมูลออเดอร์ทั้งหมด
     const orders = await this.orderRepo.find({
@@ -200,10 +200,12 @@ export class AnalyticsService {
   ): Promise<DailySalesReport[]> {
     this.logger.log(`📈 สร้างรายงานรายเดือน ${year}-${month}`);
 
-    const startDate = new Date(year, month - 1, 1);
+    const startDate = ThailandTimeHelper.toThailandTime(
+      `${year}-${month.toString().padStart(2, '0')}-01`,
+    );
     console.log('startDate', startDate);
 
-    const endDate = new Date(year, month, 0);
+    const endDate = ThailandTimeHelper.endOfMonth(startDate);
 
     const reports: DailySalesReport[] = [];
 
@@ -225,8 +227,8 @@ export class AnalyticsService {
   ): Promise<ReferrerReport[]> {
     this.logger.log(`👥 สร้างรายงานผู้แนะนำ ${startDate} - ${endDate}`);
 
-    const start = DateTimeHelper.startOfDay(new Date(startDate));
-    const end = DateTimeHelper.endOfDay(new Date(endDate));
+    const start = ThailandTimeHelper.startOfDay(startDate);
+    const end = ThailandTimeHelper.endOfDay(endDate);
 
     const referrers = await this.referrerRepo
       .createQueryBuilder('referrer')
@@ -267,12 +269,12 @@ export class AnalyticsService {
   async getSeatUtilizationReport(date: string): Promise<SeatUtilizationReport> {
     this.logger.log(`💺 สร้างรายงานการใช้งานที่นั่งวันที่ ${date}`);
 
-    const targetDate = new Date(date);
+    const targetDate = ThailandTimeHelper.toThailandTime(date);
 
     // นับที่นั่งทั้งหมดที่จองในวันนี้
     const bookings = await this.seatBookingRepo.find({
       where: {
-        showDate: DateTimeHelper.formatDate(targetDate),
+        showDate: ThailandTimeHelper.format(targetDate),
       },
       relations: ['order'],
     });
@@ -308,7 +310,7 @@ export class AnalyticsService {
   async getRealtimeStats() {
     this.logger.log('📊 ดึงสถิติแบบ Real-time');
 
-    const today = DateTimeHelper.formatDate(DateTimeHelper.now());
+    const today = ThailandTimeHelper.format(ThailandTimeHelper.now());
 
     // สถิติวันนี้
     const todayReport = await this.getDailySalesReport(today);
@@ -331,7 +333,7 @@ export class AnalyticsService {
       pendingOrders,
       pendingSlipOrders,
       seatUtilization,
-      lastUpdated: DateTimeHelper.now(),
+      lastUpdated: ThailandTimeHelper.now(),
     };
   }
 
@@ -341,13 +343,15 @@ export class AnalyticsService {
   async getWeeklyComparison() {
     this.logger.log('📈 เปรียบเทียบยอดขายรายสัปดาห์');
 
-    const thisWeekStart = DateTimeHelper.startOfWeek(DateTimeHelper.now());
-    const lastWeekStart = DateTimeHelper.addDays(thisWeekStart, -7);
-    const lastWeekEnd = DateTimeHelper.addDays(thisWeekStart, -1);
+    const thisWeekStart = ThailandTimeHelper.startOfWeek(
+      ThailandTimeHelper.now(),
+    );
+    const lastWeekStart = ThailandTimeHelper.add(thisWeekStart, -7, 'day');
+    const lastWeekEnd = ThailandTimeHelper.add(thisWeekStart, -1, 'day');
 
     const thisWeekOrders = await this.orderRepo.find({
       where: {
-        createdAt: Between(thisWeekStart, DateTimeHelper.now()),
+        createdAt: Between(thisWeekStart, ThailandTimeHelper.now()),
         status: OrderStatus.PAID,
       },
     });
@@ -455,10 +459,10 @@ export class AnalyticsService {
 
     for (let i = 0; i <= daysBetween; i++) {
       const date = new Date(start.getTime() + i * 24 * 60 * 60 * 1000);
-      const dateStr = DateTimeHelper.formatDate(date);
+      const dateStr = ThailandTimeHelper.format(date);
       const dayOrders = orders.filter(
         (o) =>
-          DateTimeHelper.formatDate(o.createdAt) === dateStr &&
+          ThailandTimeHelper.format(o.createdAt) === dateStr &&
           o.status === OrderStatus.PAID,
       );
 
@@ -617,8 +621,8 @@ export class AnalyticsService {
   async getHourlyStats(date: string): Promise<HourlyStats[]> {
     this.logger.log(`📊 สถิติรายชั่วโมง ${date}`);
 
-    const startDate = DateTimeHelper.startOfDay(new Date(date));
-    const endDate = DateTimeHelper.endOfDay(new Date(date));
+    const startDate = ThailandTimeHelper.startOfDay(date);
+    const endDate = ThailandTimeHelper.endOfDay(date);
 
     const orders = await this.orderRepo.find({
       where: {
@@ -727,12 +731,12 @@ export class AnalyticsService {
   async getRealTimeStats(): Promise<RealTimeStats> {
     this.logger.log('📊 ดึงสถิติเรียลไทม์');
 
-    const today = DateTimeHelper.formatDate(DateTimeHelper.now());
-    const startOfDay = DateTimeHelper.startOfDay(new Date(today));
+    const today = ThailandTimeHelper.format(ThailandTimeHelper.now());
+    const startOfDay = ThailandTimeHelper.startOfDay(today);
 
     const todayOrders = await this.orderRepo.count({
       where: {
-        createdAt: Between(startOfDay, DateTimeHelper.now()),
+        createdAt: Between(startOfDay, ThailandTimeHelper.now()),
       },
     });
 
@@ -757,7 +761,7 @@ export class AnalyticsService {
       onlineUsers: 0, // This would come from websocket connections
       pendingOrders,
       availableSeats,
-      lastUpdated: DateTimeHelper.now(),
+      lastUpdated: ThailandTimeHelper.now(),
     };
   }
 
@@ -797,7 +801,7 @@ export class AnalyticsService {
       totalRecords: orders.length,
       data: orders,
       parameters: dto,
-      generatedAt: DateTimeHelper.now(),
+      generatedAt: ThailandTimeHelper.now(),
     };
   }
 

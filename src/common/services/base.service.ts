@@ -21,6 +21,7 @@ import { AuditLog } from '../../audit/audit-log.entity';
 
 // Validation
 import { ValidationHelper } from '../validation';
+import { ThailandTimeHelper } from '../utils/thailand-time.helper';
 
 // Enums
 import { AuditAction } from '../enums';
@@ -241,7 +242,7 @@ export abstract class BaseService<T> {
       success: true,
       data,
       message,
-      timestamp: new Date(),
+      timestamp: ThailandTimeHelper.now(),
     };
   }
 
@@ -253,7 +254,7 @@ export abstract class BaseService<T> {
       success: false,
       message,
       errors,
-      timestamp: new Date(),
+      timestamp: ThailandTimeHelper.now(),
     };
   }
 

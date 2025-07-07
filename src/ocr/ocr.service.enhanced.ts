@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { TicketOrderOCR } from '../common/interfaces';
+import { ThailandTimeHelper } from '../common/utils/thailand-time.helper';
 
 @Injectable()
 export class OcrService {
@@ -55,8 +56,12 @@ export class OcrService {
       price: 3600,
       paymentStatus: 'Paid',
       paymentMethod: 'Bank Transfer',
-      travelDate: new Date().toISOString().split('T')[0],
-      orderDate: new Date().toISOString().split('T')[0],
+      travelDate: ThailandTimeHelper.toISOString(
+        ThailandTimeHelper.now(),
+      ).split('T')[0],
+      orderDate: ThailandTimeHelper.toISOString(ThailandTimeHelper.now()).split(
+        'T',
+      )[0],
       pickupHotel: 'Sample Hotel',
       dropoffLocation: 'Stadium',
       voucherCode: 'ABC123',
@@ -270,10 +275,10 @@ export class OcrService {
     if (!dateStr) return '';
 
     try {
-      const date = new Date(dateStr);
+      const date = ThailandTimeHelper.toThailandTime(dateStr);
       if (isNaN(date.getTime())) return dateStr;
 
-      return date.toISOString().split('T')[0]; // YYYY-MM-DD
+      return ThailandTimeHelper.toISOString(date).split('T')[0]; // YYYY-MM-DD
     } catch {
       return dateStr;
     }
@@ -315,7 +320,7 @@ export class OcrService {
       extractedData: ocrData,
       validation,
       confidence,
-      processedAt: new Date().toISOString(),
+      processedAt: ThailandTimeHelper.toISOString(ThailandTimeHelper.now()),
     };
 
     const recommendations = [

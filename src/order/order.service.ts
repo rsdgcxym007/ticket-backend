@@ -50,7 +50,7 @@ import {
 } from '../common/utils';
 
 import { OrderData } from '../common/interfaces';
-import dayjs from 'dayjs';
+import { ThailandTimeHelper } from '../common/utils/thailand-time.helper';
 
 // ========================================
 // 📝 DTOs
@@ -68,6 +68,7 @@ export interface CreateOrderRequest {
   paymentMethod?: PaymentMethod;
   note?: string;
   source?: string;
+  status?: OrderStatus; // เพิ่มฟิลด์ status
   standingAdultQty?: number; // จำนวนตั๋วผู้ใหญ่
   standingChildQty?: number; // จำนวนตั๋วเด็ก
 }
@@ -106,7 +107,6 @@ export class OrderService {
     private configService: ConfigService,
   ) {
     // Add console.log to verify logger initialization
-    console.log('Logger initialized:', this.logger);
   }
 
   // ========================================
@@ -173,23 +173,34 @@ export class OrderService {
       quantity: request.quantity || 0,
       total: pricing.totalAmount,
       totalAmount: pricing.totalAmount,
-      status: OrderStatus.PENDING,
+      status: request.status || OrderStatus.PENDING, // ใช้ status ที่ส่งมา หรือ PENDING เป็นค่าเริ่มต้น
       paymentMethod: request.paymentMethod,
       method: request.paymentMethod || PaymentMethod.QR_CODE,
-      showDate: new Date(request.showDate),
+      showDate: ThailandTimeHelper.toThailandTime(request.showDate),
       referrerCode: request.referrerCode,
       referrerId: referrer?.id,
       referrerCommission: pricing.commission,
       note: request.note,
       source: (request.source as OrderSource) || OrderSource.DIRECT,
       expiresAt: BusinessLogicHelper.calculateExpiryTime(
-        DateTimeHelper.now(),
+        ThailandTimeHelper.now(),
         this.configService.get(
           'RESERVATION_TIMEOUT_MINUTES',
           TIME_LIMITS.RESERVATION_MINUTES,
         ),
       ),
     };
+
+    // ถ้าสถานะเป็น BOOKED ให้ตั้งเวลาหมดอายุเป็น 21:00 ของวันที่แสดง
+    if (request.status === OrderStatus.BOOKED) {
+      const showDate = ThailandTimeHelper.toThailandTime(request.showDate);
+      const expiryDate =
+        ThailandTimeHelper.format(showDate, 'YYYY-MM-DD') + ' 21:00:00';
+      orderData.expiresAt = ThailandTimeHelper.toThailandTime(expiryDate);
+      this.logger.log(
+        `🕘 BOOKED order expiry set to 21:00 on show date: ${ThailandTimeHelper.toISOString(orderData.expiresAt)}`,
+      );
+    }
 
     // Handle standing tickets BEFORE saving
     if (request.ticketType === TicketType.STANDING) {
@@ -244,15 +255,29 @@ export class OrderService {
     }
 
     if (request.ticketType === TicketType.STANDING) {
-      if (
-        new Date(request.showDate).toDateString() === new Date().toDateString()
-      ) {
-        orderData.status = OrderStatus.PENDING;
-      } else {
-        orderData.status = OrderStatus.BOOKED;
+      // ถ้าไม่ได้ระบุ status มาจากภายนอก ให้ใช้ logic เดิม
+      if (!request.status) {
+        if (
+          ThailandTimeHelper.isSameDay(
+            request.showDate,
+            ThailandTimeHelper.now(),
+          )
+        ) {
+          orderData.status = OrderStatus.PENDING;
+        } else {
+          orderData.status = OrderStatus.BOOKED;
+        }
       }
-      orderData.expiresAt = new Date(request.showDate);
-      orderData.expiresAt.setHours(21, 0, 0, 0); // Set expiry time to 21:00 on showDate
+      // ถ้าเป็น standing ticket และยังไม่ได้ตั้งค่า expiresAt จากเงื่อนไข BOOKED ข้างบน
+      if (
+        orderData.status === OrderStatus.BOOKED &&
+        request.status !== OrderStatus.BOOKED
+      ) {
+        const showDate = ThailandTimeHelper.toThailandTime(request.showDate);
+        const expiryDate =
+          ThailandTimeHelper.format(showDate, 'YYYY-MM-DD') + ' 21:00:00';
+        orderData.expiresAt = ThailandTimeHelper.toThailandTime(expiryDate);
+      }
     }
 
     if (request.ticketType !== TicketType.STANDING) {
@@ -301,10 +326,7 @@ export class OrderService {
       ticketType: reloadedOrder.ticketType,
       price: reloadedOrder.totalAmount,
       paymentStatus: PaymentStatus.PENDING,
-      showDate:
-        reloadedOrder.showDate instanceof Date
-          ? reloadedOrder.showDate.toISOString()
-          : new Date(reloadedOrder.showDate).toISOString(),
+      showDate: ThailandTimeHelper.toISOString(reloadedOrder.showDate),
       seats:
         reloadedOrder.seatBookings?.map((booking) => {
           return {
@@ -331,6 +353,7 @@ export class OrderService {
       .createQueryBuilder('order')
       .leftJoinAndSelect('order.user', 'user')
       .leftJoinAndSelect('order.referrer', 'referrer')
+      .leftJoinAndSelect('order.payment', 'payment')
       .leftJoinAndSelect('order.seatBookings', 'seatBookings')
       .leftJoinAndSelect('seatBookings.seat', 'seat')
       .leftJoinAndSelect('seat.zone', 'zone')
@@ -441,7 +464,7 @@ export class OrderService {
     // Update order
     await this.orderRepo.update(id, {
       ...updates,
-      updatedAt: DateTimeHelper.now(),
+      updatedAt: ThailandTimeHelper.now(),
       updatedBy: userId,
     } as any);
 
@@ -494,7 +517,7 @@ export class OrderService {
     // Cancel order
     await this.orderRepo.update(id, {
       status: OrderStatus.CANCELLED,
-      updatedAt: DateTimeHelper.now(),
+      updatedAt: ThailandTimeHelper.now(),
       updatedBy: userId,
     });
 
@@ -502,7 +525,10 @@ export class OrderService {
     if (order.seatBookings) {
       await this.seatBookingRepo.update(
         { orderId: id },
-        { status: BookingStatus.CANCELLED, updatedAt: DateTimeHelper.now() },
+        {
+          status: BookingStatus.CANCELLED,
+          updatedAt: ThailandTimeHelper.now(),
+        },
       );
     }
 
@@ -551,7 +577,7 @@ export class OrderService {
     // Update order status
     await this.orderRepo.update(id, {
       status: OrderStatus.CONFIRMED,
-      updatedAt: DateTimeHelper.now(),
+      updatedAt: ThailandTimeHelper.now(),
       updatedBy: userId,
     });
 
@@ -559,7 +585,10 @@ export class OrderService {
     if (order.seatBookings) {
       await this.seatBookingRepo.update(
         { orderId: id },
-        { status: BookingStatus.CONFIRMED, updatedAt: DateTimeHelper.now() },
+        {
+          status: BookingStatus.CONFIRMED,
+          updatedAt: ThailandTimeHelper.now(),
+        },
       );
     }
 
@@ -755,7 +784,7 @@ export class OrderService {
     // Determine the show date to use for validation
     const showDateToUse = newShowDate
       ? newShowDate
-      : dayjs(order.showDate).format('YYYY-MM-DDTHH:mm');
+      : ThailandTimeHelper.formatDateTime(order.showDate, 'YYYY-MM-DDTHH:mm');
 
     // Validate new seat availability (excluding current order)
     await this.validateSeatAvailabilityExcludingOrder(
@@ -800,7 +829,7 @@ export class OrderService {
       referrerId: newReferrer?.id || null,
       referrerCode: newReferrer?.code || null,
       referrerCommission: newCommission,
-      updatedAt: DateTimeHelper.now(),
+      updatedAt: ThailandTimeHelper.now(),
       updatedBy: userId,
     };
 
@@ -817,10 +846,9 @@ export class OrderService {
 
     if (
       newShowDate &&
-      new Date(newShowDate).toISOString() !==
-        new Date(order.showDate).toISOString()
+      !ThailandTimeHelper.isSameDay(newShowDate, order.showDate)
     ) {
-      orderUpdates.showDate = new Date(newShowDate);
+      orderUpdates.showDate = ThailandTimeHelper.toThailandTime(newShowDate);
     }
 
     // Remove old seat bookings
@@ -845,8 +873,16 @@ export class OrderService {
       newAmount: newPricing.totalAmount,
       oldReferrer: order.referrerCode,
       newReferrer: newReferrer?.code,
-      oldShowDate: order.showDate.toISOString(),
-      newShowDate: newShowDate || order.showDate.toISOString(),
+      oldShowDate: ThailandTimeHelper.formatDateTime(
+        order.showDate,
+        'YYYY-MM-DD HH:mm:ss',
+      ),
+      newShowDate: newShowDate
+        ? ThailandTimeHelper.formatDateTime(newShowDate, 'YYYY-MM-DD HH:mm:ss')
+        : ThailandTimeHelper.formatDateTime(
+            order.showDate,
+            'YYYY-MM-DD HH:mm:ss',
+          ),
       customerUpdates: {
         name:
           newCustomerName !== order.customerName ? newCustomerName : undefined,
@@ -901,7 +937,7 @@ export class OrderService {
 
     const showDateToUse = newShowDate
       ? newShowDate
-      : dayjs(order.showDate).toISOString();
+      : ThailandTimeHelper.toISOString(order.showDate);
 
     // Validate new seat availability (excluding current order)
     await this.validateSeatAvailabilityExcludingOrder(
@@ -923,8 +959,8 @@ export class OrderService {
       seat,
       showDate: showDateToUse,
       status: BookingStatus.PAID, // Keep PAID status
-      createdAt: DateTimeHelper.now(),
-      updatedAt: DateTimeHelper.now(),
+      createdAt: ThailandTimeHelper.now(),
+      updatedAt: ThailandTimeHelper.now(),
     }));
 
     await this.seatBookingRepo.save(newBookings);
@@ -938,13 +974,16 @@ export class OrderService {
       hasUpdates = true;
     }
 
-    if (newShowDate && !dayjs(newShowDate).isSame(dayjs(order.showDate))) {
-      orderUpdates.showDate = dayjs(newShowDate).toDate();
+    if (
+      newShowDate &&
+      !ThailandTimeHelper.isSameDay(newShowDate, order.showDate)
+    ) {
+      orderUpdates.showDate = ThailandTimeHelper.toThailandTime(newShowDate);
       hasUpdates = true;
     }
 
     if (hasUpdates) {
-      orderUpdates.updatedAt = DateTimeHelper.now();
+      orderUpdates.updatedAt = ThailandTimeHelper.now();
       orderUpdates.updatedBy = userId;
       await this.orderRepo.update(order.id, orderUpdates);
     }
@@ -956,8 +995,9 @@ export class OrderService {
       newSeats: newSeatIds,
       oldSeatCount: currentSeatCount,
       newSeatCount,
-      oldShowDate: dayjs(order.showDate).toISOString(),
-      newShowDate: newShowDate || dayjs(order.showDate).toISOString(),
+      oldShowDate: ThailandTimeHelper.toISOString(order.showDate),
+      newShowDate:
+        newShowDate || ThailandTimeHelper.toISOString(order.showDate),
       note: 'Paid order - pricing unchanged',
     });
 
@@ -1091,7 +1131,10 @@ export class OrderService {
     const expiredOrders = await this.orderRepo.find({
       where: {
         status: OrderStatus.PENDING,
-        expiresAt: Between(new Date('1970-01-01'), DateTimeHelper.now()),
+        expiresAt: Between(
+          ThailandTimeHelper.toThailandTime('1970-01-01'),
+          ThailandTimeHelper.now(),
+        ),
       },
       relations: ['seatBookings'],
     });
@@ -1100,14 +1143,17 @@ export class OrderService {
       // Update order status
       await this.orderRepo.update(order.id, {
         status: OrderStatus.EXPIRED,
-        updatedAt: DateTimeHelper.now(),
+        updatedAt: ThailandTimeHelper.now(),
       });
 
       // Release seat bookings
       if (order.seatBookings) {
         await this.seatBookingRepo.update(
           { orderId: order.id },
-          { status: BookingStatus.EXPIRED, updatedAt: DateTimeHelper.now() },
+          {
+            status: BookingStatus.EXPIRED,
+            updatedAt: ThailandTimeHelper.now(),
+          },
         );
       }
 
@@ -1140,11 +1186,11 @@ export class OrderService {
       );
     }
 
-    const today = DateTimeHelper.startOfDay(DateTimeHelper.now());
+    const today = ThailandTimeHelper.startOfDay(ThailandTimeHelper.now());
     const todayOrders = await this.orderRepo.count({
       where: {
         userId: user.id,
-        createdAt: Between(today, DateTimeHelper.now()),
+        createdAt: Between(today, ThailandTimeHelper.now()),
       },
     });
 
@@ -1237,8 +1283,8 @@ export class OrderService {
       seat,
       showDate: showDate,
       status: BookingStatus.PENDING,
-      createdAt: DateTimeHelper.now(),
-      updatedAt: DateTimeHelper.now(),
+      createdAt: ThailandTimeHelper.now(),
+      updatedAt: ThailandTimeHelper.now(),
     }));
 
     await this.seatBookingRepo.save(bookings);
@@ -1264,7 +1310,7 @@ export class OrderService {
       userId,
       userRole: user.role, // Assign user role
       metadata,
-      timestamp: DateTimeHelper.now(),
+      timestamp: ThailandTimeHelper.now(),
     } as AuditLog);
 
     await this.auditRepo.save(auditLog);
@@ -1283,7 +1329,6 @@ export class OrderService {
       totalAmount: order.totalAmount,
       status: order.status,
       paymentMethod: order.paymentMethod,
-      // paymentStatus: order.payment.status || PaymentStatus.PENDING,
       paymentStatus: order?.payment?.status || PaymentStatus.PENDING,
       showDate: DateTimeHelper.formatDate(order.showDate),
       createdAt: order.createdAt,
@@ -1354,7 +1399,7 @@ export class OrderService {
     // Update order
     await this.orderRepo.update(id, {
       ...updates,
-      updatedAt: DateTimeHelper.now(),
+      updatedAt: ThailandTimeHelper.now(),
       updatedBy: userId,
     } as any);
 

@@ -1,14 +1,16 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Not, Repository } from 'typeorm';
+import { Repository, Between, IsNull, Not } from 'typeorm';
 import { Payment } from '../payment/payment.entity';
 import { Order } from '../order/order.entity';
 import { SeatBooking } from '../seats/seat-booking.entity';
 import { Referrer } from '../referrer/referrer.entity';
 import { Seat } from '../seats/seat.entity';
-import moment from 'moment';
-import dayjs from 'dayjs';
-import { BookingStatus, OrderStatus } from '../common/enums';
+import { Zone } from '../zone/zone.entity';
+import { User } from '../user/user.entity';
+import { ThailandTimeHelper } from '../common/utils/thailand-time.helper';
+import { OrderStatus, BookingStatus, TicketType } from '../common/enums';
+
 @Injectable()
 export class DashboardService {
   private readonly logger = new Logger(DashboardService.name);
@@ -19,458 +21,789 @@ export class DashboardService {
     @InjectRepository(SeatBooking) private bookingRepo: Repository<SeatBooking>,
     @InjectRepository(Referrer) private referrerRepo: Repository<Referrer>,
     @InjectRepository(Seat) private seatRepo: Repository<Seat>,
+    @InjectRepository(Zone) private zoneRepo: Repository<Zone>,
+    @InjectRepository(User) private userRepo: Repository<User>,
   ) {}
 
-  async getDashboardData() {
-    const today = new Date();
-    const todayISO = dayjs().format('YYYY-MM-DD');
-    const currentMonthStart = dayjs().startOf('month');
-    const currentMonthEnd = dayjs().endOf('month');
-    this.logger.debug(`📆 Today is ${todayISO}`);
+  /**
+   * แดชบอร์ดหลัก - ข้อมูลสรุปครบถ้วน
+   */
+  async getDashboardSummary() {
+    this.logger.log('🏠 เรียกข้อมูลแดชบอร์ดหลัก');
 
     const [
-      totalSales,
-      monthSales,
-      orderStatusCounts,
-      totalCustomers,
-      dailySales,
-      nextShowRaw,
-      salesByMethod,
-      topCustomers,
-      topReferrers,
+      todayReferrerPerformance,
+      ticketSalesSummary,
+      revenueSummary,
+      seatAvailability,
+      customerAnalytics,
+      systemHealth,
+      quickStats,
     ] = await Promise.all([
-      this.paymentRepo
-        .createQueryBuilder('payment')
-        .select('SUM(payment.amount)', 'sum')
-        .where('payment.status = :status', { status: 'PAID' })
-        .getRawOne(),
-
-      this.paymentRepo
-        .createQueryBuilder('payment')
-        .select('SUM(payment.amount)', 'sum')
-        .where('payment.status = :status', { status: 'PAID' })
-        .andWhere('payment.createdAt BETWEEN :start AND :end', {
-          start: currentMonthStart,
-          end: currentMonthEnd,
-        })
-        .getRawOne(),
-
-      this.orderRepo
-        .createQueryBuilder('order')
-        .select('order.status', 'status')
-        .addSelect('COUNT(*)', 'count')
-        .groupBy('order.status')
-        .getRawMany(),
-
-      this.orderRepo
-        .createQueryBuilder('order')
-        .select('DISTINCT order.customerName')
-        .where('order.status IN (:...statuses)', {
-          statuses: ['PAID', 'BOOKED'],
-        })
-        .andWhere('order.customerName IS NOT NULL')
-        .getCount(),
-
-      this.paymentRepo
-        .createQueryBuilder('payment')
-        .select("DATE_TRUNC('day', payment.createdAt)", 'date')
-        .addSelect('SUM(payment.amount)', 'amount')
-        .where('payment.status = :status', { status: 'PAID' })
-        .groupBy("DATE_TRUNC('day', payment.createdAt)")
-        .orderBy('date', 'ASC')
-        .getRawMany(),
-
-      this.orderRepo
-        .createQueryBuilder('order')
-        .select('MIN(order.showDate)', 'date')
-        .where('order.showDate >= :today', { today })
-        .getRawOne(),
-
-      this.paymentRepo
-        .createQueryBuilder('payment')
-        .select('payment.method', 'method')
-        .addSelect('SUM(payment.amount)', 'total')
-        .where('payment.status = :status', { status: 'PAID' })
-        .groupBy('payment.method')
-        .getRawMany(),
-
-      this.orderRepo
-        .createQueryBuilder('order')
-        .select('order.customerName', 'customer')
-        .addSelect('SUM(order.total)', 'spent')
-        .where('order.status = :status', { status: 'PAID' })
-        .andWhere('order.customerName IS NOT NULL')
-        .groupBy('order.customerName')
-        .orderBy('spent', 'DESC')
-        .limit(5)
-        .getRawMany(),
-
-      this.orderRepo
-        .createQueryBuilder('order')
-        .leftJoin('order.referrer', 'referrer')
-        .select('referrer.code', 'referrer')
-        .addSelect('referrer.name', 'name')
-        .addSelect('COUNT(order.id)', 'orders')
-        .addSelect('SUM(order.referrerCommission)', 'referrerCommission')
-        .addSelect('SUM(order.standingCommission)', 'standingCommission')
-        .addSelect(
-          'SUM(order.referrerCommission + order.standingCommission)',
-          'commission',
-        )
-        .where('order.status = :status', { status: 'PAID' })
-        .andWhere('order.referrerId IS NOT NULL')
-        .groupBy('referrer.code')
-        .addGroupBy('referrer.name')
-        .orderBy('commission', 'DESC')
-        .limit(5)
-        .getRawMany(),
+      this.getTodayReferrerPerformance(),
+      this.getTicketSalesSummary(),
+      this.getRevenueSummary(),
+      this.getSeatAvailabilityByZone(),
+      this.getCustomerAnalytics(),
+      this.getSystemHealth(),
+      this.getQuickStats(),
     ]);
 
-    // const totalOrders = await this.orderRepo.count({
-    //   where: { status: OrderStatus.PAID },
-    // });
+    return {
+      quickStats,
+      todayReferrers: todayReferrerPerformance,
+      ticketSales: ticketSalesSummary,
+      revenue: revenueSummary,
+      seatAvailability,
+      customers: customerAnalytics,
+      systemHealth,
+      lastUpdated: ThailandTimeHelper.now(),
+      timestamp: ThailandTimeHelper.formatDateTime(ThailandTimeHelper.now()),
+    };
+  }
 
-    const orderStatusMap = orderStatusCounts.reduce(
-      (acc, o) => {
-        acc[o.status] = Number(o.count);
-        return acc;
+  /**
+   * สถิติด่วน - ข้อมูลสำคัญที่ต้องเห็นทันที
+   */
+  async getQuickStats() {
+    this.logger.log('⚡ คำนวณสถิติด่วน');
+
+    const today = ThailandTimeHelper.startOfDay();
+    const endOfToday = ThailandTimeHelper.endOfDay();
+
+    // ออเดอร์วันนี้
+    const todayOrders = await this.orderRepo.count({
+      where: {
+        createdAt: Between(today, endOfToday),
       },
-      {} as Record<string, number>,
+    });
+
+    // ออเดอร์ที่ชำระแล้ววันนี้
+    const todayPaidOrders = await this.orderRepo.count({
+      where: {
+        createdAt: Between(today, endOfToday),
+        status: OrderStatus.PAID,
+      },
+    });
+
+    // ออเดอร์รอชำระ
+    const pendingOrders = await this.orderRepo.count({
+      where: {
+        status: OrderStatus.PENDING,
+      },
+    });
+
+    // ออเดอร์หมดอายุ
+    const expiredOrders = await this.orderRepo.count({
+      where: {
+        status: OrderStatus.EXPIRED,
+      },
+    });
+
+    // ลูกค้าใหม่วันนี้
+    const newCustomersToday = await this.userRepo.count({
+      where: {
+        createdAt: Between(today, endOfToday),
+      },
+    });
+
+    return {
+      todayOrders,
+      todayPaidOrders,
+      pendingOrders,
+      expiredOrders,
+      newCustomersToday,
+      successRate:
+        todayOrders > 0
+          ? ((todayPaidOrders / todayOrders) * 100).toFixed(1)
+          : '0',
+    };
+  }
+
+  /**
+   * ยอดผลงาน Referrer วันนี้
+   */
+  async getTodayReferrerPerformance() {
+    this.logger.log('👥 คำนวณยอดผลงาน Referrer วันนี้');
+
+    const today = ThailandTimeHelper.startOfDay();
+    const endOfToday = ThailandTimeHelper.endOfDay();
+
+    const todayReferrers = await this.orderRepo
+      .createQueryBuilder('order')
+      .leftJoinAndSelect('order.referrer', 'referrer')
+      .select([
+        'referrer.id as referrerId',
+        'referrer.name as referrerName',
+        'referrer.code as referrerCode',
+        'COUNT(order.id) as orderCount',
+        'SUM(CASE WHEN order.status = :paidStatus THEN order.totalAmount ELSE 0 END) as totalAmount',
+        'SUM(CASE WHEN order.status = :paidStatus THEN order.referrerCommission ELSE 0 END) as totalCommission',
+        'COUNT(CASE WHEN order.status = :paidStatus THEN 1 END) as paidOrders',
+        'COUNT(CASE WHEN order.status = :pendingStatus THEN 1 END) as pendingOrders',
+      ])
+      .where('order.createdAt BETWEEN :startDate AND :endDate', {
+        startDate: today,
+        endDate: endOfToday,
+      })
+      .andWhere('order.referrerId IS NOT NULL')
+      .setParameter('paidStatus', OrderStatus.PAID)
+      .setParameter('pendingStatus', OrderStatus.PENDING)
+      .groupBy('referrer.id')
+      .addGroupBy('referrer.name')
+      .addGroupBy('referrer.code')
+      .orderBy('totalCommission', 'DESC')
+      .getRawMany();
+
+    const result = todayReferrers.map((referrer) => ({
+      id: referrer.referrerId || referrer.referrerid,
+      name: referrer.referrerName || referrer.referrername,
+      code: referrer.referrerCode || referrer.referrercode,
+      totalOrders: parseInt(referrer.orderCount || referrer.ordercount || 0),
+      paidOrders: parseInt(referrer.paidOrders || referrer.paidorders || 0),
+      pendingOrders: parseInt(
+        referrer.pendingOrders || referrer.pendingorders || 0,
+      ),
+      totalAmount: parseFloat(
+        referrer.totalAmount || referrer.totalamount || 0,
+      ),
+      totalCommission: parseFloat(
+        referrer.totalCommission || referrer.totalcommission || 0,
+      ),
+      successRate:
+        parseInt(referrer.orderCount || 0) > 0
+          ? (
+              (parseInt(referrer.paidOrders || 0) /
+                parseInt(referrer.orderCount || 0)) *
+              100
+            ).toFixed(1)
+          : '0',
+    }));
+
+    return {
+      date: ThailandTimeHelper.format(today, 'YYYY-MM-DD'),
+      referrers: result,
+      summary: {
+        totalReferrers: result.length,
+        totalOrders: result.reduce((sum, r) => sum + r.totalOrders, 0),
+        totalPaidOrders: result.reduce((sum, r) => sum + r.paidOrders, 0),
+        totalAmount: result.reduce((sum, r) => sum + r.totalAmount, 0),
+        totalCommission: result.reduce((sum, r) => sum + r.totalCommission, 0),
+      },
+    };
+  }
+
+  /**
+   * สรุปยอดขายตั๋ว - รายวัน รายสัปดาห์ รายเดือน
+   */
+  async getTicketSalesSummary() {
+    this.logger.log('🎫 คำนวณสรุปยอดขายตั๋ว');
+
+    const now = ThailandTimeHelper.now();
+    const today = ThailandTimeHelper.startOfDay();
+    const endOfToday = ThailandTimeHelper.endOfDay();
+    const thisWeekStart = ThailandTimeHelper.startOfWeek();
+    const thisMonthStart = ThailandTimeHelper.startOfMonth();
+
+    // ยอดขายวันนี้
+    const todayStats = await this.getTicketStatsForPeriod(today, endOfToday);
+
+    // ยอดขายสัปดาห์นี้
+    const thisWeekStats = await this.getTicketStatsForPeriod(
+      thisWeekStart,
+      now,
     );
 
-    const totalOrderCount = Object.values(orderStatusMap).reduce(
-      (sum: any, n: any) => sum + n,
+    // ยอดขายเดือนนี้
+    const thisMonthStats = await this.getTicketStatsForPeriod(
+      thisMonthStart,
+      now,
+    );
+
+    // ยอดขายทั้งหมด
+    const allTimeStats = await this.getTicketStatsForPeriod(
+      ThailandTimeHelper.toThailandTime('2020-01-01'),
+      now,
+    );
+
+    return {
+      today: {
+        ...todayStats,
+        period: 'วันนี้',
+        date: ThailandTimeHelper.format(today, 'YYYY-MM-DD'),
+      },
+      thisWeek: {
+        ...thisWeekStats,
+        period: 'สัปดาห์นี้',
+        startDate: ThailandTimeHelper.format(thisWeekStart, 'YYYY-MM-DD'),
+        endDate: ThailandTimeHelper.format(now, 'YYYY-MM-DD'),
+      },
+      thisMonth: {
+        ...thisMonthStats,
+        period: 'เดือนนี้',
+        startDate: ThailandTimeHelper.format(thisMonthStart, 'YYYY-MM-DD'),
+        endDate: ThailandTimeHelper.format(now, 'YYYY-MM-DD'),
+      },
+      allTime: {
+        ...allTimeStats,
+        period: 'ทั้งหมด',
+      },
+    };
+  }
+
+  /**
+   * คำนวณสถิติตั๋วในช่วงเวลา
+   */
+  private async getTicketStatsForPeriod(startDate: Date, endDate: Date) {
+    const orders = await this.orderRepo.find({
+      where: {
+        createdAt: Between(startDate, endDate),
+      },
+      relations: ['seatBookings'],
+    });
+
+    const paidOrders = orders.filter(
+      (order) => order.status === OrderStatus.PAID,
+    );
+    const pendingOrders = orders.filter(
+      (order) => order.status === OrderStatus.PENDING,
+    );
+    const cancelledOrders = orders.filter(
+      (order) => order.status === OrderStatus.CANCELLED,
+    );
+
+    const totalTickets = orders.reduce(
+      (sum, order) => sum + (order.quantity || 0),
+      0,
+    );
+    const paidTickets = paidOrders.reduce(
+      (sum, order) => sum + (order.quantity || 0),
+      0,
+    );
+    const pendingTickets = pendingOrders.reduce(
+      (sum, order) => sum + (order.quantity || 0),
       0,
     );
 
-    const paidOrders = await this.orderRepo
-      .createQueryBuilder('order')
-      .leftJoinAndSelect('order.payment', 'payment')
-      .leftJoinAndSelect('order.seatBookings', 'booking')
-      .leftJoinAndSelect('booking.seat', 'seat')
-      .leftJoinAndSelect('seat.zone', 'zone')
-      .where('order.status = :status', { status: 'PAID' })
-      .andWhere('payment.status = :paymentStatus', { paymentStatus: 'PAID' })
-      .getMany();
+    // นับตั๋วแยกตามประเภท
+    const ringsideTickets = orders
+      .filter((order) => order.ticketType === TicketType.RINGSIDE)
+      .reduce((sum, order) => sum + (order.quantity || 0), 0);
+    const stadiumTickets = orders
+      .filter((order) => order.ticketType === TicketType.STADIUM)
+      .reduce((sum, order) => sum + (order.quantity || 0), 0);
+    const standingTickets = orders
+      .filter((order) => order.ticketType === TicketType.STANDING)
+      .reduce((sum, order) => sum + (order.quantity || 0), 0);
 
-    const salesByZoneMap: Record<string, number> = {};
-    for (const order of paidOrders) {
-      const amountPerSeat = order.total / order.seatBookings.length;
-      for (const booking of order.seatBookings) {
-        const zoneName = booking.seat.zone.name;
-        salesByZoneMap[zoneName] =
-          (salesByZoneMap[zoneName] || 0) + amountPerSeat;
+    return {
+      totalOrders: orders.length,
+      paidOrders: paidOrders.length,
+      pendingOrders: pendingOrders.length,
+      cancelledOrders: cancelledOrders.length,
+      totalTickets,
+      paidTickets,
+      pendingTickets,
+      ringsideTickets,
+      stadiumTickets,
+      standingTickets,
+      successRate:
+        orders.length > 0
+          ? ((paidOrders.length / orders.length) * 100).toFixed(1)
+          : '0',
+    };
+  }
+
+  /**
+   * สรุปยอดรายได้ - แยกตามช่วงเวลาและประเภท
+   */
+  async getRevenueSummary() {
+    this.logger.log('💰 คำนวณสรุปยอดรายได้');
+
+    const now = ThailandTimeHelper.now();
+    const today = ThailandTimeHelper.startOfDay();
+    const endOfToday = ThailandTimeHelper.endOfDay();
+    const thisWeekStart = ThailandTimeHelper.startOfWeek();
+    const thisMonthStart = ThailandTimeHelper.startOfMonth();
+
+    // รายได้วันนี้
+    const todayRevenue = await this.getRevenueForPeriod(today, endOfToday);
+
+    // รายได้สัปดาห์นี้
+    const thisWeekRevenue = await this.getRevenueForPeriod(thisWeekStart, now);
+
+    // รายได้เดือนนี้
+    const thisMonthRevenue = await this.getRevenueForPeriod(
+      thisMonthStart,
+      now,
+    );
+
+    // รายได้ทั้งหมด
+    const allTimeRevenue = await this.getRevenueForPeriod(
+      ThailandTimeHelper.toThailandTime('2020-01-01'),
+      now,
+    );
+
+    return {
+      today: {
+        ...todayRevenue,
+        period: 'วันนี้',
+        date: ThailandTimeHelper.format(today, 'YYYY-MM-DD'),
+      },
+      thisWeek: {
+        ...thisWeekRevenue,
+        period: 'สัปดาห์นี้',
+        startDate: ThailandTimeHelper.format(thisWeekStart, 'YYYY-MM-DD'),
+        endDate: ThailandTimeHelper.format(now, 'YYYY-MM-DD'),
+      },
+      thisMonth: {
+        ...thisMonthRevenue,
+        period: 'เดือนนี้',
+        startDate: ThailandTimeHelper.format(thisMonthStart, 'YYYY-MM-DD'),
+        endDate: ThailandTimeHelper.format(now, 'YYYY-MM-DD'),
+      },
+      allTime: {
+        ...allTimeRevenue,
+        period: 'ทั้งหมด',
+      },
+    };
+  }
+
+  /**
+   * คำนวณรายได้ในช่วงเวลา
+   */
+  private async getRevenueForPeriod(startDate: Date, endDate: Date) {
+    const paidOrders = await this.orderRepo.find({
+      where: {
+        createdAt: Between(startDate, endDate),
+        status: OrderStatus.PAID,
+      },
+    });
+
+    // ใช้ Number() เพื่อให้แน่ใจว่าผลลัพธ์เป็นตัวเลขเสมอ
+    const grossRevenue = Number(
+      paidOrders.reduce(
+        (sum, order) => sum + Number(order.totalAmount || 0),
+        0,
+      ),
+    );
+    const totalCommission = Number(
+      paidOrders.reduce(
+        (sum, order) => sum + Number(order.referrerCommission || 0),
+        0,
+      ),
+    );
+    const netRevenue = Number(grossRevenue - totalCommission);
+
+    // แยกรายได้ตามประเภทตั๋ว
+    const ringsideRevenue = Number(
+      paidOrders
+        .filter((order) => order.ticketType === TicketType.RINGSIDE)
+        .reduce((sum, order) => sum + Number(order.totalAmount || 0), 0),
+    );
+
+    const stadiumRevenue = Number(
+      paidOrders
+        .filter((order) => order.ticketType === TicketType.STADIUM)
+        .reduce((sum, order) => sum + Number(order.totalAmount || 0), 0),
+    );
+
+    const standingRevenue = Number(
+      paidOrders
+        .filter((order) => order.ticketType === TicketType.STANDING)
+        .reduce((sum, order) => sum + Number(order.totalAmount || 0), 0),
+    );
+
+    // แยกค่าคอมมิชชั่นตาม Referrer
+    const referrerCommissions = Number(
+      paidOrders
+        .filter((order) => order.referrerId)
+        .reduce((sum, order) => sum + Number(order.referrerCommission || 0), 0),
+    );
+
+    const directSalesRevenue = Number(
+      paidOrders
+        .filter((order) => !order.referrerId)
+        .reduce((sum, order) => sum + Number(order.totalAmount || 0), 0),
+    );
+
+    return {
+      grossRevenue: parseFloat(grossRevenue.toFixed(2)),
+      totalCommission: parseFloat(totalCommission.toFixed(2)),
+      netRevenue: parseFloat(netRevenue.toFixed(2)),
+      ringsideRevenue: parseFloat(ringsideRevenue.toFixed(2)),
+      stadiumRevenue: parseFloat(stadiumRevenue.toFixed(2)),
+      standingRevenue: parseFloat(standingRevenue.toFixed(2)),
+      referrerCommissions: parseFloat(referrerCommissions.toFixed(2)),
+      directSalesRevenue: parseFloat(directSalesRevenue.toFixed(2)),
+      orderCount: paidOrders.length,
+      averageOrderValue:
+        paidOrders.length > 0
+          ? parseFloat((grossRevenue / paidOrders.length).toFixed(2))
+          : 0,
+    };
+  }
+
+  /**
+   * ข้อมูลที่นั่งว่างแต่ละโซน (กรองที่นั่งที่ seatNumber เป็น null ออก)
+   */
+  async getSeatAvailabilityByZone(showDate?: string) {
+    this.logger.log('💺 คำนวณที่นั่งว่างแต่ละโซน');
+
+    const targetDate = showDate
+      ? ThailandTimeHelper.format(
+          ThailandTimeHelper.toThailandTime(showDate),
+          'YYYY-MM-DD',
+        )
+      : ThailandTimeHelper.format(ThailandTimeHelper.now(), 'YYYY-MM-DD');
+
+    // ดึงข้อมูลโซนทั้งหมด
+    const zones = await this.zoneRepo.find({
+      where: { isActive: true },
+    });
+
+    const zoneStats = await Promise.all(
+      zones.map(async (zone) => {
+        const totalSeats = await this.seatRepo.count({
+          where: {
+            zone: { id: zone.id },
+            seatNumber: Not(IsNull()),
+          },
+        });
+
+        // นับที่นั่งที่จองแล้วในวันที่เลือก
+        const bookedSeats = await this.bookingRepo
+          .createQueryBuilder('booking')
+          .leftJoin('booking.seat', 'seat')
+          .leftJoin('seat.zone', 'zone')
+          .where('zone.id = :zoneId', { zoneId: zone.id })
+          .andWhere('booking.showDate = :showDate', { showDate: targetDate })
+          .andWhere('booking.status IN (:...statuses)', {
+            statuses: [
+              BookingStatus.BOOKED,
+              BookingStatus.CONFIRMED,
+              BookingStatus.PENDING,
+              BookingStatus.PAID,
+            ],
+          })
+          .andWhere('seat.seatNumber IS NOT NULL')
+          .getCount();
+
+        // คำนวณที่นั่งว่าง
+        const availableSeats = totalSeats - bookedSeats;
+        const occupancyRate =
+          totalSeats > 0 ? ((bookedSeats / totalSeats) * 100).toFixed(1) : '0';
+
+        return {
+          zoneId: zone.id,
+          zoneName: zone.name,
+          totalSeats,
+          bookedSeats,
+          availableSeats,
+          occupancyRate: parseFloat(occupancyRate),
+          status:
+            availableSeats === 0
+              ? 'เต็ม'
+              : availableSeats < 10
+                ? 'ใกล้เต็ม'
+                : 'ว่าง',
+        };
+      }),
+    );
+
+    // คำนวณสรุปรวม
+    const summary = {
+      totalSeats: zoneStats.reduce((sum, zone) => sum + zone.totalSeats, 0),
+      totalBooked: zoneStats.reduce((sum, zone) => sum + zone.bookedSeats, 0),
+      totalAvailable: zoneStats.reduce(
+        (sum, zone) => sum + zone.availableSeats,
+        0,
+      ),
+      averageOccupancy:
+        zoneStats.length > 0
+          ? parseFloat(
+              (
+                zoneStats.reduce((sum, zone) => sum + zone.occupancyRate, 0) /
+                zoneStats.length
+              ).toFixed(1),
+            )
+          : 0,
+    };
+
+    return {
+      showDate: targetDate,
+      zones: zoneStats,
+      summary,
+      lastUpdated: ThailandTimeHelper.formatDateTime(ThailandTimeHelper.now()),
+    };
+  }
+
+  /**
+   * วิเคราะห์ลูกค้า - จำนวนลูกค้าใหม่ ลูกค้าเก่า ความถี่ในการซื้อ
+   */
+  async getCustomerAnalytics() {
+    this.logger.log('👤 วิเคราะห์ข้อมูลลูกค้า');
+
+    const now = ThailandTimeHelper.now();
+    const today = ThailandTimeHelper.startOfDay();
+    const endOfToday = ThailandTimeHelper.endOfDay();
+    const thisWeekStart = ThailandTimeHelper.startOfWeek();
+    const thisMonthStart = ThailandTimeHelper.startOfMonth();
+
+    // ลูกค้าใหม่วันนี้
+    const newCustomersToday = await this.userRepo.count({
+      where: {
+        createdAt: Between(today, endOfToday),
+      },
+    });
+
+    // ลูกค้าใหม่สัปดาห์นี้
+    const newCustomersThisWeek = await this.userRepo.count({
+      where: {
+        createdAt: Between(thisWeekStart, now),
+      },
+    });
+
+    // ลูกค้าใหม่เดือนนี้
+    const newCustomersThisMonth = await this.userRepo.count({
+      where: {
+        createdAt: Between(thisMonthStart, now),
+      },
+    });
+
+    // ลูกค้าทั้งหมด
+    const totalCustomers = await this.userRepo.count();
+
+    // ลูกค้าที่มีออเดอร์มากกว่า 1 ครั้ง (ลูกค้าประจำ)
+    const repeatCustomers = await this.orderRepo
+      .createQueryBuilder('order')
+      .select('order.userId')
+      .where('order.status = :status', { status: OrderStatus.PAID })
+      .andWhere('order.userId IS NOT NULL')
+      .groupBy('order.userId')
+      .having('COUNT(order.id) > 1')
+      .getCount();
+
+    // ลูกค้าที่ซื้อวันนี้
+    const activeCustomersToday = await this.orderRepo
+      .createQueryBuilder('order')
+      .select('DISTINCT order.userId')
+      .where('order.createdAt BETWEEN :start AND :end', {
+        start: today,
+        end: endOfToday,
+      })
+      .andWhere('order.userId IS NOT NULL')
+      .getCount();
+
+    // อัตราการกลับมาซื้อซ้ำ
+    const repeatRate =
+      totalCustomers > 0
+        ? ((repeatCustomers / totalCustomers) * 100).toFixed(1)
+        : '0';
+
+    // ค่าเฉลี่ยออเดอร์ต่อลูกค้า
+    const totalOrders = await this.orderRepo.count({
+      where: { status: OrderStatus.PAID },
+    });
+    const avgOrdersPerCustomer =
+      totalCustomers > 0 ? (totalOrders / totalCustomers).toFixed(1) : '0';
+
+    return {
+      today: {
+        newCustomers: newCustomersToday,
+        activeCustomers: activeCustomersToday,
+      },
+      thisWeek: {
+        newCustomers: newCustomersThisWeek,
+      },
+      thisMonth: {
+        newCustomers: newCustomersThisMonth,
+      },
+      summary: {
+        totalCustomers,
+        repeatCustomers,
+        repeatRate: parseFloat(repeatRate),
+        avgOrdersPerCustomer: parseFloat(avgOrdersPerCustomer),
+      },
+      lastUpdated: ThailandTimeHelper.formatDateTime(ThailandTimeHelper.now()),
+    };
+  }
+
+  /**
+   * สถานะระบบและการแจ้งเตือนสำคัญ
+   */
+  async getSystemHealth() {
+    this.logger.log('🏥 ตรวจสอบสถานะระบบ');
+
+    const now = ThailandTimeHelper.now();
+
+    // ออเดอร์รอชำระเงิน
+    const pendingOrders = await this.orderRepo.count({
+      where: { status: OrderStatus.PENDING },
+    });
+
+    // ออเดอร์หมดอายุ
+    const expiredOrders = await this.orderRepo.count({
+      where: { status: OrderStatus.EXPIRED },
+    });
+
+    // ออเดอร์ที่ใกล้หมดอายุ (ภายใน 1 ชั่วโมง)
+    const soonExpiredOrders = await this.orderRepo.count({
+      where: {
+        status: OrderStatus.PENDING,
+        expiresAt: Between(now, ThailandTimeHelper.add(now, 1, 'hour')),
+      },
+    });
+
+    // โซนที่ที่นั่งเหลือน้อย (น้อยกว่า 10 ที่)
+    const zones = await this.zoneRepo.find({
+      where: { isActive: true },
+    });
+
+    let lowStockZones = 0;
+    for (const zone of zones) {
+      const totalSeats = await this.seatRepo.count({
+        where: {
+          zone: { id: zone.id },
+          seatNumber: Not(IsNull()),
+        },
+      });
+
+      const bookedSeats = await this.bookingRepo
+        .createQueryBuilder('booking')
+        .leftJoin('booking.seat', 'seat')
+        .leftJoin('seat.zone', 'zone')
+        .where('zone.id = :zoneId', { zoneId: zone.id })
+        .andWhere('booking.status = :status', { status: BookingStatus.BOOKED })
+        .getCount();
+
+      const availableSeats = totalSeats - bookedSeats;
+      if (availableSeats < 10 && availableSeats > 0) {
+        lowStockZones++;
       }
     }
 
-    const salesByZone = Object.entries(salesByZoneMap).map(([zone, total]) => ({
-      zone,
-      total: Math.round(total),
-    }));
-
-    // ✅ แก้ตรงนี้ให้ใช้ DATE() เพื่อเทียบวัน
-    //
-    //
-    // หาวันถัดไป (next show date) ที่มีการเปิดขาย
-    console.log('nextShowRaw', nextShowRaw);
-
-    const nextDate =
-      nextShowRaw?.date instanceof Date
-        ? nextShowRaw.date
-        : new Date(nextShowRaw?.date ?? todayISO);
-
-    const nextDateISOs = nextDate.toLocaleDateString('sv-SE'); // ได้ yyyy-mm-dd
-
-    console.log('nextDateISOs', nextDateISOs);
-
-    // ดึง booking ที่ showDate = วันถัดไป และสถานะเป็น BOOKED หรือ PAID
-    const nextShowBookings = await this.bookingRepo.find({
-      where: {
-        showDate: nextDateISOs,
-        status: In([BookingStatus.PAID, BookingStatus.BOOKED]),
-      },
-      relations: ['seat'],
-    });
-
-    // seatIds ที่ถูกจองไว้แล้ว
-    const bookedSeatId = nextShowBookings.map((b) => b.seat.id);
-
-    // เก้าอี้ทั้งหมด
-    const allSeats = await this.seatRepo.find();
-
-    const nextShowAvailable = allSeats.filter(
-      (seat) => !bookedSeatId.includes(seat.id),
-    ).length;
-
-    const nextShowBooked = nextShowBookings.filter(
-      (b) =>
-        b.status === BookingStatus.BOOKED || b.status === BookingStatus.PAID,
-    ).length;
-
-    //
-    //
-    //
-
-    const bookedSeatIds = await this.bookingRepo
-      .createQueryBuilder('booking')
-      .select('DISTINCT booking.seatId', 'seatId')
-      .where('booking.status IN (:...statuses)', {
-        statuses: [BookingStatus.PAID, BookingStatus.BOOKED],
-      })
-      .andWhere('DATE(booking.showDate) = :today', { today: todayISO })
-      .getRawMany();
-
-    const bookedIds = bookedSeatIds.map((s) => s.seatId);
-    const availableSeats = await this.seatRepo.count(
-      bookedIds.length ? { where: { id: Not(In(bookedIds)) } } : {},
-    );
-
-    const nextDateISO = moment(nextShowRaw?.date ?? today).format('YYYY-MM-DD');
-
-    return {
-      totalSales: `฿${totalSales.sum || 0}`,
-      monthSales: `${monthSales.sum || 0} บาท`,
-      totalOrders: totalOrderCount,
-      orderStatusCounts: orderStatusMap,
-      totalCustomers,
-      availableSeats,
-      dailySales: dailySales.map((r) => ({
-        date: moment(r.date).format('YYYY-MM-DD'),
-        amount: +r.amount,
-      })),
-      salesByZone,
-      salesByMethod,
-      topCustomers,
-      topReferrers,
-      alerts: [
-        'ออเดอร์ล่าสุดชำระแล้ว',
-        'เกิดการยกเลิกที่นั่งในโซน front-ringside',
-      ],
-      nextShowDate: nextDateISO,
-      nextShowAvailable,
-      nextShowBooked,
-    };
-  }
-
-  // ========================================
-  // 📊 ADDITIONAL DASHBOARD METHODS
-  // ========================================
-  async getStatistics() {
-    const todayStart = dayjs().startOf('day').toDate();
-    const todayEnd = dayjs().endOf('day').toDate();
-    const weekStart = dayjs().startOf('week').toDate();
-    const monthStart = dayjs().startOf('month').toDate();
-
-    const [todayOrders, weekOrders, monthOrders] = await Promise.all([
-      this.orderRepo.count({
-        where: {
-          createdAt: { $gte: todayStart, $lte: todayEnd } as any,
-        },
-      }),
-      this.orderRepo.count({
-        where: {
-          createdAt: { $gte: weekStart } as any,
-        },
-      }),
-      this.orderRepo.count({
-        where: {
-          createdAt: { $gte: monthStart } as any,
-        },
-      }),
-    ]);
-
-    return {
-      today: { orders: todayOrders },
-      week: { orders: weekOrders },
-      month: { orders: monthOrders },
-    };
-  }
-
-  async getRevenueAnalytics(period: string = 'weekly') {
-    const startDate = dayjs().subtract(7, 'days').toDate();
-
-    const revenueData = await this.paymentRepo
-      .createQueryBuilder('payment')
-      .select("DATE_TRUNC('day', payment.createdAt)", 'period')
-      .addSelect('SUM(payment.amount)', 'revenue')
-      .where('payment.status = :status', { status: 'PAID' })
-      .andWhere('payment.createdAt >= :startDate', { startDate })
-      .groupBy("DATE_TRUNC('day', payment.createdAt)")
-      .orderBy('period', 'ASC')
-      .getRawMany();
-
-    return {
-      period,
-      revenueData: revenueData.map((r) => ({
-        period: r.period,
-        revenue: parseFloat(r.revenue) || 0,
-      })),
-    };
-  }
-
-  async getSeatOccupancy(showDate?: string) {
-    const targetDate = showDate ? new Date(showDate) : new Date();
-    const dateStr = dayjs(targetDate).format('YYYY-MM-DD');
-
-    const [totalSeats, bookedSeats] = await Promise.all([
-      this.seatRepo.count(),
-      this.bookingRepo
-        .createQueryBuilder('booking')
-        .where('DATE(booking.showDate) = :date', { date: dateStr })
-        .andWhere('booking.status IN (:...statuses)', {
-          statuses: [BookingStatus.PAID, BookingStatus.BOOKED],
-        })
-        .getCount(),
-    ]);
-
-    const occupancyRate = totalSeats > 0 ? (bookedSeats / totalSeats) * 100 : 0;
-
-    return {
-      showDate: dateStr,
-      totalSeats,
-      bookedSeats,
-      availableSeats: totalSeats - bookedSeats,
-      occupancyRate: Math.round(occupancyRate * 100) / 100,
-    };
-  }
-
-  async getPerformanceMetrics() {
-    const last30Days = dayjs().subtract(30, 'days').toDate();
-
-    const [totalOrders, paidOrders] = await Promise.all([
-      this.orderRepo.count({
-        where: {
-          createdAt: { $gte: last30Days } as any,
-        },
-      }),
-      this.orderRepo.count({
-        where: {
-          status: OrderStatus.CONFIRMED,
-          createdAt: { $gte: last30Days } as any,
-        },
-      }),
-    ]);
-
-    const conversionRate =
-      totalOrders > 0 ? (paidOrders / totalOrders) * 100 : 0;
-
-    return {
-      totalOrders,
-      paidOrders,
-      conversionRate: Math.round(conversionRate * 100) / 100,
-    };
-  }
-
-  async getReferrerAnalytics() {
-    const topReferrers = await this.orderRepo
-      .createQueryBuilder('order')
-      .leftJoin('order.referrer', 'referrer')
-      .select('referrer.code', 'referrerCode')
-      .addSelect('referrer.name', 'referrerName')
-      .addSelect('COUNT(order.id)', 'totalOrders')
-      .addSelect('SUM(order.totalAmount)', 'totalRevenue')
-      .where('order.referrerId IS NOT NULL')
-      .andWhere('order.status = :status', { status: OrderStatus.CONFIRMED })
-      .groupBy('referrer.code')
-      .addGroupBy('referrer.name')
-      .orderBy('totalRevenue', 'DESC')
-      .limit(10)
-      .getRawMany();
-
-    return {
-      topReferrers: topReferrers.map((r) => ({
-        code: r.referrerCode,
-        name: r.referrerName,
-        totalOrders: parseInt(r.totalOrders) || 0,
-        totalRevenue: parseFloat(r.totalRevenue) || 0,
-      })),
-    };
-  }
-
-  async getRecentActivities() {
-    const [recentOrders, recentPayments] = await Promise.all([
-      this.orderRepo
-        .createQueryBuilder('order')
-        .select([
-          'order.id',
-          'order.orderNumber',
-          'order.customerName',
-          'order.totalAmount',
-          'order.status',
-          'order.createdAt',
-        ])
-        .orderBy('order.createdAt', 'DESC')
-        .limit(10)
-        .getMany(),
-
-      this.paymentRepo
-        .createQueryBuilder('payment')
-        .leftJoin('payment.order', 'order')
-        .select([
-          'payment.id',
-          'payment.amount',
-          'payment.method',
-          'payment.status',
-          'payment.createdAt',
-          'order.orderNumber',
-        ])
-        .orderBy('payment.createdAt', 'DESC')
-        .limit(10)
-        .getMany(),
-    ]);
-
-    return {
-      recentOrders: recentOrders.map((order) => ({
-        id: order.id,
-        orderNumber: order.orderNumber,
-        customerName: order.customerName,
-        totalAmount: order.totalAmount,
-        status: order.status,
-        createdAt: order.createdAt,
-      })),
-      recentPayments: recentPayments.map((payment) => ({
-        id: payment.id,
-        amount: payment.amount,
-        method: payment.method,
-        status: payment.status,
-        createdAt: payment.createdAt,
-      })),
-    };
-  }
-
-  async getAlerts() {
+    // สร้างการแจ้งเตือน
     const alerts = [];
-    const last24Hours = dayjs().subtract(24, 'hours').toDate();
 
-    // ตรวจสอบออเดอร์ที่ยกเลิกมากผิดปกติ
-    const cancellationsLast24h = await this.orderRepo.count({
-      where: {
-        status: OrderStatus.CANCELLED,
-        updatedAt: { $gte: last24Hours } as any,
-      },
-    });
-
-    if (cancellationsLast24h > 5) {
+    if (soonExpiredOrders > 0) {
       alerts.push({
         type: 'warning',
-        message: `มีการยกเลิกออเดอร์ ${cancellationsLast24h} รายการใน 24 ชั่วโมงที่ผ่านมา`,
-        timestamp: new Date(),
+        message: `มีออเดอร์ ${soonExpiredOrders} รายการที่ใกล้หมดอายุภายใน 1 ชั่วโมง`,
+        count: soonExpiredOrders,
       });
     }
 
-    // ตรวจสอบความจุที่นั่ง
-    const todayOccupancy = await this.getSeatOccupancy();
-    if (todayOccupancy.occupancyRate > 80) {
+    if (pendingOrders > 50) {
       alerts.push({
         type: 'info',
-        message: `อัตราการใช้ที่นั่งวันนี้ ${todayOccupancy.occupancyRate}% - ใกล้เต็มแล้ว`,
-        timestamp: new Date(),
+        message: `มีออเดอร์รอชำระจำนวน ${pendingOrders} รายการ`,
+        count: pendingOrders,
+      });
+    }
+
+    if (lowStockZones > 0) {
+      alerts.push({
+        type: 'warning',
+        message: `มี ${lowStockZones} โซนที่เหลือที่นั่งน้อยกว่า 10 ที่`,
+        count: lowStockZones,
+      });
+    }
+
+    if (expiredOrders > 100) {
+      alerts.push({
+        type: 'error',
+        message: `มีออเดอร์หมดอายุจำนวน ${expiredOrders} รายการ ควรทำความสะอาดข้อมูล`,
+        count: expiredOrders,
       });
     }
 
     return {
+      pendingOrders,
+      expiredOrders,
+      soonExpiredOrders,
+      lowStockZones,
       alerts,
-      count: alerts.length,
+      systemStatus:
+        alerts.length === 0
+          ? 'ปกติ'
+          : alerts.some((a) => a.type === 'error')
+            ? 'ต้องตรวจสอบ'
+            : 'เฝ้าระวัง',
+      lastUpdated: ThailandTimeHelper.formatDateTime(ThailandTimeHelper.now()),
+    };
+  }
+
+  /**
+   * รายงานผลงาน Referrer ทั้งหมด (ไม่จำกัดแค่วันนี้)
+   */
+  async getReferrerPerformance() {
+    this.logger.log('📊 เรียกข้อมูลผลงาน Referrer ทั้งหมด');
+
+    const allReferrers = await this.orderRepo
+      .createQueryBuilder('order')
+      .leftJoinAndSelect('order.referrer', 'referrer')
+      .select([
+        'referrer.id as referrerId',
+        'referrer.name as referrerName',
+        'referrer.code as referrerCode',
+        'COUNT(order.id) as totalOrders',
+        'COUNT(CASE WHEN order.status = :paidStatus THEN 1 END) as paidOrders',
+        'COUNT(CASE WHEN order.status = :pendingStatus THEN 1 END) as pendingOrders',
+        'COUNT(CASE WHEN order.status = :cancelledStatus THEN 1 END) as cancelledOrders',
+        'SUM(order.totalAmount) as totalAmount',
+        'SUM(order.referrerCommission) as totalCommission',
+      ])
+      .where('order.referrerId IS NOT NULL')
+      .setParameters({
+        paidStatus: OrderStatus.PAID,
+        pendingStatus: OrderStatus.PENDING,
+        cancelledStatus: OrderStatus.CANCELLED,
+      })
+      .groupBy('referrer.id')
+      .addGroupBy('referrer.name')
+      .addGroupBy('referrer.code')
+      .orderBy('totalCommission', 'DESC')
+      .getRawMany();
+
+    const result = allReferrers.map((referrer) => ({
+      id: referrer.referrerId || referrer.referrerid,
+      name: referrer.referrerName || referrer.referrername,
+      code: referrer.referrerCode || referrer.referrercode,
+      totalOrders: parseInt(referrer.totalOrders || referrer.totalorders || 0),
+      paidOrders: parseInt(referrer.paidOrders || referrer.paidorders || 0),
+      pendingOrders: parseInt(
+        referrer.pendingOrders || referrer.pendingorders || 0,
+      ),
+      cancelledOrders: parseInt(
+        referrer.cancelledOrders || referrer.cancelledorders || 0,
+      ),
+      totalAmount: parseFloat(
+        referrer.totalAmount || referrer.totalamount || 0,
+      ),
+      totalCommission: parseFloat(
+        referrer.totalCommission || referrer.totalcommission || 0,
+      ),
+      successRate:
+        parseInt(referrer.totalOrders || 0) > 0
+          ? (
+              (parseInt(referrer.paidOrders || 0) /
+                parseInt(referrer.totalOrders || 0)) *
+              100
+            ).toFixed(1)
+          : '0',
+    }));
+
+    return {
+      referrers: result,
+      summary: {
+        totalReferrers: result.length,
+        totalOrders: result.reduce((sum, r) => sum + r.totalOrders, 0),
+        totalPaidOrders: result.reduce((sum, r) => sum + r.paidOrders, 0),
+        totalAmount: result.reduce((sum, r) => sum + r.totalAmount, 0),
+        totalCommission: result.reduce((sum, r) => sum + r.totalCommission, 0),
+      },
+      lastUpdated: ThailandTimeHelper.formatDateTime(ThailandTimeHelper.now()),
     };
   }
 }

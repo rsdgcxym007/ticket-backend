@@ -7,10 +7,20 @@ import { Payment } from '../payment/payment.entity';
 import { SeatBooking } from '../seats/seat-booking.entity';
 import { Referrer } from '../referrer/referrer.entity';
 import { Seat } from '../seats/seat.entity';
+import { Zone } from '../zone/zone.entity';
+import { User } from '../user/user.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Order, Payment, SeatBooking, Referrer, Seat]),
+    TypeOrmModule.forFeature([
+      Order,
+      Payment,
+      SeatBooking,
+      Referrer,
+      Seat,
+      Zone,
+      User,
+    ]),
   ],
   controllers: [DashboardController],
   providers: [DashboardService],
