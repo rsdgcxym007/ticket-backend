@@ -6,6 +6,7 @@ import {
   IsOptional,
   IsString,
   IsDateString,
+  IsNumber,
 } from 'class-validator';
 import {
   TicketType,
@@ -76,4 +77,13 @@ export class CreateOrderDto {
   @IsOptional()
   @IsInt()
   standingChildQty?: number;
+
+  // ✅ Add required fields for order total calculation
+  @IsOptional()
+  @IsNumber()
+  total?: number;
+
+  @IsOptional()
+  @IsNumber()
+  totalAmount?: number;
 }

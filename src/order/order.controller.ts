@@ -30,6 +30,10 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '../common/enums';
 import { AuthenticatedRequest } from '../common/interfaces/auth.interface';
 import { OrderData } from '../common/interfaces';
+import { EnhancedOrderService } from '../common/services/enhanced-order.service';
+import { ConcurrencyService } from '../common/services/concurrency.service';
+import { DuplicateOrderPreventionService } from '../common/services/duplicate-order-prevention.service';
+import { OrderUpdatesGateway } from '../common/gateways/order-updates.gateway';
 
 @ApiTags('Orders')
 @ApiBearerAuth()
@@ -38,35 +42,68 @@ import { OrderData } from '../common/interfaces';
 export class OrderController {
   private readonly logger = new Logger(OrderController.name);
 
-  constructor(private readonly orderService: OrderService) {}
+  constructor(
+    private readonly orderService: OrderService,
+    private readonly enhancedOrderService: EnhancedOrderService,
+    private readonly concurrencyService: ConcurrencyService,
+    private readonly duplicatePreventionService: DuplicateOrderPreventionService,
+    private readonly orderUpdatesGateway: OrderUpdatesGateway, // Inject the WebSocket gateway
+  ) {}
 
   /**
-   * 🎫 สร้างออเดอร์ใหม่
+   * 🎫 สร้างออเดอร์ใหม่ (Enhanced with Concurrency Protection)
    */
   @Post()
   @Roles(UserRole.USER, UserRole.STAFF, UserRole.ADMIN)
-  @ApiOperation({ summary: 'สร้างออเดอร์ใหม่' })
+  @ApiOperation({ summary: 'สร้างออเดอร์ใหม่ (ป้องกัน race condition)' })
   @ApiResponse({ status: 201, description: 'สร้างออเดอร์สำเร็จ' })
   @ApiResponse({ status: 400, description: 'ข้อมูลไม่ถูกต้อง' })
   @ApiResponse({ status: 403, description: 'เกินขั้นจำกัดการจอง' })
+  @ApiResponse({
+    status: 409,
+    description: 'ออเดอร์ซ้ำกันหรือที่นั่งไม่พร้อมใช้งาน',
+  })
+  @ApiResponse({ status: 429, description: 'คำขอมากเกินไป' })
   async createOrder(
     @Body() dto: CreateOrderDto,
     @Req() req: AuthenticatedRequest,
   ) {
     try {
       this.logger.log(
-        `Request received for createOrder by user: ${req.user.id}`,
+        `🛡️ Enhanced order creation request from user: ${req.user.id}`,
       );
-      console.log('Request DTO:', dto);
 
-      const data = await this.orderService.createOrder(dto, req.user.id);
-      this.logger.log(`Order created successfully for user: ${req.user.id}`);
-      return success(data, 'สร้างออเดอร์สำเร็จ', req);
+      // ✅ ใช้ Enhanced Order Service แทน Legacy Service
+      const data =
+        await this.enhancedOrderService.createOrderWithConcurrencyControl(
+          req.user.id,
+          dto,
+        );
+
+      this.logger.log(
+        `✅ Enhanced order created successfully for user: ${req.user.id}`,
+      );
+      return success(data, 'สร้างออเดอร์สำเร็จ (ป้องกัน race condition)', req);
     } catch (err) {
       this.logger.error(
-        `Error creating order for user: ${req.user.id}`,
+        `❌ Error creating enhanced order for user: ${req.user.id}`,
         err.stack,
       );
+
+      // Handle specific concurrency errors
+      if (
+        err.message.includes('duplicate') ||
+        err.message.includes('DUPLICATE')
+      ) {
+        return error(err.message, '409', req);
+      }
+      if (
+        err.message.includes('rate limit') ||
+        err.message.includes('RATE_LIMIT')
+      ) {
+        return error(err.message, '429', req);
+      }
+
       return error(err.message, '400', req);
     }
   }
@@ -153,21 +190,46 @@ export class OrderController {
   }
 
   /**
-   * ❌ ยกเลิกออเดอร์
+   * ❌ ยกเลิกออเดอร์ (Enhanced with Concurrency Protection)
    */
   @Patch(':id/cancel')
   @Roles(UserRole.USER, UserRole.STAFF, UserRole.ADMIN)
-  @ApiOperation({ summary: 'ยกเลิกออเดอร์' })
+  @ApiOperation({ summary: 'ยกเลิกออเดอร์ (ป้องกัน race condition)' })
   @ApiResponse({ status: 200, description: 'ยกเลิกออเดอร์สำเร็จ' })
   @ApiResponse({ status: 400, description: 'ไม่สามารถยกเลิกได้' })
+  @ApiResponse({ status: 409, description: 'ออเดอร์ถูกประมวลผลแล้ว' })
   async cancel(
     @Param('id', ParseUUIDPipe) id: string,
     @Req() req: AuthenticatedRequest,
   ) {
     try {
-      const result = await this.orderService.cancel(id, req.user.id);
-      return success(result, 'ยกเลิกออเดอร์สำเร็จ', req);
+      this.logger.log(
+        `🛡️ Enhanced cancel request for order: ${id} by user: ${req.user.id}`,
+      );
+
+      // ✅ ใช้ Enhanced Order Service แทน Legacy Service
+      const result =
+        await this.enhancedOrderService.cancelOrderWithConcurrencyControl(
+          id,
+          req.user.id,
+        );
+
+      this.logger.log(`✅ Enhanced cancel successful for order: ${id}`);
+      return success(
+        result,
+        'ยกเลิกออเดอร์สำเร็จ (ป้องกัน race condition)',
+        req,
+      );
     } catch (err) {
+      this.logger.error(`❌ Error cancelling order: ${id}`, err.stack);
+
+      if (
+        err.message.includes('already processed') ||
+        err.message.includes('CONFLICT')
+      ) {
+        return error(err.message, '409', req);
+      }
+
       return error(err.message, '400', req);
     }
   }
@@ -304,6 +366,168 @@ export class OrderController {
         req.user.id,
       );
       return success(data, 'อัปเดตออเดอร์สำเร็จ', req);
+    } catch (err) {
+      return error(err.message, '400', req);
+    }
+  }
+
+  // =============================================
+  // 🛡️ ENHANCED CONCURRENCY CONTROL ENDPOINTS
+  // =============================================
+
+  /**
+   * 🔒 ล็อกที่นั่งชั่วคราว (สำหรับ frontend)
+   */
+  @Post('seats/lock')
+  @Roles(UserRole.USER, UserRole.STAFF, UserRole.ADMIN)
+  @ApiOperation({ summary: 'ล็อกที่นั่งชั่วคราว (ป้องกัน race condition)' })
+  @ApiResponse({ status: 201, description: 'ล็อกที่นั่งสำเร็จ' })
+  @ApiResponse({ status: 409, description: 'ที่นั่งถูกจองแล้ว' })
+  async lockSeats(
+    @Body() dto: { seatIds: string[]; showDate: string },
+    @Req() req: AuthenticatedRequest,
+  ) {
+    try {
+      this.logger.log(`🔒 Locking seats for user: ${req.user.id}`, dto);
+
+      const result = await this.concurrencyService.lockSeatsForOrder(
+        dto.seatIds,
+        dto.showDate,
+        5, // 5 minutes lock
+      );
+
+      console.log('dto.seatIds', dto);
+
+      // ✅ Send real-time notification to frontend
+      this.orderUpdatesGateway.notifySeatLocked({
+        seatIds: dto.seatIds,
+        showDate: dto.showDate,
+        userId: req.user.id,
+        message: 'Seats locked temporarily',
+      });
+
+      this.logger.log(`✅ Seats locked successfully for user: ${req.user.id}`);
+      return success(result, 'ล็อกที่นั่งสำเร็จ', req);
+    } catch (err) {
+      this.logger.error(
+        `❌ Error locking seats for user: ${req.user.id}`,
+        err.stack,
+      );
+
+      if (
+        err.message.includes('already locked') ||
+        err.message.includes('CONFLICT')
+      ) {
+        return error(err.message, '409', req);
+      }
+
+      return error(err.message, '400', req);
+    }
+  }
+
+  /**
+   * 🔓 ปลดล็อกที่นั่งชั่วคราว
+   */
+  @Post('seats/unlock')
+  @Roles(UserRole.USER, UserRole.STAFF, UserRole.ADMIN)
+  @ApiOperation({ summary: 'ปลดล็อกที่นั่งชั่วคราว' })
+  @ApiResponse({ status: 200, description: 'ปลดล็อกที่นั่งสำเร็จ' })
+  async unlockSeats(
+    @Body() dto: { seatIds: string[]; showDate: string },
+    @Req() req: AuthenticatedRequest,
+  ) {
+    try {
+      this.logger.log(`🔓 Unlocking seats for user: ${req.user.id}`, dto);
+
+      const result = await this.concurrencyService.releaseSeatLocks(
+        dto.seatIds,
+      );
+
+      // ✅ Send real-time notification to frontend
+      this.orderUpdatesGateway.notifySeatUnlocked({
+        seatIds: dto.seatIds,
+        showDate: dto.showDate,
+        userId: req.user.id,
+        message: 'Seats unlocked',
+      });
+
+      this.logger.log(
+        `✅ Seats unlocked successfully for user: ${req.user.id}`,
+      );
+      return success(result, 'ปลดล็อกที่นั่งสำเร็จ', req);
+    } catch (err) {
+      this.logger.error(
+        `❌ Error unlocking seats for user: ${req.user.id}`,
+        err.stack,
+      );
+      return error(err.message, '400', req);
+    }
+  }
+
+  /**
+   * 💓 ตรวจสอบสถานะระบบ Concurrency
+   */
+  @Get('system/health')
+  @Roles(UserRole.STAFF, UserRole.ADMIN)
+  @ApiOperation({ summary: 'ตรวจสอบสถานะระบบ Concurrency' })
+  @ApiResponse({ status: 200, description: 'ข้อมูลสถานะระบบ' })
+  async getSystemHealth(@Req() req: AuthenticatedRequest) {
+    try {
+      const health = await this.enhancedOrderService.getSystemHealth();
+      return success(health, 'ข้อมูลสถานะระบบ', req);
+    } catch (err) {
+      return error(err.message, '400', req);
+    }
+  }
+
+  /**
+   * 🧹 ทำความสะอาดล็อกที่หมดอายุ
+   */
+  @Post('system/cleanup')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'ทำความสะอาดล็อกและออเดอร์ที่หมดอายุ' })
+  @ApiResponse({ status: 200, description: 'ทำความสะอาดสำเร็จ' })
+  async cleanupExpiredLocks(@Req() req: AuthenticatedRequest) {
+    try {
+      this.logger.log('🧹 Manual cleanup triggered by admin');
+
+      // ใช้ ConcurrencyService แทน
+      await this.concurrencyService.cleanupExpiredSeatLocks();
+
+      this.logger.log('✅ Manual cleanup completed');
+      return success(
+        { message: 'Cleanup completed' },
+        'ทำความสะอาดสำเร็จ',
+        req,
+      );
+    } catch (err) {
+      this.logger.error('❌ Error during manual cleanup', err.stack);
+      return error(err.message, '400', req);
+    }
+  }
+
+  /**
+   * 📊 ดูสถิติการทำงานของ Enhanced Order System
+   */
+  @Get('system/stats')
+  @Roles(UserRole.STAFF, UserRole.ADMIN)
+  @ApiOperation({ summary: 'สถิติการทำงานของ Enhanced Order System' })
+  @ApiResponse({ status: 200, description: 'ข้อมูลสถิติระบบ' })
+  async getEnhancedSystemStats(@Req() req: AuthenticatedRequest) {
+    try {
+      // ใช้ข้อมูลพื้นฐาน
+      const basicStats = {
+        timestamp: new Date().toISOString(),
+        systemStatus: 'Enhanced Order System Active',
+        features: [
+          'Concurrency Control',
+          'Duplicate Prevention',
+          'Seat Locking',
+          'Atomic Transactions',
+        ],
+      };
+
+      return success(basicStats, 'ข้อมูลสถิติระบบ Enhanced', req);
     } catch (err) {
       return error(err.message, '400', req);
     }

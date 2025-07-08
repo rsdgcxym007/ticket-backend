@@ -192,9 +192,9 @@ export class MobileService {
   async getZonePricing(zoneId: string) {
     // ในอนาคตอาจมีราคาแบบไดนามิก
     const zoneMapping = {
-      ringside: { price: 2000, label: 'ริงไซด์' },
-      stadium: { price: 1500, label: 'สเตเดียม' },
-      standing: { price: 800, label: 'ยืน' },
+      ringside: { price: 1800, label: 'ริงไซด์' },
+      stadium: { price: 1800, label: 'สเตเดียม' },
+      standing: { price: 1500, label: 'ยืน' },
     };
 
     return {

@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, LessThan, In } from 'typeorm';
 import { Order } from '../../order/order.entity';
 import { Seat } from '../../seats/seat.entity';
 import { SeatBooking } from '../../seats/seat-booking.entity';
@@ -58,7 +58,7 @@ export class ConcurrencyCleanupService {
       const expiredOrders = await this.orderRepo.find({
         where: {
           status: OrderStatus.PENDING,
-          expiresAt: { $lt: now } as any,
+          expiresAt: LessThan(now),
         },
         relations: ['seatBookings'],
       });
@@ -153,7 +153,7 @@ export class ConcurrencyCleanupService {
       const oldExpiredOrders = await this.orderRepo.find({
         where: {
           status: OrderStatus.EXPIRED,
-          updatedAt: { $lt: oneDayAgo } as any,
+          updatedAt: LessThan(oneDayAgo),
         },
         relations: ['seatBookings'],
       });
@@ -166,13 +166,13 @@ export class ConcurrencyCleanupService {
       const oldLockedSeats = await this.seatRepo.find({
         where: {
           status: SeatStatus.RESERVED,
-          isLockedUntil: { $lt: oneDayAgo } as any,
+          isLockedUntil: LessThan(oneDayAgo),
         },
       });
 
       if (oldLockedSeats.length > 0) {
         await this.seatRepo.update(
-          { id: { $in: oldLockedSeats.map((s) => s.id) } as any },
+          { id: In(oldLockedSeats.map((s) => s.id)) },
           {
             status: SeatStatus.AVAILABLE,
             isLockedUntil: null,
@@ -215,7 +215,7 @@ export class ConcurrencyCleanupService {
 
         // Release seats
         await this.seatRepo.update(
-          { id: { $in: seatIds } as any },
+          { id: In(seatIds) },
           {
             status: SeatStatus.AVAILABLE,
             isLockedUntil: null,
@@ -260,7 +260,7 @@ export class ConcurrencyCleanupService {
 
       // Release seats
       await this.seatRepo.update(
-        { id: { $in: seatIds } as any },
+        { id: In(seatIds) },
         {
           status: SeatStatus.AVAILABLE,
           isLockedUntil: null,

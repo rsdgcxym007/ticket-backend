@@ -53,10 +53,12 @@ export class SeatService {
     for (const booking of bookings) {
       bookingMap.set(booking.seat.id, booking.status);
     }
+    console.log('seats', seats);
 
     // 4. return seat พร้อม bookingStatus
     return seats.map((seat) => ({
       ...seat,
+      isLockedUntil: seat.isLockedUntil,
       bookingStatus: bookingMap.get(seat.id) || 'AVAILABLE',
     }));
   }

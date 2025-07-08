@@ -9,6 +9,7 @@ import { ConcurrencyService } from './concurrency.service';
 import { DuplicateOrderPreventionService } from './duplicate-order-prevention.service';
 import { EnhancedOrderService } from './enhanced-order.service';
 import { ConcurrencyCleanupService } from './concurrency-cleanup.service';
+import { GatewayModule } from '../gateways/gateway.module';
 
 /**
  * 🛡️ Concurrency Control Module
@@ -18,6 +19,7 @@ import { ConcurrencyCleanupService } from './concurrency-cleanup.service';
   imports: [
     TypeOrmModule.forFeature([Order, User, Seat, SeatBooking]),
     ScheduleModule.forRoot(),
+    GatewayModule, // ✅ เพิ่ม Gateway Module
   ],
   providers: [
     ConcurrencyService,
@@ -30,6 +32,7 @@ import { ConcurrencyCleanupService } from './concurrency-cleanup.service';
     DuplicateOrderPreventionService,
     EnhancedOrderService,
     ConcurrencyCleanupService,
+    GatewayModule, // ✅ Export Gateway Module
   ],
 })
 export class ConcurrencyModule {}

@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Order } from 'src/order/order.entity';
 import { SeatBooking } from 'src/seats/seat-booking.entity';
 import { Seat } from 'src/seats/seat.entity';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, In } from 'typeorm';
 import { SeatStatus, BookingStatus, OrderStatus } from '../enums';
 import { ThailandTimeHelper } from '../utils';
 
@@ -33,7 +33,10 @@ export class ConcurrencyService {
     seatIds: string[],
     showDate: string,
     lockDurationMinutes: number = 5,
-  ): Promise<{ success: boolean; lockedSeats: string[] }> {
+  ): Promise<{
+    success: boolean;
+    lockedSeats: string[];
+  }> {
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
@@ -78,16 +81,16 @@ export class ConcurrencyService {
 
       // 3. Check for existing bookings on the same show date
       const existingBookings = await queryRunner.query(
-        `SELECT seat_id 
+        `SELECT "seatId" 
          FROM seat_booking 
-         WHERE seat_id = ANY($1) 
-         AND show_date = $2 
+         WHERE "seatId" = ANY($1) 
+         AND "showDate" = $2 
          AND status IN ('PENDING', 'CONFIRMED', 'PAID')`,
         [seatIds, showDate],
       );
 
       if (existingBookings.length > 0) {
-        const bookedSeatIds = existingBookings.map((b: any) => b.seat_id);
+        const bookedSeatIds = existingBookings.map((b: any) => b.seatId);
         this.logger.warn(
           `❌ Seats already booked for this show: ${bookedSeatIds.join(', ')}`,
         );
@@ -112,6 +115,7 @@ export class ConcurrencyService {
       this.logger.log(
         `✅ Successfully locked ${seatIds.length} seats until ${lockUntil.toISOString()}`,
       );
+
       return { success: true, lockedSeats: seatIds };
     } catch (error) {
       await queryRunner.rollbackTransaction();
@@ -179,36 +183,33 @@ export class ConcurrencyService {
       const order = queryRunner.manager.create(Order, orderData);
       const savedOrder = await queryRunner.manager.save(order);
 
-      // 2. Create seat bookings atomically
+      // 2. Create seat bookings atomically using TypeORM entity manager
       if (seatIds && seatIds.length > 0) {
-        const bookings = seatIds.map((seatId) => ({
-          orderId: savedOrder.id,
-          seatId,
-          showDate,
-          status: BookingStatus.PENDING,
-          createdAt: ThailandTimeHelper.now(),
-          updatedAt: ThailandTimeHelper.now(),
-        }));
+        // Get seat entities
+        const seats = await queryRunner.manager.findByIds(Seat, seatIds);
 
-        await queryRunner.query(
-          `INSERT INTO seat_booking (id, "orderId", "seatId", "showDate", status, "createdAt", "updatedAt") 
-           VALUES ${bookings.map(() => '(gen_random_uuid(), ?, ?, ?, ?, ?, ?)').join(', ')}`,
-          bookings.flatMap((b) => [
-            b.orderId,
-            b.seatId,
-            b.showDate,
-            b.status,
-            b.createdAt,
-            b.updatedAt,
-          ]),
+        const bookings = seats.map((seat) =>
+          queryRunner.manager.create(SeatBooking, {
+            order: savedOrder,
+            seat: seat,
+            showDate,
+            status: BookingStatus.PENDING,
+            createdAt: ThailandTimeHelper.now(),
+            updatedAt: ThailandTimeHelper.now(),
+          }),
         );
 
-        // 3. Update seat status to BOOKED
-        await queryRunner.query(
-          `UPDATE seat 
-           SET status = $1, "isLockedUntil" = NULL, "updatedAt" = $2 
-           WHERE id = ANY($3)`,
-          [SeatStatus.BOOKED, ThailandTimeHelper.now(), seatIds],
+        await queryRunner.manager.save(SeatBooking, bookings);
+
+        // 3. Update seat status to BOOKED using entity manager
+        await queryRunner.manager.update(
+          Seat,
+          { id: In(seatIds) },
+          {
+            status: SeatStatus.BOOKED,
+            isLockedUntil: null,
+            updatedAt: ThailandTimeHelper.now(),
+          },
         );
       }
 

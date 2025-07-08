@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, LessThan, MoreThanOrEqual } from 'typeorm';
 import {
   Notification,
   NotificationType,
@@ -243,7 +243,7 @@ export class NotificationService {
     );
 
     const result = await this.notificationRepo.delete({
-      createdAt: { $lt: thirtyDaysAgo } as any,
+      createdAt: LessThan(thirtyDaysAgo),
     });
 
     this.logger.log(`🧹 ลบการแจ้งเตือนเก่า ${result.affected} รายการ`);
@@ -260,13 +260,13 @@ export class NotificationService {
     const [todayCount, weekCount, monthCount, totalCount, unreadCount, byType] =
       await Promise.all([
         this.notificationRepo.count({
-          where: { createdAt: { $gte: today } as any },
+          where: { createdAt: MoreThanOrEqual(today) },
         }),
         this.notificationRepo.count({
-          where: { createdAt: { $gte: thisWeek } as any },
+          where: { createdAt: MoreThanOrEqual(thisWeek) },
         }),
         this.notificationRepo.count({
-          where: { createdAt: { $gte: thisMonth } as any },
+          where: { createdAt: MoreThanOrEqual(thisMonth) },
         }),
         this.notificationRepo.count(),
         this.notificationRepo.count({

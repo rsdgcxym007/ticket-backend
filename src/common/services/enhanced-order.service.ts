@@ -8,7 +8,8 @@ import { SeatBooking } from '../../seats/seat-booking.entity';
 import { ConcurrencyService } from './concurrency.service';
 import { DuplicateOrderPreventionService } from './duplicate-order-prevention.service';
 import { ThailandTimeHelper } from '../utils/thailand-time.helper';
-import { OrderStatus, SeatStatus, BookingStatus } from '../enums';
+import { OrderStatus, SeatStatus, BookingStatus, TicketType } from '../enums';
+import { OrderUpdatesGateway } from '../gateways/order-updates.gateway';
 
 /**
  * 🚀 Enhanced Order Service with Concurrency Control
@@ -30,6 +31,7 @@ export class EnhancedOrderService {
     private readonly concurrencyService: ConcurrencyService,
     private readonly duplicatePreventionService: DuplicateOrderPreventionService,
     private readonly dataSource: DataSource,
+    private readonly orderUpdatesGateway: OrderUpdatesGateway, // ✅ เพิ่ม WebSocket Gateway
   ) {}
 
   /**
@@ -72,6 +74,9 @@ export class EnhancedOrderService {
         seatLocks = seatLockResult.lockedSeats;
       }
 
+      // 3.5. Calculate total amount if not provided
+      const calculatedTotal = await this.calculateOrderTotal(orderData);
+
       // 4. Create order atomically
       const order = await this.concurrencyService.atomicCreateOrderWithSeats(
         {
@@ -79,6 +84,8 @@ export class EnhancedOrderService {
           userId,
           orderNumber: this.generateOrderNumber(),
           status: OrderStatus.PENDING,
+          total: calculatedTotal.total,
+          totalAmount: calculatedTotal.totalAmount,
           createdAt: ThailandTimeHelper.now(),
           updatedAt: ThailandTimeHelper.now(),
           expiresAt: this.calculateExpiryTime(orderData),
@@ -89,6 +96,27 @@ export class EnhancedOrderService {
 
       // 5. Release duplicate prevention lock
       await this.duplicatePreventionService.releaseDuplicateOrderLock(lockKey);
+
+      // 6. ✅ Send real-time notification to frontend
+      this.orderUpdatesGateway.notifyOrderCreated({
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        userId: order.userId,
+        showDate: orderData.showDate,
+        seatIds: orderData.seatIds || [],
+        status: order.status,
+        message: 'Order created successfully with concurrency protection',
+      });
+
+      // 7. ✅ Update seat availability for other users
+      if (orderData.seatIds && orderData.seatIds.length > 0) {
+        this.orderUpdatesGateway.notifySeatAvailabilityChanged({
+          seatIds: orderData.seatIds,
+          showDate: orderData.showDate,
+          status: 'LOCKED',
+          message: 'Seats are now locked for this order',
+        });
+      }
 
       this.logger.log(`✅ Successfully created order: ${order.id}`);
       return order;
@@ -252,6 +280,27 @@ export class EnhancedOrderService {
       }
 
       await queryRunner.commitTransaction();
+
+      // 5. ✅ Send real-time notification to frontend
+      this.orderUpdatesGateway.notifyOrderCancelled({
+        orderId: orderId,
+        orderNumber: currentOrder.orderNumber,
+        userId: currentOrder.userId,
+        showDate: currentOrder.showDate,
+        message: 'Order cancelled successfully with concurrency protection',
+      });
+
+      // 6. ✅ Update seat availability for other users
+      if (seatBookings.length > 0) {
+        const seatIds = seatBookings.map((b: any) => b.seatId);
+        this.orderUpdatesGateway.notifySeatAvailabilityChanged({
+          seatIds: seatIds,
+          showDate: currentOrder.showDate,
+          status: 'AVAILABLE',
+          message: 'Seats are now available again',
+        });
+      }
+
       this.logger.log(`✅ Successfully cancelled order: ${orderId}`);
 
       return { success: true, message: 'Order cancelled successfully' };
@@ -390,6 +439,59 @@ export class EnhancedOrderService {
 
     // Regular tickets expire in 5 minutes
     return new Date(now.getTime() + 5 * 60 * 1000);
+  }
+
+  /**
+   * 💰 Calculate order total amount
+   * คำนวณจำนวนเงินรวมของออเดอร์
+   */
+  private async calculateOrderTotal(orderData: any): Promise<{
+    total: number;
+    totalAmount: number;
+  }> {
+    // If total is already provided, use it
+    if (orderData.total || orderData.totalAmount) {
+      const total = orderData.total || orderData.totalAmount;
+      return {
+        total,
+        totalAmount: total,
+      };
+    } // Calculate based on ticket type and quantity
+    let basePrice = 0;
+
+    switch (orderData.ticketType) {
+      case TicketType.RINGSIDE:
+        basePrice = 1800;
+        break;
+      case TicketType.STADIUM:
+        basePrice = 1800;
+        break;
+      case TicketType.STANDING:
+        basePrice = 1500;
+        break;
+      default:
+        basePrice = 1200;
+    }
+
+    // Calculate total based on seats or standing tickets
+    let totalAmount = 0;
+
+    if (orderData.seatIds && orderData.seatIds.length > 0) {
+      // Seat-based pricing
+      totalAmount = basePrice * orderData.seatIds.length;
+    } else {
+      // Standing ticket pricing
+      const adultQty = orderData.standingAdultQty || 0;
+      const childQty = orderData.standingChildQty || 0;
+      const quantity = orderData.quantity || 1;
+
+      totalAmount = basePrice * (adultQty + childQty + quantity);
+    }
+
+    return {
+      total: totalAmount,
+      totalAmount,
+    };
   }
 
   /**
