@@ -16,6 +16,8 @@ import { success } from '../common/responses';
 import { CreateSeatDto } from './dto/create-seat.dto';
 import { UpdateSeatDto, UpdateSeatStatusDto } from './dto/update-seat.dto';
 import { SeatService } from './seat.service';
+import { SeatStatus } from '../common/enums';
+import { BadRequestException } from '@nestjs/common';
 import { Request } from 'express';
 
 @ApiTags('Seats')
@@ -59,6 +61,18 @@ export class SeatController {
     @Body() dto: UpdateSeatStatusDto,
     @Req() req: Request,
   ) {
+    // ⚠️ WARNING: การอัพเดทสถานะที่นั่งตรงๆ ควรใช้เฉพาะกรณี maintenance เท่านั้น
+    // สำหรับการจองปกติ ระบบจะใช้ seat_booking table
+
+    // อนุญาตเฉพาะสถานะ maintenance
+    const allowedStatuses = [SeatStatus.AVAILABLE, SeatStatus.EMPTY];
+
+    if (!allowedStatuses.includes(dto.status)) {
+      throw new BadRequestException(
+        `Status ${dto.status} is not allowed. Use seat booking system for reservations.`,
+      );
+    }
+
     const result = await this.service.updateStatus(id, dto.status);
     return success(result, 'Seat status updated', req);
   }

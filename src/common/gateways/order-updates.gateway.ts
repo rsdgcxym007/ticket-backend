@@ -89,8 +89,6 @@ export class OrderUpdatesGateway
    * 📢 ส่งข้อมูลการล็อก seat ไปยัง clients ทั้งหมด
    */
   async notifySeatLocked(seatData: any) {
-    console.log('seatData', seatData);
-
     this.logger.log(
       `📢 Broadcasting seat locked: ${seatData.seatIds?.join(', ')}`,
     );

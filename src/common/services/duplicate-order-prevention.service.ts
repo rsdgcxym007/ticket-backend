@@ -57,15 +57,15 @@ export class DuplicateOrderPreventionService {
       }
     }
 
-    // Set in-memory lock
-    this.orderLocks.set(lockKey, { timestamp: new Date(), userId });
+    // // Set in-memory lock
+    // this.orderLocks.set(lockKey, { timestamp: new Date(), userId });
 
-    // Check database for existing similar orders
-    const existingOrder = await this.checkExistingOrder(userId, orderData);
-    if (existingOrder) {
-      this.orderLocks.delete(lockKey);
-      throw new ConflictException('คุณมีคำสั่งซื้อที่คล้ายกันอยู่แล้ว');
-    }
+    // // Check database for existing similar orders
+    // const existingOrder = await this.checkExistingOrder(userId, orderData);
+    // if (existingOrder) {
+    //   this.orderLocks.delete(lockKey);
+    //   throw new ConflictException('คุณมีคำสั่งซื้อที่คล้ายกันอยู่แล้ว');
+    // }
 
     return { success: true, lockKey };
   }

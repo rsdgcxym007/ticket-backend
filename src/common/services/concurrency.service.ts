@@ -10,6 +10,11 @@ import { ThailandTimeHelper } from '../utils';
 /**
  * 🔐 Concurrency Control Service
  * ป้องกันออเดอร์ซ้ำกันและจัดการ race conditions
+ *
+ * 🔧 UPDATED: ไม่อัปเดตสถานะ seat table เพื่อป้องกันสถานะติดค้าง
+ * - ใช้ isLockedUntil เพื่อควบคุมการล็อค
+ * - seat table จะมีเฉพาะ AVAILABLE และ EMPTY
+ * - สถานะการจองจริงดูจาก seat_booking table
  */
 @Injectable()
 export class ConcurrencyService {
@@ -28,6 +33,8 @@ export class ConcurrencyService {
   /**
    * 🔒 Lock seats for order creation with database-level locking
    * ล็อคที่นั่งระหว่างการสร้างออเดอร์ด้วย database-level locking
+   *
+   * 🔧 UPDATED: ใช้ isLockedUntil แทนการเปลี่ยนสถานะ seat
    */
   async lockSeatsForOrder(
     seatIds: string[],
@@ -99,15 +106,16 @@ export class ConcurrencyService {
         );
       }
 
-      // 4. Lock seats temporarily
+      // 4. 🔧 Lock seats temporarily using isLockedUntil ONLY
+      // ไม่เปลี่ยนสถานะ seat เพราะจะทำให้ติดสถานะ
       const lockUntil = new Date(
         now.getTime() + lockDurationMinutes * 60 * 1000,
       );
       await queryRunner.query(
         `UPDATE seat 
-         SET status = $1, "isLockedUntil" = $2, "updatedAt" = $3 
-         WHERE id = ANY($4)`,
-        [SeatStatus.RESERVED, lockUntil, now, seatIds],
+         SET "isLockedUntil" = $1, "updatedAt" = $2 
+         WHERE id = ANY($3)`,
+        [lockUntil, now, seatIds],
       );
 
       await queryRunner.commitTransaction();
@@ -138,16 +146,12 @@ export class ConcurrencyService {
     try {
       this.logger.log(`🔓 Releasing locks for seats: ${seatIds.join(', ')}`);
 
+      // 🔧 เคลียร์เฉพาะ lock ไม่เปลี่ยน status
       await queryRunner.query(
         `UPDATE seat 
-         SET status = $1, "isLockedUntil" = NULL, "updatedAt" = $2 
-         WHERE id = ANY($3) AND status = $4`,
-        [
-          SeatStatus.AVAILABLE,
-          ThailandTimeHelper.now(),
-          seatIds,
-          SeatStatus.RESERVED,
-        ],
+         SET "isLockedUntil" = NULL, "updatedAt" = $1 
+         WHERE id = ANY($2)`,
+        [ThailandTimeHelper.now(), seatIds],
       );
 
       await queryRunner.commitTransaction();
@@ -201,12 +205,13 @@ export class ConcurrencyService {
 
         await queryRunner.manager.save(SeatBooking, bookings);
 
-        // 3. Update seat status to BOOKED using entity manager
+        // 3. 🔧 RESET seat status to AVAILABLE and clear locks
+        // ไม่ต้องอัปเดตเป็น BOOKED เพราะจะทำให้ที่นั่งติดสถานะ
         await queryRunner.manager.update(
           Seat,
           { id: In(seatIds) },
           {
-            status: SeatStatus.BOOKED,
+            status: SeatStatus.AVAILABLE,
             isLockedUntil: null,
             updatedAt: ThailandTimeHelper.now(),
           },
@@ -240,12 +245,11 @@ export class ConcurrencyService {
         .createQueryBuilder()
         .update(Seat)
         .set({
-          status: SeatStatus.AVAILABLE,
           isLockedUntil: null,
           updatedAt: now,
         })
-        .where('status = :status', { status: SeatStatus.RESERVED })
-        .andWhere('isLockedUntil < :now', { now })
+        .where('isLockedUntil < :now', { now })
+        .andWhere('isLockedUntil IS NOT NULL')
         .execute();
 
       if (result.affected && result.affected > 0) {
@@ -264,8 +268,17 @@ export class ConcurrencyService {
    */
   async getConcurrencyStats(): Promise<any> {
     try {
-      const [lockedSeats, pendingBookings, activeOrders] = await Promise.all([
-        this.seatRepo.count({ where: { status: SeatStatus.RESERVED } }),
+      const now = ThailandTimeHelper.now();
+
+      // ใช้ raw query เพื่อนับที่นั่งที่ถูกล็อค
+      const [lockedSeatsResult] = await this.seatRepo.query(
+        'SELECT COUNT(*) as count FROM seat WHERE "isLockedUntil" > $1',
+        [now],
+      );
+
+      const lockedSeats = parseInt(lockedSeatsResult?.count || '0');
+
+      const [pendingBookings, activeOrders] = await Promise.all([
         this.seatBookingRepo.count({
           where: { status: BookingStatus.PENDING },
         }),

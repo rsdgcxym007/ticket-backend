@@ -173,9 +173,9 @@ export class OrderService {
       quantity: request.quantity || 0,
       total: pricing.totalAmount,
       totalAmount: pricing.totalAmount,
-      status: request.status || OrderStatus.PENDING, // ใช้ status ที่ส่งมา หรือ PENDING เป็นค่าเริ่มต้น
-      paymentMethod: request.paymentMethod,
-      method: request.paymentMethod || PaymentMethod.QR_CODE,
+      status: request.status || OrderStatus.PENDING,
+      paymentMethod: request.paymentMethod || PaymentMethod.CASH,
+      method: PaymentMethod.CASH,
       showDate: ThailandTimeHelper.toThailandTime(request.showDate),
       referrerCode: request.referrerCode,
       referrerId: referrer?.id,
@@ -1214,7 +1214,7 @@ export class OrderService {
   ): Promise<void> {
     const seats = await this.seatRepo.findByIds(seatIds);
 
-    if (seats.length !== seatIds.length) {
+    if (!seats || seats.length !== seatIds.length) {
       throw new BadRequestException('ไม่พบที่นั่งบางที่');
     }
 
@@ -1328,7 +1328,7 @@ export class OrderService {
       price: order.totalAmount,
       totalAmount: order.totalAmount,
       status: order.status,
-      paymentMethod: order.paymentMethod,
+      paymentMethod: order.paymentMethod || PaymentMethod.CASH,
       paymentStatus: order?.payment?.status || PaymentStatus.PENDING,
       showDate: DateTimeHelper.formatDate(order.showDate),
       createdAt: order.createdAt,
@@ -1454,7 +1454,7 @@ export class OrderService {
 
     const seats = await this.seatRepo.findByIds(seatIds);
 
-    if (seats.length !== seatIds.length) {
+    if (!seats || seats.length !== seatIds.length) {
       throw new BadRequestException('ไม่พบที่นั่งบางที่');
     }
 

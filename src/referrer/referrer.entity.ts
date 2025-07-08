@@ -34,6 +34,9 @@ export class Referrer {
   @Column({ default: 0 })
   totalCommission: number;
 
+  @Column({ nullable: true })
+  phone?: string;
+
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 

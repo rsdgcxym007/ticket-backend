@@ -65,7 +65,7 @@ export class Order {
   @Column({
     type: 'enum',
     enum: PaymentMethod,
-    default: PaymentMethod.QR_CODE,
+    default: PaymentMethod.CASH,
   })
   method: PaymentMethod;
 

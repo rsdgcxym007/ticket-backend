@@ -396,8 +396,6 @@ export class OrderController {
         5, // 5 minutes lock
       );
 
-      console.log('dto.seatIds', dto);
-
       // ✅ Send real-time notification to frontend
       this.orderUpdatesGateway.notifySeatLocked({
         seatIds: dto.seatIds,
