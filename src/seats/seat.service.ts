@@ -5,7 +5,7 @@ import { Zone } from '../zone/zone.entity';
 import { Seat } from './seat.entity';
 import { SeatBooking } from './seat-booking.entity';
 import { CreateSeatDto } from './dto/create-seat.dto';
-import { SeatStatus } from '../common/enums';
+import { SeatStatus, BookingStatus } from '../common/enums';
 import { SeatFilterDto } from './dto/seat-filter.dto';
 
 @Injectable()
@@ -39,11 +39,25 @@ export class SeatService {
       relations: ['zone'],
     });
 
+    // 🔧 RESET ที่นั่งทั้งหมดให้เป็น AVAILABLE (ยกเว้น EMPTY)
+    // เพื่อป้องกันปัญหาสถานะติดค้าง
+    for (const seat of seats) {
+      if (seat.status !== SeatStatus.EMPTY) {
+        await this.seatRepo.update(seat.id, { status: SeatStatus.AVAILABLE });
+        seat.status = SeatStatus.AVAILABLE;
+      }
+    }
+
     // 2. ดึง bookings ที่ตรงกับ showDate และที่นั่งในโซนนั้น
     const bookings = await this.seatBookingRepo.find({
       where: {
         seat: In(seats.map((s) => s.id)),
         showDate,
+        status: In([
+          BookingStatus.PENDING,
+          BookingStatus.CONFIRMED,
+          BookingStatus.PAID,
+        ]),
       },
       relations: ['seat'],
     });

@@ -10,6 +10,7 @@ import {
   ValidationError,
 } from 'class-validator';
 import { BadRequestException } from '@nestjs/common';
+import { ThailandTimeHelper } from '../utils/thailand-time.helper';
 
 // ========================================
 // 🔧 CUSTOM VALIDATORS
@@ -19,8 +20,8 @@ import { BadRequestException } from '@nestjs/common';
 export class IsDateInFutureConstraint implements ValidatorConstraintInterface {
   validate(value: any) {
     if (!value) return true; // Allow empty values
-    const date = new Date(value);
-    const now = new Date();
+    const date = ThailandTimeHelper.toThailandTime(value);
+    const now = ThailandTimeHelper.now();
     return date > now;
   }
 
@@ -162,8 +163,8 @@ export class ValidationHelper {
    * ตรวจสอบว่าเป็นวันที่ในอนาคตหรือไม่
    */
   static isDateInFuture(date: string | Date): boolean {
-    const targetDate = new Date(date);
-    const now = new Date();
+    const targetDate = ThailandTimeHelper.toThailandTime(date);
+    const now = ThailandTimeHelper.now();
     return targetDate > now;
   }
 
@@ -285,7 +286,7 @@ export class BusinessValidation {
    */
   static validateBookingTime(
     showDate: Date,
-    bookingDate: Date = new Date(),
+    bookingDate: Date = ThailandTimeHelper.now(),
   ): { isValid: boolean; message?: string } {
     const timeDiff = showDate.getTime() - bookingDate.getTime();
     const hoursDiff = timeDiff / (1000 * 60 * 60);

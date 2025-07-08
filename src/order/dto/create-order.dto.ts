@@ -6,8 +6,14 @@ import {
   IsOptional,
   IsString,
   IsDateString,
+  IsNumber,
 } from 'class-validator';
-import { TicketType, PaymentMethod, OrderSource } from '../../common/enums';
+import {
+  TicketType,
+  PaymentMethod,
+  OrderSource,
+  OrderStatus,
+} from '../../common/enums';
 
 export class CreateOrderDto {
   @IsOptional()
@@ -57,6 +63,10 @@ export class CreateOrderDto {
   source?: OrderSource;
 
   @IsOptional()
+  @IsEnum(OrderStatus)
+  status?: OrderStatus;
+
+  @IsOptional()
   @IsUUID()
   referrerId?: string;
 
@@ -67,4 +77,13 @@ export class CreateOrderDto {
   @IsOptional()
   @IsInt()
   standingChildQty?: number;
+
+  // ✅ Add required fields for order total calculation
+  @IsOptional()
+  @IsNumber()
+  total?: number;
+
+  @IsOptional()
+  @IsNumber()
+  totalAmount?: number;
 }

@@ -1,6 +1,6 @@
 // src/common/responses.ts
-import dayjs from 'dayjs';
 import { Request } from 'express';
+import { ThailandTimeHelper } from './utils/thailand-time.helper';
 
 export function success(
   data: any,
@@ -15,7 +15,10 @@ export function success(
     ...(req && {
       method: req.method,
       path: req.originalUrl,
-      timestamp: dayjs().format('YYYY-MM-DDTHH:mm:ss'),
+      timestamp: ThailandTimeHelper.formatDateTime(
+        ThailandTimeHelper.now(),
+        'YYYY-MM-DDTHH:mm:ss',
+      ),
     }),
   };
 }
@@ -33,7 +36,10 @@ export function error(
     ...(req && {
       method: req.method,
       path: req.originalUrl,
-      timestamp: dayjs().format('YYYY-MM-DDTHH:mm:ss'),
+      timestamp: ThailandTimeHelper.formatDateTime(
+        ThailandTimeHelper.now(),
+        'YYYY-MM-DDTHH:mm:ss',
+      ),
     }),
   };
 }

@@ -11,6 +11,7 @@ import { PaymentModule } from '../payment/payment.module';
 import { SeatBooking } from '../seats/seat-booking.entity';
 import { BusinessService } from '../common/services/business.service';
 import { AuditModule } from '../audit/audit.module';
+import { ConcurrencyModule } from '../common/services/concurrency.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { AuditModule } from '../audit/audit.module';
     ReferrerModule,
     PaymentModule,
     AuditModule,
+    ConcurrencyModule, // ✅ เพิ่ม ConcurrencyModule
   ],
   controllers: [OrderController],
   providers: [OrderService, BusinessService],

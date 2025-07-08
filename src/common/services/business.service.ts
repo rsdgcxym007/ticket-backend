@@ -10,6 +10,7 @@ import { ApiResponse, PaginatedResponse, ValidationError } from '../types';
 
 // Validation
 import { ValidationHelper, BusinessValidation } from '../validation';
+import { ThailandTimeHelper } from '../utils/thailand-time.helper';
 
 // ========================================
 // 🔧 BUSINESS LOGIC HELPERS
@@ -74,13 +75,12 @@ export class BusinessService {
   // ========================================
 
   generateExpirationDate(hours: number = 24): Date {
-    const now = new Date();
-    now.setHours(now.getHours() + hours);
-    return now;
+    const now = ThailandTimeHelper.now();
+    return ThailandTimeHelper.add(now, hours, 'hour');
   }
 
   isWithinBookingTime(showDate: Date): boolean {
-    const now = new Date();
+    const now = ThailandTimeHelper.now();
     const timeDiff = showDate.getTime() - now.getTime();
     const hoursDiff = timeDiff / (1000 * 60 * 60);
 

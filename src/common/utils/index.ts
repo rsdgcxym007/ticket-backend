@@ -18,9 +18,13 @@ import {
   PaymentStatus,
 } from '../enums';
 import { StandingTicketData, OrderData } from '../interfaces';
+import { ThailandTimeHelper } from './thailand-time.helper';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
+
+// 🌍 Export Thailand Time Helper
+export { ThailandTimeHelper, ThaiTime } from './thailand-time.helper';
 
 // 💰 คำนวณราคาตั๋ว
 class PriceCalculator {
@@ -92,42 +96,41 @@ class PriceCalculator {
   }
 }
 
-// 📅 จัดการวันที่และเวลา
+// 📅 จัดการวันที่และเวลา (Updated to use Thailand Time)
 class DateTimeHelper {
   static now(): Date {
-    return dayjs().tz(LOCALIZATION.TIMEZONE).toDate();
+    return ThailandTimeHelper.now();
   }
 
   static formatDate(date: Date | string, format?: string): string {
-    return dayjs(date)
-      .tz(LOCALIZATION.TIMEZONE)
-      .format(format || LOCALIZATION.DATE_FORMAT);
+    return ThailandTimeHelper.format(date, format || LOCALIZATION.DATE_FORMAT);
   }
 
   static formatDateTime(date: Date | string, format?: string): string {
-    return dayjs(date)
-      .tz(LOCALIZATION.TIMEZONE)
-      .format(format || LOCALIZATION.DATETIME_FORMAT);
+    return ThailandTimeHelper.formatDateTime(
+      date,
+      format || LOCALIZATION.DATETIME_FORMAT,
+    );
   }
 
   static addMinutes(date: Date, minutes: number): Date {
-    return dayjs(date).add(minutes, 'minute').toDate();
+    return ThailandTimeHelper.add(date, minutes, 'minute');
   }
 
   static addHours(date: Date, hours: number): Date {
-    return dayjs(date).add(hours, 'hour').toDate();
+    return ThailandTimeHelper.add(date, hours, 'hour');
   }
 
   static addDays(date: Date, days: number): Date {
-    return dayjs(date).add(days, 'day').toDate();
+    return ThailandTimeHelper.add(date, days, 'day');
   }
 
   static isExpired(expiresAt: Date): boolean {
-    return dayjs().isAfter(dayjs(expiresAt));
+    return ThailandTimeHelper.isExpired(expiresAt);
   }
 
   static timeUntilExpiry(expiresAt: Date): number {
-    return dayjs(expiresAt).diff(dayjs(), 'minute');
+    return ThailandTimeHelper.getMinutesUntilExpiry(expiresAt);
   }
 
   static startOfDay(date: Date | string): Date {
