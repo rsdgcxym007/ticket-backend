@@ -53,13 +53,26 @@ export class DatabaseConfigHelper {
     const databaseHost = configService.get('DATABASE_HOST', 'localhost');
     const isAwsRds = databaseHost.includes('.rds.amazonaws.com');
     const sslSetting = configService.get('DATABASE_SSL');
-    
-    if (isAwsRds || sslSetting === 'true' || (isProduction && sslSetting !== 'false')) {
+
+    if (
+      isAwsRds ||
+      sslSetting === 'true' ||
+      (isProduction && sslSetting !== 'false')
+    ) {
       config.ssl = {
         rejectUnauthorized: false,
-        // For AWS RDS, we need to require SSL
-        require: isAwsRds,
+        ca: false,
+        checkServerIdentity: false,
       };
+
+      // For AWS RDS, also add extra SSL config
+      if (isAwsRds) {
+        config.extra = {
+          ssl: {
+            rejectUnauthorized: false,
+          },
+        };
+      }
     } else if (isTest || sslSetting === 'false') {
       config.ssl = false;
     }
