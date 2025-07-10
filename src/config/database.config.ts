@@ -12,16 +12,23 @@ import { AppConfig } from './config.entity';
 
 export class DatabaseConfigHelper {
   static getConfig(configService: ConfigService) {
-    return {
+    const nodeEnv = configService.get('NODE_ENV', 'development');
+    const isProduction = nodeEnv === 'production';
+    const isTest = nodeEnv === 'test';
+
+    // Base configuration
+    const config: any = {
       type: 'postgres' as const,
-      url: configService.get('DATABASE_URL'),
       host: configService.get('DATABASE_HOST', 'localhost'),
       port: parseInt(configService.get('DATABASE_PORT', '5432'), 10),
       username:
         configService.get('DATABASE_USERNAME') ||
         configService.get('DATABASE_USER', 'postgres'),
       password: configService.get('DATABASE_PASSWORD', 'postgres'),
-      database: configService.get('DATABASE_NAME', 'ticket_backend'),
+      database: configService.get(
+        'DATABASE_NAME',
+        isTest ? 'test_db' : 'ticket_backend',
+      ),
       entities: [
         User,
         Auth,
@@ -34,19 +41,6 @@ export class DatabaseConfigHelper {
         AuditLog,
         AppConfig,
       ],
-      ssl:
-        configService.get('DATABASE_SSL') === 'true'
-          ? {
-              rejectUnauthorized: false,
-            }
-          : false,
-      synchronize:
-        configService.get('DATABASE_SYNCHRONIZE', 'false') === 'true' ||
-        configService.get('NODE_ENV') !== 'production',
-      logging:
-        configService.get('DATABASE_LOGGING', 'false') === 'true' ||
-        configService.get('NODE_ENV') === 'development',
-      dropSchema: configService.get('DATABASE_DROP_SCHEMA', 'false') === 'true',
       autoLoadEntities: true,
       migrations: ['dist/migrations/*{.ts,.js}'],
       migrationsRun: false,
@@ -54,5 +48,44 @@ export class DatabaseConfigHelper {
         migrationsDir: 'src/migrations',
       },
     };
+
+    // SSL Configuration
+    if (isProduction && configService.get('DATABASE_SSL') !== 'false') {
+      config.ssl = {
+        rejectUnauthorized: false,
+      };
+    }
+
+    // Synchronization (only for development and test)
+    config.synchronize =
+      isTest ||
+      configService.get('DATABASE_SYNCHRONIZE', 'false') === 'true' ||
+      (!isProduction && configService.get('DATABASE_SYNCHRONIZE') !== 'false');
+
+    // Logging
+    config.logging =
+      configService.get('DATABASE_LOGGING', 'false') === 'true' ||
+      (!isProduction && !isTest);
+
+    // Test specific settings
+    if (isTest) {
+      config.dropSchema =
+        configService.get('DATABASE_DROP_SCHEMA', 'true') === 'true';
+      config.keepConnectionAlive = true;
+    }
+
+    // Use connection URL if provided (for services like Heroku)
+    const databaseUrl = configService.get('DATABASE_URL');
+    if (databaseUrl) {
+      config.url = databaseUrl;
+      // Remove individual connection params when using URL
+      delete config.host;
+      delete config.port;
+      delete config.username;
+      delete config.password;
+      delete config.database;
+    }
+
+    return config;
   }
 }
