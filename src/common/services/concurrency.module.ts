@@ -5,6 +5,7 @@ import { Order } from '../../order/order.entity';
 import { User } from '../../user/user.entity';
 import { Seat } from '../../seats/seat.entity';
 import { SeatBooking } from '../../seats/seat-booking.entity';
+import { Referrer } from '../../referrer/referrer.entity';
 import { ConcurrencyService } from './concurrency.service';
 import { DuplicateOrderPreventionService } from './duplicate-order-prevention.service';
 import { EnhancedOrderService } from './enhanced-order.service';
@@ -17,7 +18,7 @@ import { GatewayModule } from '../gateways/gateway.module';
  */
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Order, User, Seat, SeatBooking]),
+    TypeOrmModule.forFeature([Order, User, Seat, SeatBooking, Referrer]),
     ScheduleModule.forRoot(),
     GatewayModule, // ✅ เพิ่ม Gateway Module
   ],

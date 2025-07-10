@@ -1,15 +1,36 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  BadRequestException,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, Between, In } from 'typeorm';
 import { Order } from '../../order/order.entity';
 import { User } from '../../user/user.entity';
 import { Seat } from '../../seats/seat.entity';
 import { SeatBooking } from '../../seats/seat-booking.entity';
+import { Referrer } from '../../referrer/referrer.entity';
 import { ConcurrencyService } from './concurrency.service';
 import { DuplicateOrderPreventionService } from './duplicate-order-prevention.service';
 import { ThailandTimeHelper } from '../utils/thailand-time.helper';
-import { OrderStatus, SeatStatus, BookingStatus, TicketType } from '../enums';
+import { ConfigService } from '@nestjs/config';
+import {
+  OrderStatus,
+  SeatStatus,
+  BookingStatus,
+  TicketType,
+  PaymentMethod,
+  OrderSource,
+} from '../enums';
 import { OrderUpdatesGateway } from '../gateways/order-updates.gateway';
+import {
+  TICKET_PRICES,
+  COMMISSION_RATES,
+  BOOKING_LIMITS,
+  TIME_LIMITS,
+} from '../constants';
+import { BusinessLogicHelper, ReferenceGenerator } from '../utils';
 
 /**
  * 🚀 Enhanced Order Service with Concurrency Control
@@ -28,15 +49,18 @@ export class EnhancedOrderService {
     private readonly seatRepo: Repository<Seat>,
     @InjectRepository(SeatBooking)
     private readonly seatBookingRepo: Repository<SeatBooking>,
+    @InjectRepository(Referrer)
+    private readonly referrerRepo: Repository<Referrer>,
     private readonly concurrencyService: ConcurrencyService,
     private readonly duplicatePreventionService: DuplicateOrderPreventionService,
     private readonly dataSource: DataSource,
-    private readonly orderUpdatesGateway: OrderUpdatesGateway, // ✅ เพิ่ม WebSocket Gateway
+    private readonly orderUpdatesGateway: OrderUpdatesGateway,
+    private readonly configService: ConfigService,
   ) {}
 
   /**
    * 🎫 Create order with full concurrency control
-   * สร้างออเดอร์พร้อมการจัดการ concurrency ที่สมบูรณ์
+   * สร้างออเดอร์พร้อมการจัดการ concurrency ที่สมบูรณ์ - ใช้ logic เดียวกับ createOrder
    */
   async createOrderWithConcurrencyControl(
     userId: string,
@@ -50,13 +74,17 @@ export class EnhancedOrderService {
         `🎫 Creating order with concurrency control for user: ${userId}`,
       );
 
-      // 1. Validate user exists
+      // 1. Validate user exists - เหมือน createOrder
       const user = await this.userRepo.findOne({ where: { id: userId } });
       if (!user) {
         throw new BadRequestException('User not found');
       }
 
-      // 2. Prevent duplicate orders
+      // 2. Validate booking limits - เพิ่มจาก createOrder
+      await this.validateBookingLimits(user, orderData);
+      this.logger.log(`Booking limits validated for user: ${user.id}`);
+
+      // 3. Prevent duplicate orders
       const duplicateCheck =
         await this.duplicatePreventionService.preventDuplicateOrder(
           userId,
@@ -64,8 +92,14 @@ export class EnhancedOrderService {
         );
       lockKey = duplicateCheck.lockKey;
 
-      // 3. Lock seats if required
+      // 4. Validate seat availability - เหมือน createOrder
       if (orderData.seatIds && orderData.seatIds.length > 0) {
+        await this.validateSeatAvailability(
+          orderData.seatIds,
+          orderData.showDate,
+        );
+
+        // Lock seats if required
         const seatLockResult = await this.concurrencyService.lockSeatsForOrder(
           orderData.seatIds,
           orderData.showDate,
@@ -74,30 +108,179 @@ export class EnhancedOrderService {
         seatLocks = seatLockResult.lockedSeats;
       }
 
-      // 3.5. Calculate total amount if not provided
-      const calculatedTotal = await this.calculateOrderTotal(orderData);
+      // 5. Validate referrer - เหมือน createOrder
+      let referrer = null;
+      if (orderData.referrerCode) {
+        this.logger.log(`Validating referrer code: ${orderData.referrerCode}`);
+        referrer = await this.referrerRepo.findOne({
+          where: { code: orderData.referrerCode, isActive: true },
+        });
 
-      // 4. Create order atomically
+        if (!referrer) {
+          this.logger.warn(`Invalid referrer code: ${orderData.referrerCode}`);
+          throw new BadRequestException('Invalid referrer code');
+        }
+      }
+
+      // 6. Calculate pricing - ใช้ logic เดียวกับ createOrder
+      const pricing = this.calculateOrderPricing(orderData);
+      this.logger.log('Order pricing calculated:', pricing);
+
+      // 7. Generate order number - เหมือน createOrder
+      const orderNumber = ReferenceGenerator.generateOrderNumber();
+      this.logger.log('Generated order number:', orderNumber);
+
+      // 8. Prepare order data - ใช้ logic เดียวกับ createOrder
+      const finalOrderData: any = {
+        orderNumber,
+        userId: user.id,
+        customerName: orderData.customerName,
+        customerPhone: orderData.customerPhone,
+        customerEmail: orderData.customerEmail,
+        ticketType: orderData.ticketType,
+        quantity: orderData.quantity || 0,
+        total: pricing.totalAmount,
+        totalAmount: pricing.totalAmount,
+        status: orderData.status || OrderStatus.PENDING,
+        paymentMethod: orderData.paymentMethod || PaymentMethod.CASH,
+        method: PaymentMethod.CASH,
+        showDate: ThailandTimeHelper.toThailandTime(orderData.showDate),
+        referrerCode: orderData.referrerCode,
+        referrerId: referrer?.id,
+        referrerCommission: referrer ? pricing.commission : 0, // ✅ คำนวณเฉพาะเมื่อมี referrer
+        note: orderData.note,
+        source: (orderData.source as OrderSource) || OrderSource.DIRECT,
+        expiresAt: BusinessLogicHelper.calculateExpiryTime(
+          ThailandTimeHelper.now(),
+          this.configService.get(
+            'RESERVATION_TIMEOUT_MINUTES',
+            TIME_LIMITS.RESERVATION_MINUTES,
+          ),
+        ),
+        createdAt: ThailandTimeHelper.now(),
+        updatedAt: ThailandTimeHelper.now(),
+      };
+
+      // 9. Handle BOOKED status expiry - เหมือน createOrder
+      if (orderData.status === OrderStatus.BOOKED) {
+        const showDate = ThailandTimeHelper.toThailandTime(orderData.showDate);
+        const expiryDate =
+          ThailandTimeHelper.format(showDate, 'YYYY-MM-DD') + ' 21:00:00';
+        finalOrderData.expiresAt =
+          ThailandTimeHelper.toThailandTime(expiryDate);
+        this.logger.log(
+          `🕘 BOOKED order expiry set to 21:00 on show date: ${ThailandTimeHelper.toISOString(finalOrderData.expiresAt)}`,
+        );
+      }
+
+      // 10. Handle standing tickets - เหมือน createOrder
+      if (orderData.ticketType === TicketType.STANDING) {
+        const adultQty = orderData.standingAdultQty || 0;
+        const childQty = orderData.standingChildQty || 0;
+
+        // Validate constants
+        if (
+          typeof TICKET_PRICES.STANDING_ADULT !== 'number' ||
+          typeof TICKET_PRICES.STANDING_CHILD !== 'number' ||
+          typeof COMMISSION_RATES.STANDING_ADULT !== 'number' ||
+          typeof COMMISSION_RATES.STANDING_CHILD !== 'number'
+        ) {
+          this.logger.error(
+            `Invalid constants: TICKET_PRICES.STANDING_ADULT=${TICKET_PRICES.STANDING_ADULT}, TICKET_PRICES.STANDING_CHILD=${TICKET_PRICES.STANDING_CHILD}`,
+          );
+          throw new InternalServerErrorException(
+            'Invalid ticket pricing or commission rates. Please contact support.',
+          );
+        }
+
+        const adultTotal = adultQty * TICKET_PRICES.STANDING_ADULT;
+        const childTotal = childQty * TICKET_PRICES.STANDING_CHILD;
+        const standingTotal = adultTotal + childTotal;
+
+        // Validate calculations
+        if (isNaN(adultTotal) || isNaN(childTotal) || isNaN(standingTotal)) {
+          throw new BadRequestException(
+            'Invalid standing ticket calculations. Please check ticket quantities and pricing.',
+          );
+        }
+
+        // Set standing ticket fields
+        finalOrderData.standingAdultQty = adultQty;
+        finalOrderData.standingChildQty = childQty;
+        finalOrderData.standingTotal = standingTotal;
+        finalOrderData.standingCommission =
+          adultQty * COMMISSION_RATES.STANDING_ADULT +
+          childQty * COMMISSION_RATES.STANDING_CHILD;
+        finalOrderData.quantity = adultQty + childQty;
+        finalOrderData.total = standingTotal;
+        finalOrderData.totalAmount = standingTotal;
+
+        this.logger.log(
+          `Standing Adult Qty: ${adultQty}, Standing Child Qty: ${childQty}`,
+        );
+        this.logger.log(
+          `Standing Total: ${standingTotal}, Standing Commission: ${finalOrderData.standingCommission}`,
+        );
+
+        // Handle standing ticket status logic - เหมือน createOrder
+        if (!orderData.status) {
+          if (
+            ThailandTimeHelper.isSameDay(
+              orderData.showDate,
+              ThailandTimeHelper.now(),
+            )
+          ) {
+            finalOrderData.status = OrderStatus.PENDING;
+          } else {
+            finalOrderData.status = OrderStatus.BOOKED;
+          }
+        }
+
+        // Set expiry for standing BOOKED tickets
+        if (
+          finalOrderData.status === OrderStatus.BOOKED &&
+          orderData.status !== OrderStatus.BOOKED
+        ) {
+          const showDate = ThailandTimeHelper.toThailandTime(
+            orderData.showDate,
+          );
+          const expiryDate =
+            ThailandTimeHelper.format(showDate, 'YYYY-MM-DD') + ' 21:00:00';
+          finalOrderData.expiresAt =
+            ThailandTimeHelper.toThailandTime(expiryDate);
+        }
+      }
+
+      // 11. Set final quantity - เหมือน createOrder
+      if (orderData.ticketType !== TicketType.STANDING) {
+        finalOrderData.quantity = orderData.seatIds?.length || 0;
+      }
+
+      // 12. Create order atomically
       const order = await this.concurrencyService.atomicCreateOrderWithSeats(
-        {
-          ...orderData,
-          userId,
-          orderNumber: this.generateOrderNumber(),
-          status: OrderStatus.PENDING,
-          total: calculatedTotal.total,
-          totalAmount: calculatedTotal.totalAmount,
-          createdAt: ThailandTimeHelper.now(),
-          updatedAt: ThailandTimeHelper.now(),
-          expiresAt: this.calculateExpiryTime(orderData),
-        },
+        finalOrderData,
         orderData.seatIds || [],
         orderData.showDate,
       );
 
-      // 5. Release duplicate prevention lock
+      // 13. Release duplicate prevention lock
       await this.duplicatePreventionService.releaseDuplicateOrderLock(lockKey);
 
-      // 6. ✅ Send real-time notification to frontend
+      // 14. Load order with relations - เหมือน createOrder
+      const reloadedOrder = await this.orderRepo.findOne({
+        where: { id: order.id },
+        relations: [
+          'seatBookings',
+          'seatBookings.seat',
+          'seatBookings.seat.zone',
+        ],
+      });
+
+      if (!reloadedOrder) {
+        throw new Error('Order not found after reloading');
+      }
+
+      // 15. Send real-time notifications
       this.orderUpdatesGateway.notifyOrderCreated({
         orderId: order.id,
         orderNumber: order.orderNumber,
@@ -108,7 +291,6 @@ export class EnhancedOrderService {
         message: 'Order created successfully with concurrency protection',
       });
 
-      // 7. ✅ Update seat availability for other users
       if (orderData.seatIds && orderData.seatIds.length > 0) {
         this.orderUpdatesGateway.notifySeatAvailabilityChanged({
           seatIds: orderData.seatIds,
@@ -119,7 +301,29 @@ export class EnhancedOrderService {
       }
 
       this.logger.log(`✅ Successfully created order: ${order.id}`);
-      return order;
+
+      // 16. Return data in same format as createOrder
+      return {
+        ...reloadedOrder,
+        customerName: reloadedOrder.customerName,
+        ticketType: reloadedOrder.ticketType,
+        price: reloadedOrder.totalAmount,
+        paymentStatus: 'PENDING',
+        showDate: ThailandTimeHelper.toISOString(reloadedOrder.showDate),
+        seats:
+          reloadedOrder.seatBookings?.map((booking) => {
+            return {
+              id: booking.seat.id,
+              seatNumber: booking.seat.seatNumber,
+              zone: booking.seat.zone
+                ? {
+                    id: booking.seat.zone.id,
+                    name: booking.seat.zone.name,
+                  }
+                : null,
+            };
+          }) || [],
+      };
     } catch (error) {
       this.logger.error(`❌ Failed to create order: ${error.message}`);
 
@@ -136,7 +340,28 @@ export class EnhancedOrderService {
       throw error;
     }
   }
+  private async validateSeatAvailability(
+    seatIds: string[],
+    showDate: string,
+  ): Promise<void> {
+    const seats = await this.seatRepo.findByIds(seatIds);
 
+    if (!seats || seats.length !== seatIds.length) {
+      throw new BadRequestException('ไม่พบที่นั่งบางที่');
+    }
+
+    const bookedSeats = await this.seatBookingRepo.find({
+      where: {
+        seat: { id: In(seatIds) },
+        showDate: showDate,
+        status: In([BookingStatus.PENDING, BookingStatus.CONFIRMED]),
+      },
+    });
+
+    if (bookedSeats.length > 0) {
+      throw new BadRequestException('Some seats are already booked');
+    }
+  }
   /**
    * 🔄 Update order with concurrency control
    * อัปเดตออเดอร์พร้อมการจัดการ concurrency
@@ -412,10 +637,50 @@ export class EnhancedOrderService {
     }
   }
 
+  private async validateBookingLimits(user: User, request: any): Promise<void> {
+    const limits = BOOKING_LIMITS[user.role];
+    const totalSeats = (request.quantity || 0) + (request.seatIds?.length || 0);
+
+    this.logger.log(
+      `Validating booking limits for user: ${user.id}, role: ${user.role}, totalSeats: ${totalSeats}`,
+    );
+
+    if (totalSeats > limits.maxSeatsPerOrder) {
+      this.logger.warn(
+        `User ${user.id} exceeded max seats per order: ${totalSeats} > ${limits.maxSeatsPerOrder}`,
+      );
+      throw new BadRequestException(
+        `${user.role} สามารถจองได้สูงสุด ${limits.maxSeatsPerOrder} ที่นั่งต่อคำสั่ง`,
+      );
+    }
+
+    const today = ThailandTimeHelper.startOfDay(ThailandTimeHelper.now());
+    const todayOrders = await this.orderRepo.count({
+      where: {
+        userId: user.id,
+        createdAt: Between(today, ThailandTimeHelper.now()),
+      },
+    });
+
+    this.logger.log(
+      `User ${user.id} has made ${todayOrders} orders today, max allowed: ${limits.maxOrdersPerDay}`,
+    );
+
+    if (todayOrders >= limits.maxOrdersPerDay) {
+      this.logger.warn(
+        `User ${user.id} exceeded max orders per day: ${todayOrders} >= ${limits.maxOrdersPerDay}`,
+      );
+      throw new BadRequestException(
+        `${user.role} สามารถทำรายการได้สูงสุด ${limits.maxOrdersPerDay} ครั้งต่อวัน`,
+      );
+    }
+  }
+
   /**
    * 🔢 Generate unique order number
    * สร้างเลขออเดอร์ที่ไม่ซ้ำกัน
    */
+
   private generateOrderNumber(): string {
     const now = ThailandTimeHelper.now();
     const timestamp = now.getTime().toString().slice(-8);
@@ -441,6 +706,45 @@ export class EnhancedOrderService {
     return new Date(now.getTime() + 5 * 60 * 1000);
   }
 
+  private calculateOrderPricing(request: any): {
+    totalAmount: number;
+    commission: number;
+  } {
+    const { ticketType, quantity = 0, seatIds = [] } = request;
+    const totalSeats = quantity + seatIds.length;
+
+    let pricePerSeat;
+    if (ticketType === TicketType.STANDING) {
+      pricePerSeat = TICKET_PRICES.STANDING_ADULT;
+    } else {
+      pricePerSeat = TICKET_PRICES[ticketType];
+    }
+
+    // ✅ ใช้ commission ต่อตั๋ว แทนการคูณ percentage
+    const commissionPerTicket = COMMISSION_RATES;
+
+    // Validate constants
+    if (
+      typeof pricePerSeat !== 'number' ||
+      typeof commissionPerTicket !== 'number'
+    ) {
+      this.logger.error(
+        `Invalid constants: pricePerSeat=${pricePerSeat}, commissionPerTicket=${commissionPerTicket}`,
+      );
+      throw new InternalServerErrorException(
+        'Invalid ticket pricing or commission rates. Please contact support.',
+      );
+    }
+
+    this.logger.log(`Calculating pricing for ticketType: ${ticketType}`);
+    this.logger.log(`TICKET_PRICES: ${JSON.stringify(TICKET_PRICES)}`);
+    this.logger.log(`COMMISSION_RATES: ${JSON.stringify(COMMISSION_RATES)}`);
+
+    const totalAmount = totalSeats * pricePerSeat;
+    const commission = totalSeats * commissionPerTicket;
+
+    return { totalAmount, commission };
+  }
   /**
    * 💰 Calculate order total amount
    * คำนวณจำนวนเงินรวมของออเดอร์
