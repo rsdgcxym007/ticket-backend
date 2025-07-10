@@ -11,7 +11,7 @@ import {
 import { Logger } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Seat } from 'src/seats/seat.entity';
+import { Seat } from '../../seats/seat.entity';
 import { Repository, In } from 'typeorm';
 
 /**

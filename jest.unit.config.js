@@ -1,5 +1,6 @@
 module.exports = {
   displayName: 'Unit Tests',
+  preset: 'ts-jest',
   testMatch: ['<rootDir>/src/**/*.spec.ts'],
   collectCoverageFrom: [
     '<rootDir>/src/**/*.ts',
@@ -12,10 +13,16 @@ module.exports = {
   roots: ['<rootDir>/src'],
   moduleFileExtensions: ['js', 'json', 'ts'],
   transform: {
-    '^.+\\.(t|j)s$': 'ts-jest',
+    '^.+\\.(t|j)s$': [
+      'ts-jest',
+      {
+        tsconfig: 'tsconfig.test.json',
+      },
+    ],
   },
   moduleNameMapping: {
     '^src/(.*)$': '<rootDir>/src/$1',
+    '^@/(.*)$': '<rootDir>/src/$1',
   },
   setupFilesAfterEnv: ['<rootDir>/test/jest.setup.ts'],
   testTimeout: 10000,

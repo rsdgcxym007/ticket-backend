@@ -1,5 +1,6 @@
 module.exports = {
   displayName: 'E2E Tests',
+  preset: 'ts-jest',
   testMatch: ['<rootDir>/test/**/*.e2e-spec.ts'],
   collectCoverageFrom: [
     '<rootDir>/src/**/*.ts',
@@ -9,13 +10,19 @@ module.exports = {
   ],
   coverageDirectory: '<rootDir>/coverage/e2e',
   testEnvironment: 'node',
-  roots: ['<rootDir>/test'],
+  roots: ['<rootDir>/test', '<rootDir>/src'],
   moduleFileExtensions: ['js', 'json', 'ts'],
   transform: {
-    '^.+\\.(t|j)s$': 'ts-jest',
+    '^.+\\.(t|j)s$': [
+      'ts-jest',
+      {
+        tsconfig: 'tsconfig.test.json',
+      },
+    ],
   },
   moduleNameMapping: {
     '^src/(.*)$': '<rootDir>/src/$1',
+    '^@/(.*)$': '<rootDir>/src/$1',
   },
   setupFilesAfterEnv: ['<rootDir>/test/jest.setup.ts'],
   testTimeout: 30000,
