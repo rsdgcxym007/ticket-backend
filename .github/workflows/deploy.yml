@@ -39,10 +39,28 @@ jobs:
     
     - name: Run unit tests
       run: npm run test
+      env:
+        NODE_ENV: test
+        DATABASE_HOST: localhost
+        DATABASE_PORT: 5432
+        DATABASE_USERNAME: postgres
+        DATABASE_PASSWORD: postgres
+        DATABASE_NAME: test_db
+        DATABASE_SSL: false
+        JWT_SECRET: test-jwt-secret-for-github-actions
       
     - name: Run integration tests
       run: npm run test:e2e
       env:
+        NODE_ENV: test
+        DATABASE_HOST: localhost
+        DATABASE_PORT: 5432
+        DATABASE_USERNAME: postgres
+        DATABASE_PASSWORD: postgres
+        DATABASE_NAME: test_db
+        DATABASE_SSL: false
+        DATABASE_SYNCHRONIZE: true
+        JWT_SECRET: test-jwt-secret-for-github-actions
         DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
     
     - name: Build application

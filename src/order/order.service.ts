@@ -288,8 +288,6 @@ export class OrderService {
       request.quantity = request.seatIds?.length || 0;
     }
 
-    console.log('3123213kml213lj213jl213jl213jl23jl21');
-
     orderData.quantity = request.quantity;
 
     const order = this.orderRepo.create(orderData);
