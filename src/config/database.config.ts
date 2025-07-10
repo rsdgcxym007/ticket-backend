@@ -49,11 +49,19 @@ export class DatabaseConfigHelper {
       },
     };
 
-    // SSL Configuration
-    if (isProduction && configService.get('DATABASE_SSL') !== 'false') {
+    // SSL Configuration - AWS RDS requires SSL
+    const databaseHost = configService.get('DATABASE_HOST', 'localhost');
+    const isAwsRds = databaseHost.includes('.rds.amazonaws.com');
+    const sslSetting = configService.get('DATABASE_SSL');
+    
+    if (isAwsRds || sslSetting === 'true' || (isProduction && sslSetting !== 'false')) {
       config.ssl = {
         rejectUnauthorized: false,
+        // For AWS RDS, we need to require SSL
+        require: isAwsRds,
       };
+    } else if (isTest || sslSetting === 'false') {
+      config.ssl = false;
     }
 
     // Synchronization (only for development and test)
