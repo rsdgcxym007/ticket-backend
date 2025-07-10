@@ -24,6 +24,7 @@ describe('Ticket Booking API (E2E)', () => {
 
     app = moduleFixture.createNestApplication();
     app.useGlobalPipes(new ValidationPipe());
+    app.setGlobalPrefix('api/v1');
     await app.init();
   });
 

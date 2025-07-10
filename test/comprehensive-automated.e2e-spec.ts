@@ -10,6 +10,7 @@ import { Order } from '../src/order/order.entity';
 import { Payment } from '../src/payment/payment.entity';
 import { Seat } from '../src/seats/seat.entity';
 import { SeatBooking } from '../src/seats/seat-booking.entity';
+import { Zone } from '../src/zone/zone.entity';
 import { Referrer } from '../src/referrer/referrer.entity';
 
 // Import DTOs
@@ -63,7 +64,7 @@ describe('🚀 COMPREHENSIVE AUTOMATED TEST SUITE', () => {
           username: process.env.DB_USERNAME || 'postgres',
           password: process.env.DB_PASSWORD || 'password',
           database: process.env.DB_NAME || 'test_db',
-          entities: [User, Order, Payment, Seat, SeatBooking, Referrer],
+          entities: [User, Order, Payment, Seat, SeatBooking, Zone, Referrer],
           synchronize: true,
           dropSchema: true,
         }),
@@ -71,6 +72,7 @@ describe('🚀 COMPREHENSIVE AUTOMATED TEST SUITE', () => {
     }).compile();
 
     app = moduleFixture.createNestApplication();
+    app.setGlobalPrefix('api/v1');
     await app.init();
 
     // Setup test users and get tokens
@@ -87,12 +89,12 @@ describe('🚀 COMPREHENSIVE AUTOMATED TEST SUITE', () => {
       // Create test users and get tokens
       for (const [key, userData] of Object.entries(testUsers)) {
         const response = await request(app.getHttpServer())
-          .post('/auth/register')
+          .post('/api/v1/auth/register')
           .send(userData);
 
         if (response.status === 201) {
           const loginResponse = await request(app.getHttpServer())
-            .post('/auth/login')
+            .post('/api/v1/auth/login')
             .send({ email: userData.email, password: userData.password });
 
           if (loginResponse.status === 200) {
@@ -131,7 +133,7 @@ describe('🚀 COMPREHENSIVE AUTOMATED TEST SUITE', () => {
     };
 
     const response = await request(app.getHttpServer())
-      .post('/orders')
+      .post('/api/v1/orders')
       .set('Authorization', `Bearer ${token}`)
       .send(defaultOrderData);
 
@@ -164,7 +166,7 @@ describe('🚀 COMPREHENSIVE AUTOMATED TEST SUITE', () => {
         };
 
         const response = await request(app.getHttpServer())
-          .post('/orders')
+          .post('/api/v1/orders')
           .set('Authorization', `Bearer ${userToken}`)
           .send(invalidOrderData);
 
@@ -206,7 +208,7 @@ describe('🚀 COMPREHENSIVE AUTOMATED TEST SUITE', () => {
         };
 
         const paymentResponse = await request(app.getHttpServer())
-          .post('/payments')
+          .post('/api/v1/payments')
           .set('Authorization', `Bearer ${staffToken}`)
           .send(paymentDto);
 
@@ -222,7 +224,7 @@ describe('🚀 COMPREHENSIVE AUTOMATED TEST SUITE', () => {
         };
 
         const response = await request(app.getHttpServer())
-          .post('/payments')
+          .post('/api/v1/payments')
           .set('Authorization', `Bearer ${staffToken}`)
           .send(invalidPaymentDto);
 
@@ -242,7 +244,7 @@ describe('🚀 COMPREHENSIVE AUTOMATED TEST SUITE', () => {
         };
 
         const firstPayment = await request(app.getHttpServer())
-          .post('/payments')
+          .post('/api/v1/payments')
           .set('Authorization', `Bearer ${staffToken}`)
           .send(paymentDto);
 
@@ -250,7 +252,7 @@ describe('🚀 COMPREHENSIVE AUTOMATED TEST SUITE', () => {
 
         // Second payment attempt
         const secondPayment = await request(app.getHttpServer())
-          .post('/payments')
+          .post('/api/v1/payments')
           .set('Authorization', `Bearer ${staffToken}`)
           .send(paymentDto);
 
@@ -267,7 +269,7 @@ describe('🚀 COMPREHENSIVE AUTOMATED TEST SUITE', () => {
         };
 
         const response = await request(app.getHttpServer())
-          .post('/auth/register')
+          .post('/api/v1/auth/register')
           .send(invalidUserData);
 
         expect(response.status).toBe(400);
@@ -281,13 +283,13 @@ describe('🚀 COMPREHENSIVE AUTOMATED TEST SUITE', () => {
         };
 
         const firstResponse = await request(app.getHttpServer())
-          .post('/auth/register')
+          .post('/api/v1/auth/register')
           .send(userData);
 
         expect(firstResponse.status).toBe(201);
 
         const secondResponse = await request(app.getHttpServer())
-          .post('/auth/register')
+          .post('/api/v1/auth/register')
           .send(userData);
 
         expect(secondResponse.status).toBe(400);
@@ -348,7 +350,7 @@ describe('🚀 COMPREHENSIVE AUTOMATED TEST SUITE', () => {
         };
 
         const paymentResponse = await request(app.getHttpServer())
-          .post('/payments')
+          .post('/api/v1/payments')
           .set('Authorization', `Bearer ${staffToken}`)
           .send(paymentDto);
 
@@ -369,7 +371,7 @@ describe('🚀 COMPREHENSIVE AUTOMATED TEST SUITE', () => {
 
         // Test with invalid token
         const invalidResponse = await request(app.getHttpServer())
-          .post('/orders')
+          .post('/api/v1/orders')
           .set('Authorization', 'Bearer invalid-token')
           .send({
             customerName: 'Test',
@@ -396,7 +398,7 @@ describe('🚀 COMPREHENSIVE AUTOMATED TEST SUITE', () => {
         };
 
         const paymentResponse = await request(app.getHttpServer())
-          .post('/payments')
+          .post('/api/v1/payments')
           .set('Authorization', `Bearer ${staffToken}`)
           .send(paymentDto);
 
@@ -443,7 +445,7 @@ describe('🚀 COMPREHENSIVE AUTOMATED TEST SUITE', () => {
       };
 
       const paymentResponse = await request(app.getHttpServer())
-        .post('/payments')
+        .post('/api/v1/payments')
         .set('Authorization', `Bearer ${staffToken}`)
         .send(paymentDto);
 
@@ -474,7 +476,7 @@ describe('🚀 COMPREHENSIVE AUTOMATED TEST SUITE', () => {
 
       // Test pagination
       const response = await request(app.getHttpServer())
-        .get('/orders?page=1&limit=3')
+        .get('/api/v1/orders?page=1&limit=3')
         .set('Authorization', `Bearer ${adminToken}`);
 
       expect(response.status).toBe(200);
@@ -604,14 +606,14 @@ describe('🚀 COMPREHENSIVE AUTOMATED TEST SUITE', () => {
       it('should enforce role-based access control', async () => {
         // User trying to access admin endpoint
         const userResponse = await request(app.getHttpServer())
-          .get('/orders/stats/overview')
+          .get('/api/v1/orders/stats/overview')
           .set('Authorization', `Bearer ${userToken}`);
 
         expect(userResponse.status).toBe(403);
 
         // Admin accessing same endpoint
         const adminResponse = await request(app.getHttpServer())
-          .get('/orders/stats/overview')
+          .get('/api/v1/orders/stats/overview')
           .set('Authorization', `Bearer ${adminToken}`);
 
         expect(adminResponse.status).toBe(200);
@@ -657,14 +659,16 @@ describe('🚀 COMPREHENSIVE AUTOMATED TEST SUITE', () => {
     describe('Authentication', () => {
       it('should require valid JWT token', async () => {
         const response = await request(app.getHttpServer())
-          .get('/orders')
+          .get('/api/v1/orders')
           .set('Authorization', 'Bearer invalid-token');
 
         expect(response.status).toBe(401);
       });
 
       it('should reject requests without token', async () => {
-        const response = await request(app.getHttpServer()).get('/orders');
+        const response = await request(app.getHttpServer()).get(
+          '/api/v1/orders',
+        );
 
         expect(response.status).toBe(401);
       });
@@ -673,7 +677,7 @@ describe('🚀 COMPREHENSIVE AUTOMATED TEST SUITE', () => {
         // This would require mocking JWT expiration
         // For now, test with invalid token format
         const response = await request(app.getHttpServer())
-          .get('/orders')
+          .get('/api/v1/orders')
           .set('Authorization', 'Bearer expired.token.here');
 
         expect(response.status).toBe(401);
@@ -712,7 +716,7 @@ describe('🚀 COMPREHENSIVE AUTOMATED TEST SUITE', () => {
         };
 
         const response = await request(app.getHttpServer())
-          .post('/orders')
+          .post('/api/v1/orders')
           .set('Authorization', `Bearer ${userToken}`)
           .send(maliciousData);
 
@@ -830,7 +834,7 @@ describe('🚀 COMPREHENSIVE AUTOMATED TEST SUITE', () => {
         const startTime = Date.now();
 
         const response = await request(app.getHttpServer())
-          .get('/orders?limit=100')
+          .get('/api/v1/orders?limit=100')
           .set('Authorization', `Bearer ${adminToken}`);
 
         const endTime = Date.now();
@@ -850,7 +854,7 @@ describe('🚀 COMPREHENSIVE AUTOMATED TEST SUITE', () => {
     describe('Error Handling', () => {
       it('should handle invalid order ID gracefully', async () => {
         const response = await request(app.getHttpServer())
-          .get('/orders/invalid-uuid')
+          .get('/api/v1/orders/invalid-uuid')
           .set('Authorization', `Bearer ${userToken}`);
 
         expect(response.status).toBe(400);
@@ -858,7 +862,7 @@ describe('🚀 COMPREHENSIVE AUTOMATED TEST SUITE', () => {
 
       it('should handle non-existent order ID', async () => {
         const response = await request(app.getHttpServer())
-          .get('/orders/550e8400-e29b-41d4-a716-446655440000')
+          .get('/api/v1/orders/550e8400-e29b-41d4-a716-446655440000')
           .set('Authorization', `Bearer ${userToken}`);
 
         expect(response.status).toBe(404);
@@ -867,7 +871,7 @@ describe('🚀 COMPREHENSIVE AUTOMATED TEST SUITE', () => {
       it('should handle server errors gracefully', async () => {
         // Test with malformed data that might cause server error
         const response = await request(app.getHttpServer())
-          .post('/orders')
+          .post('/api/v1/orders')
           .set('Authorization', `Bearer ${userToken}`)
           .send({ malformed: 'data' });
 
@@ -992,7 +996,7 @@ describe('🚀 COMPREHENSIVE AUTOMATED TEST SUITE', () => {
         };
 
         const paymentResponse = await request(app.getHttpServer())
-          .post('/payments')
+          .post('/api/v1/payments')
           .set('Authorization', `Bearer ${staffToken}`)
           .send(paymentDto);
 
@@ -1066,7 +1070,7 @@ describe('🚀 COMPREHENSIVE AUTOMATED TEST SUITE', () => {
       };
 
       const paymentResponse = await request(app.getHttpServer())
-        .post('/payments')
+        .post('/api/v1/payments')
         .set('Authorization', `Bearer ${staffToken}`)
         .send(paymentDto);
 
@@ -1119,7 +1123,7 @@ describe('🚀 COMPREHENSIVE AUTOMATED TEST SUITE', () => {
       };
 
       await request(app.getHttpServer())
-        .post('/payments')
+        .post('/api/v1/payments')
         .set('Authorization', `Bearer ${staffToken}`)
         .send(paymentDto);
 

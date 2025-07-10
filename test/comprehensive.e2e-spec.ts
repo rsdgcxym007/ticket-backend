@@ -65,6 +65,7 @@ describe('Ticket Booking System E2E Tests', () => {
     configService = moduleFixture.get<ConfigService>(ConfigService);
     zoneService = moduleFixture.get<ZoneService>(ZoneService);
 
+    app.setGlobalPrefix('api/v1');
     await app.init();
   });
 

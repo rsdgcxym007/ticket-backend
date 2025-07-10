@@ -30,7 +30,7 @@ export class Seat {
   @Column({ type: 'enum', enum: SeatStatus, default: SeatStatus.AVAILABLE })
   status: SeatStatus;
 
-  @ManyToOne(() => Zone, (zone: any) => zone.seats, { onDelete: 'CASCADE' })
+  @ManyToOne(() => Zone, (zone) => zone.seats, { onDelete: 'CASCADE' })
   zone: Zone;
 
   @CreateDateColumn({ type: 'timestamptz' })

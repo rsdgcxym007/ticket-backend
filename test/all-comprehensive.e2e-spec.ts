@@ -10,6 +10,7 @@ import { Order } from '../src/order/order.entity';
 import { Payment } from '../src/payment/payment.entity';
 import { Seat } from '../src/seats/seat.entity';
 import { SeatBooking } from '../src/seats/seat-booking.entity';
+import { Zone } from '../src/zone/zone.entity';
 import { Referrer } from '../src/referrer/referrer.entity';
 
 // Import DTOs and interfaces
@@ -64,7 +65,7 @@ describe('🧪 ALL COMPREHENSIVE TESTS', () => {
           username: process.env.DB_USERNAME || 'postgres',
           password: process.env.DB_PASSWORD || 'password',
           database: process.env.DB_NAME || 'test_db',
-          entities: [User, Order, Payment, Seat, SeatBooking, Referrer],
+          entities: [User, Order, Payment, Seat, SeatBooking, Zone, Referrer],
           synchronize: true,
           dropSchema: true,
         }),
@@ -72,6 +73,7 @@ describe('🧪 ALL COMPREHENSIVE TESTS', () => {
     }).compile();
 
     app = moduleFixture.createNestApplication();
+    app.setGlobalPrefix('api/v1');
     await app.init();
 
     // Setup test users and tokens
