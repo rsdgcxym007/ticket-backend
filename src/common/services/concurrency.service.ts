@@ -1,8 +1,8 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Order } from 'src/order/order.entity';
-import { SeatBooking } from 'src/seats/seat-booking.entity';
-import { Seat } from 'src/seats/seat.entity';
+import { Order } from '../../order/order.entity';
+import { SeatBooking } from '../../seats/seat-booking.entity';
+import { Seat } from '../../seats/seat.entity';
 import { Repository, DataSource, In } from 'typeorm';
 import { SeatStatus, BookingStatus, OrderStatus } from '../enums';
 import { ThailandTimeHelper } from '../utils';

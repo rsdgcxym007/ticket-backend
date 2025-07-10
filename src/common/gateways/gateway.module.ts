@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { OrderUpdatesGateway } from './order-updates.gateway';
-import { Seat } from 'src/seats/seat.entity';
+import { Seat } from '../../seats/seat.entity';
 
 /**
  * 🚀 Gateway Module for WebSocket Real-time Updates

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { DatabaseConfigHelper } from './config/database.config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule } from '@nestjs/throttler';
@@ -28,18 +29,8 @@ import { ConfigModule as ConfigAppModule } from './config/config.module';
 // import { MobileModule } from './mobile/mobile.module';
 
 // ========================================
-// 📊 ENTITIES
+// 📊 ENTITIES (moved to database.config.ts)
 // ========================================
-import { User } from './user/user.entity';
-import { Auth } from './auth/auth.entity';
-import { Order } from './order/order.entity';
-import { Payment } from './payment/payment.entity';
-import { Seat } from './seats/seat.entity';
-import { SeatBooking } from './seats/seat-booking.entity';
-import { Zone } from './zone/zone.entity';
-import { Referrer } from './referrer/referrer.entity';
-import { AuditLog } from './audit/audit-log.entity';
-import { AppConfig } from './config/config.entity';
 
 // ========================================
 // 🛠️ SERVICES & CONTROLLERS
@@ -64,35 +55,8 @@ import { DashboardModule } from './dashboard/dashboard.module';
     // ========================================
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
-      useFactory: (configService: ConfigService) => ({
-        type: 'postgres',
-        url: configService.get('DATABASE_URL'),
-        host: configService.get('DATABASE_HOST'),
-        port: parseInt(configService.get('DATABASE_PORT'), 10),
-        username: configService.get('DATABASE_USER'),
-        password: configService.get('DATABASE_PASSWORD'),
-        database: configService.get('DATABASE_NAME'),
-        entities: [
-          User,
-          Auth,
-          Order,
-          Payment,
-          Seat,
-          SeatBooking,
-          Zone,
-          Referrer,
-          AuditLog,
-          AppConfig,
-        ],
-        synchronize: configService.get('NODE_ENV') !== 'production',
-        logging: configService.get('NODE_ENV') === 'development',
-        ssl:
-          configService.get('NODE_ENV') === 'production'
-            ? { rejectUnauthorized: false }
-            : false,
-        migrations: ['dist/migrations/*.js'],
-        migrationsRun: false,
-      }),
+      useFactory: (configService: ConfigService) =>
+        DatabaseConfigHelper.getConfig(configService),
       inject: [ConfigService],
     }),
 

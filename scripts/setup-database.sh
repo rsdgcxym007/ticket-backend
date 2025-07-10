@@ -17,15 +17,15 @@ echo "======================================="
 # Check if environment variables are set
 if [ -z "$DATABASE_HOST" ] || [ -z "$DATABASE_USERNAME" ] || [ -z "$DATABASE_PASSWORD" ]; then
     echo -e "${YELLOW}⚠️ Please set the following environment variables:${NC}"
-    echo "DATABASE_HOST=your-rds-endpoint.region.rds.amazonaws.com"
+    echo "DATABASE_HOST=database-1.c8p4wog2qp5o.us-east-1.rds.amazonaws.com"
     echo "DATABASE_USERNAME=postgres"
-    echo "DATABASE_PASSWORD=your-password"
+    echo "DATABASE_PASSWORD=Password123!"
     echo "DATABASE_NAME=ticket_backend (optional, defaults to ticket_backend)"
     echo ""
     echo "Example:"
     echo 'export DATABASE_HOST="database-1.abcdefghijk.us-east-1.rds.amazonaws.com"'
     echo 'export DATABASE_USERNAME="postgres"'
-    echo 'export DATABASE_PASSWORD="your-secure-password"'
+    echo 'export DATABASE_PASSWORD="Password123!"'
     echo 'export DATABASE_NAME="ticket_backend"'
     exit 1
 fi
