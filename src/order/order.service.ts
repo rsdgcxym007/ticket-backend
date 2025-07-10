@@ -120,6 +120,8 @@ export class OrderService {
     this.logger.log(`🎫 Creating new order for user: ${userId}`);
     this.logger.log('Request received:', request);
 
+    console.log('213213ko1ldjlwkdfjlqwdjlwqdjwlqjdwqldjqwljdlqw');
+
     // Get user from database
     const user = await this.userRepo.findOne({
       where: { id: userId },
@@ -161,6 +163,8 @@ export class OrderService {
     // Create orderlog
     const orderNumber = ReferenceGenerator.generateOrderNumber();
     this.logger.log('Generated order number:', orderNumber);
+
+    console.log('321321m3l123l12');
 
     // Prepare order data
     const orderData: any = {
@@ -284,7 +288,8 @@ export class OrderService {
       request.quantity = request.seatIds?.length || 0;
     }
 
-    // Update orderData to ensure quantity is set correctly
+    console.log('3123213kml213lj213jl213jl213jl23jl21');
+
     orderData.quantity = request.quantity;
 
     const order = this.orderRepo.create(orderData);
@@ -816,9 +821,7 @@ export class OrderService {
       order.ticketType,
       newSeatCount,
     );
-    const newCommission = newReferrer
-      ? newPricing.totalAmount * COMMISSION_RATES.REFERRER
-      : 0;
+    const newCommission = newReferrer ? newPricing.commission : 0; // ✅ ใช้ commission จาก pricing
 
     // Update order details
     const orderUpdates: any = {
@@ -1036,7 +1039,8 @@ export class OrderService {
     }
 
     const totalAmount = seatCount * pricePerSeat;
-    const commission = totalAmount * COMMISSION_RATES.REFERRER;
+    // ✅ ใช้ commission ตามประเภทที่นั่ง
+    const commission = seatCount * COMMISSION_RATES.SEAT; // 400 บาท/ตั๋ว
 
     return { totalAmount, commission };
   }
@@ -1236,24 +1240,27 @@ export class OrderService {
     commission: number;
   } {
     const { ticketType, quantity = 0, seatIds = [] } = request;
-    const totalSeats = quantity + seatIds.length;
 
     let pricePerSeat;
+    let commissionPerTicket;
+
     if (ticketType === TicketType.STANDING) {
       pricePerSeat = TICKET_PRICES.STANDING_ADULT;
+      commissionPerTicket = COMMISSION_RATES.STANDING_ADULT; // 300 บาท/ตั๋ว
     } else {
       pricePerSeat = TICKET_PRICES[ticketType];
+      commissionPerTicket = COMMISSION_RATES.SEAT; // 400 บาท/ตั๋ว
     }
-    const commissionRate = COMMISSION_RATES.REFERRER;
-    console.log('pricePerSeat', pricePerSeat);
+
+    const totalSeats = quantity + seatIds.length;
 
     // Validate constants
     if (
       typeof pricePerSeat !== 'number' ||
-      typeof commissionRate !== 'number'
+      typeof commissionPerTicket !== 'number'
     ) {
       this.logger.error(
-        `Invalid constants: pricePerSeat=${pricePerSeat}, commissionRate=${commissionRate}`,
+        `Invalid constants: pricePerSeat=${pricePerSeat}, commissionPerTicket=${commissionPerTicket}`,
       );
       throw new InternalServerErrorException(
         'Invalid ticket pricing or commission rates. Please contact support.',
@@ -1265,7 +1272,10 @@ export class OrderService {
     this.logger.log(`COMMISSION_RATES: ${JSON.stringify(COMMISSION_RATES)}`);
 
     const totalAmount = totalSeats * pricePerSeat;
-    const commission = totalAmount * COMMISSION_RATES.REFERRER;
+    console.log('totalAmount', totalAmount);
+
+    const commission = totalSeats * commissionPerTicket; // ✅ คูณจำนวนตั๋ว × commission ต่อตั๋ว
+    console.log('commission', commission);
 
     return { totalAmount, commission };
   }
