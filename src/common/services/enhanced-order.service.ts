@@ -721,7 +721,16 @@ export class EnhancedOrderService {
     }
 
     // ✅ ใช้ commission ต่อตั๋ว แทนการคูณ percentage
-    const commissionPerTicket = COMMISSION_RATES;
+    let commissionPerTicket = 0;
+    // ✅ เลือกค่าที่เฉพาะเจาะจงตามประเภทตั๋ว
+    if (ticketType === TicketType.STANDING) {
+      commissionPerTicket = COMMISSION_RATES.STANDING_ADULT; // 300
+    } else if (ticketType === TicketType.RINGSIDE) {
+      commissionPerTicket = COMMISSION_RATES.SEAT; // 400
+    } else if (ticketType === TicketType.STADIUM) {
+      commissionPerTicket = COMMISSION_RATES.SEAT; // 400
+    }
+    console.log('commissionPerTicket', commissionPerTicket);
 
     // Validate constants
     if (
