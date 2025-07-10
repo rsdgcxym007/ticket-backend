@@ -1,25 +1,47 @@
 // Jest setup file for test environment
 import { config } from 'dotenv';
+import * as path from 'path';
 
 // Load test environment variables
-config({ path: '.env.test' });
+const envPath = path.resolve(process.cwd(), '.env.test');
+config({ path: envPath });
+
+// Debug: Log database connection details for CI troubleshooting only when needed
+if (process.env.CI || process.env.DEBUG_TEST_ENV) {
+  console.log('Jest Setup - Environment Variables:');
+  console.log('NODE_ENV:', process.env.NODE_ENV);
+  console.log('DATABASE_HOST:', process.env.DATABASE_HOST);
+  console.log('DATABASE_PORT:', process.env.DATABASE_PORT);
+  console.log('DATABASE_USERNAME:', process.env.DATABASE_USERNAME);
+  console.log(
+    'DATABASE_PASSWORD:',
+    process.env.DATABASE_PASSWORD ? '***' : 'undefined',
+  );
+  console.log('DATABASE_NAME:', process.env.DATABASE_NAME);
+  console.log('DATABASE_SSL:', process.env.DATABASE_SSL);
+}
 
 // Global test timeout
 jest.setTimeout(30000);
 
-// Mock external services for testing
-jest.mock('axios');
-jest.mock('nodemailer');
+// Mock external services for testing (only if modules exist)
+try {
+  jest.mock('axios');
+} catch {
+  // axios not available
+}
 
-// Console log suppression for cleaner test output
-global.console = {
-  ...console,
-  log: jest.fn(),
-  debug: jest.fn(),
-  info: jest.fn(),
-  warn: jest.fn(),
-  error: jest.fn(),
-};
+// Console log suppression for cleaner test output (but keep for debugging)
+if (!process.env.DEBUG_TEST_ENV && !process.env.CI) {
+  global.console = {
+    ...console,
+    log: jest.fn(),
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+  };
+}
 
 // Global test utilities
 global.testUtils = {

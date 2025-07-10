@@ -16,6 +16,24 @@ export class DatabaseConfigHelper {
     const isProduction = nodeEnv === 'production';
     const isTest = nodeEnv === 'test';
 
+    // Debug logging for CI/test environments only when debugging is enabled
+    if ((process.env.CI || process.env.DEBUG_TEST_ENV) && isTest) {
+      console.log('Database Config Debug:');
+      console.log('NODE_ENV:', nodeEnv);
+      console.log('DATABASE_HOST:', configService.get('DATABASE_HOST'));
+      console.log('DATABASE_PORT:', configService.get('DATABASE_PORT'));
+      console.log(
+        'DATABASE_USERNAME:',
+        configService.get('DATABASE_USERNAME') ||
+          configService.get('DATABASE_USER'),
+      );
+      console.log(
+        'DATABASE_PASSWORD:',
+        configService.get('DATABASE_PASSWORD') ? '***' : 'undefined',
+      );
+      console.log('DATABASE_NAME:', configService.get('DATABASE_NAME'));
+    }
+
     // Base configuration
     const config: any = {
       type: 'postgres' as const,

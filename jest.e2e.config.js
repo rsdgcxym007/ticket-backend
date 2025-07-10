@@ -20,7 +20,7 @@ module.exports = {
       },
     ],
   },
-  moduleNameMapping: {
+  moduleNameMapper: {
     '^src/(.*)$': '<rootDir>/src/$1',
     '^@/(.*)$': '<rootDir>/src/$1',
   },
