@@ -6,7 +6,6 @@ import {
   Param,
   Patch,
   Delete,
-  Req,
   Query,
   Res,
   Header,
@@ -29,7 +28,7 @@ export class ReferrerController {
   ) {}
 
   @Post()
-  async create(@Body() dto: CreateReferrerDto, @Req() req) {
+  async create(@Body() dto: CreateReferrerDto) {
     const data = await this.service.create(dto);
     return ApiResponseHelper.success(data, 'Referrer created');
   }
@@ -40,7 +39,6 @@ export class ReferrerController {
     @Query('limit') limit = 10,
     @Query('status') status: string,
     @Query('search') search: string,
-    @Req() req,
   ) {
     const data = await this.service.findAllWithPagination({
       page: +page,
@@ -54,7 +52,6 @@ export class ReferrerController {
   @Get(':id/orders')
   async getOrdersByReferrer(
     @Param('id') id: string,
-    @Req() req,
     @Query('startDate') startDate: string,
     @Query('endDate') endDate: string,
   ) {
@@ -111,23 +108,19 @@ export class ReferrerController {
   }
 
   @Get(':id')
-  async findOne(@Param('id') id: string, @Req() req) {
+  async findOne(@Param('id') id: string) {
     const data = await this.service.findOne(id);
     return ApiResponseHelper.success(data, 'Referrer detail');
   }
 
   @Patch(':id')
-  async update(
-    @Param('id') id: string,
-    @Body() dto: UpdateReferrerDto,
-    @Req() req,
-  ) {
+  async update(@Param('id') id: string, @Body() dto: UpdateReferrerDto) {
     const data = await this.service.update(id, dto);
     return ApiResponseHelper.success(data, 'Referrer updated');
   }
 
   @Delete(':id')
-  async remove(@Param('id') id: string, @Req() req) {
+  async remove(@Param('id') id: string) {
     const data = await this.service.remove(id);
     return ApiResponseHelper.success(data, 'Referrer deleted');
   }

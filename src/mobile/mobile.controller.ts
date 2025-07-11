@@ -138,7 +138,7 @@ export class MobileController {
       },
     },
   })
-  async getAvailableZones(@Query('eventDate') eventDate?: string) {
+  async getAvailableZones() {
     this.logger.log('🎫 ดึงโซนที่นั่งที่พร้อมใช้งาน');
     return this.mobileService.getAvailableZones();
   }
