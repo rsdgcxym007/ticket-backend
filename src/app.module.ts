@@ -21,6 +21,9 @@ import { SeatsModule } from './seats/seat.module';
 import { ZoneModule } from './zone/zone.module';
 import { ReferrerModule } from './referrer/referrer.module';
 
+import { PerformanceModule } from './performance/performance.module';
+import { TasksModule } from './tasks/tasks.module';
+
 // ========================================
 // 🔧 FEATURE MODULES
 // ========================================
@@ -118,6 +121,8 @@ import { DashboardModule } from './dashboard/dashboard.module';
     AnalyticsModule,
     AuditModule,
     ConfigAppModule,
+    PerformanceModule,
+    TasksModule,
 
     // NotificationModule,
     // UploadModule,

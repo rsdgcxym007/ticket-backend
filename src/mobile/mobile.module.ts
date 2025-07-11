@@ -9,6 +9,7 @@ import { SeatBooking } from '../seats/seat-booking.entity';
 import { Payment } from '../payment/payment.entity';
 import { Referrer } from '../referrer/referrer.entity';
 import { MobileService } from './mobile.service';
+import { CacheService } from '../common/services/cache.service';
 
 @Module({
   imports: [
@@ -23,7 +24,7 @@ import { MobileService } from './mobile.service';
     ]),
   ],
   controllers: [MobileController],
-  providers: [MobileService],
+  providers: [MobileService, CacheService],
   exports: [MobileService],
 })
 export class MobileModule {}

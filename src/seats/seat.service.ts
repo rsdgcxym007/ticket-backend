@@ -1,12 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
+import { Repository } from 'typeorm';
 import { Zone } from '../zone/zone.entity';
 import { Seat } from './seat.entity';
 import { SeatBooking } from './seat-booking.entity';
 import { CreateSeatDto } from './dto/create-seat.dto';
-import { SeatStatus, BookingStatus } from '../common/enums';
+import { SeatStatus } from '../common/enums';
 import { SeatFilterDto } from './dto/seat-filter.dto';
+import { CacheService } from '../common/services/cache.service';
 import {
   LoggingHelper,
   ErrorHandlingHelper,
@@ -20,6 +21,7 @@ export class SeatService {
     @InjectRepository(Zone) private readonly zoneRepo: Repository<Zone>,
     @InjectRepository(SeatBooking)
     private readonly seatBookingRepo: Repository<SeatBooking>,
+    private readonly cacheService: CacheService,
   ) {}
 
   async create(dto: CreateSeatDto): Promise<Seat> {
@@ -68,55 +70,89 @@ export class SeatService {
     const startTime = Date.now();
 
     try {
-      // 1. ดึงที่นั่งทั้งหมดในโซน
-      const seats = await this.seatRepo.find({
-        where: { zone: { id: zoneId } },
-        relations: ['zone'],
-      });
-
-      // 🔧 RESET ที่นั่งทั้งหมดให้เป็น AVAILABLE (ยกเว้น EMPTY)
-      // เพื่อป้องกันปัญหาสถานะติดค้าง
-      for (const seat of seats) {
-        if (seat.status !== SeatStatus.EMPTY) {
-          await this.seatRepo.update(seat.id, { status: SeatStatus.AVAILABLE });
-          seat.status = SeatStatus.AVAILABLE;
-        }
-      }
-
-      // 2. ดึง bookings ที่ตรงกับ showDate และที่นั่งในโซนนั้น
-      const bookings = await this.seatBookingRepo.find({
-        where: {
-          seat: In(seats.map((s) => s.id)),
-          showDate,
-          status: In([
-            BookingStatus.PENDING,
-            BookingStatus.CONFIRMED,
-            BookingStatus.PAID,
-          ]),
-        },
-        relations: ['seat'],
-      });
-
-      // 3. Map seatId → bookingStatus ('PENDING', 'PAID', 'BOOKED')
-      const bookingMap = new Map<string, string>();
-      for (const booking of bookings) {
-        bookingMap.set(booking.seat.id, booking.status);
-      }
-
-      // 4. return seat พร้อม bookingStatus
-      const result = seats.map((seat) => ({
-        ...seat,
-        bookingStatus: bookingMap.get(seat.id) || 'AVAILABLE',
-      }));
-
-      LoggingHelper.logPerformance(logger, 'seat.findByZone', startTime, {
+      // 1. ตรวจสอบ Cache ก่อน
+      const cacheKey = this.cacheService.getSeatAvailabilityKey(
         zoneId,
         showDate,
-        seatsCount: seats.length,
-        bookingsCount: bookings.length,
-      });
+      );
+      const cached = this.cacheService.get(cacheKey);
 
-      return result;
+      if (cached) {
+        logger.debug('🚀 Cache hit for seat availability');
+        LoggingHelper.logPerformance(
+          logger,
+          'seat.findByZone.cached',
+          startTime,
+          {
+            zoneId,
+            showDate,
+            seatsCount: Array.isArray(cached) ? cached.length : 0,
+          },
+        );
+        return cached;
+      }
+
+      logger.debug(
+        `💾 Cache miss - fetching from database: ${zoneId}:${showDate}`,
+      );
+
+      // 2. ใช้ Raw Query เพื่อประสิทธิภาพสูงสุด
+      const result = await this.seatRepo.query(
+        `
+        SELECT 
+          s.id,
+          s."seatNumber",
+          s."rowIndex",
+          s."columnIndex", 
+          s."isLockedUntil",
+          s.status,
+          s."createdAt",
+          s."updatedAt",
+          z.id as "zone_id",
+          z.name as "zone_name",
+          COALESCE(sb.status, 'AVAILABLE') as "bookingStatus"
+        FROM seat s
+        INNER JOIN zones z ON s."zoneId" = z.id
+        LEFT JOIN seat_booking sb ON s.id = sb."seatId" 
+          AND sb."showDate" = $2
+          AND sb.status IN ('PENDING', 'CONFIRMED', 'PAID')
+        WHERE s."zoneId" = $1
+        ORDER BY s."rowIndex" ASC, s."columnIndex" ASC
+      `,
+        [zoneId, showDate],
+      );
+
+      // 3. แปลงผลลัพธ์ให้ตรงกับ Format เดิม
+      const formattedSeats = result.map((row: any) => ({
+        id: row.id,
+        isLockedUntil: row.isLockedUntil,
+        seatNumber: row.seatNumber,
+        rowIndex: row.rowIndex,
+        columnIndex: row.columnIndex,
+        status: row.status,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+        zone: {
+          id: row.zone_id,
+          name: row.zone_name,
+        },
+        bookingStatus: row.bookingStatus,
+      }));
+
+      // 4. เก็บใน Cache (10 วินาที)
+      this.cacheService.setSeatAvailability(zoneId, showDate, formattedSeats);
+      LoggingHelper.logPerformance(
+        logger,
+        'seat.findByZone.database',
+        startTime,
+        {
+          zoneId,
+          showDate,
+          seatsCount: formattedSeats.length,
+        },
+      );
+
+      return formattedSeats;
     } catch (error) {
       throw ErrorHandlingHelper.logAndTransformError(
         error,
