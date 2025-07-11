@@ -54,7 +54,7 @@ jobs:
           cp -r dist deployment/
           cp -r node_modules deployment/
           cp package*.json deployment/
-          cp ecosystem.config.js deployment/
+          cp ecosystem.config.js deployment/ || echo "ecosystem.config.js not found, skipping"
           cp .env.prod deployment/.env || echo ".env.prod not found, will create from secrets"
           cd deployment && zip -r ../deployment.zip .
 
@@ -65,12 +65,15 @@ jobs:
           username: ${{ secrets.AWS_EC2_USERNAME }}
           key: ${{ secrets.AWS_EC2_PRIVATE_KEY }}
           script: |
+            sudo apt update && sudo apt install unzip -y
             sudo mkdir -p /var/www/ticket-backend
             sudo chown -R $USER:$USER /var/www/ticket-backend
+
             pm2 stop ticket-backend || echo "No existing app running"
             if [ -d "/var/www/ticket-backend/current" ]; then
               mv /var/www/ticket-backend/current /var/www/ticket-backend/backup-$(date +%Y%m%d-%H%M%S)
             fi
+
             mkdir -p /var/www/ticket-backend/current
 
       - name: Copy files to EC2
@@ -92,12 +95,10 @@ jobs:
             cd /var/www/ticket-backend
             unzip -o deployment.zip -d current/
             rm deployment.zip
-            echo "✅ Files unzipped"
-            ls -al current
 
             cd current
 
-            # Ensure .env exists
+            # Create .env if missing
             if [ ! -f ".env" ]; then
               echo "NODE_ENV=production" > .env
               echo "PORT=4000" >> .env
@@ -118,9 +119,12 @@ jobs:
             # Start app with PM2
             if [ -f "ecosystem.config.js" ]; then
               pm2 start ecosystem.config.js --env production
-            else
+            elif [ -f "dist/main.js" ]; then
               echo "⚠️ ecosystem.config.js not found. Starting main.js directly"
               pm2 start dist/main.js --name ticket-backend
+            else
+              echo "❌ dist/main.js not found. Build step may have failed."
+              exit 1
             fi
 
             pm2 save
