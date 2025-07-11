@@ -15,9 +15,9 @@ import { FacebookAuthGuard } from './guards/facebook-auth.guard';
 import { LineAuthGuard } from './guards/line-auth.guard';
 import { Response } from 'express';
 import { LoginDto } from './dto/login.dto';
-import { success } from '../common/responses';
 import { RegisterDto } from './dto/register.dto';
 import { ApiTags } from '@nestjs/swagger';
+import { ApiResponseHelper } from '../common/utils';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -25,25 +25,19 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('login')
-  async login(@Body() dto: LoginDto, @Res() res: Response) {
+  async login(@Body() dto: LoginDto) {
     const result = await this.authService.login(dto);
-    return res.json({
-      message: 'Login successful',
-      ...result,
-      token: result.access_token,
-    });
+    return ApiResponseHelper.success(result, 'Login successful');
   }
+
   @Post('register')
-  async register(@Body() dto: RegisterDto, @Req() req) {
+  async register(@Body() dto: RegisterDto) {
     const result = await this.authService.register(dto);
-    return success(result, 'Register success', req);
+    return ApiResponseHelper.success(result, 'Registration successful');
   }
   @Get('success')
   getSuccess(@Query('token') token: string) {
-    return {
-      message: 'Login success redirect!',
-      token,
-    };
+    return ApiResponseHelper.success({ token }, 'Login success redirect!');
   }
 
   // Google Login
@@ -86,6 +80,9 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @Get('profile')
   getProfile(@Req() req) {
-    return req.user; // TransformInterceptor จะห่อ response เป็น success()
+    return ApiResponseHelper.success(
+      req.user,
+      'Profile retrieved successfully',
+    );
   }
 }

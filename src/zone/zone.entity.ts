@@ -1,4 +1,5 @@
-import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, Entity, PrimaryGeneratedColumn, OneToMany } from 'typeorm';
+import { Seat } from '../seats/seat.entity';
 
 @Entity('zones')
 export class Zone {
@@ -13,4 +14,7 @@ export class Zone {
 
   @Column({ default: true })
   isActive: boolean;
+
+  @OneToMany(() => Seat, (seat) => seat.zone)
+  seats: Seat[];
 }

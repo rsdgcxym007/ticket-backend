@@ -23,8 +23,13 @@ import { ThailandTimeHelper } from './thailand-time.helper';
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
-// 🌍 Export Thailand Time Helper
+// 🌍 Export Enhanced Utilities
 export { ThailandTimeHelper, ThaiTime } from './thailand-time.helper';
+export { ApiResponseHelper } from './api-response.helper';
+export { DatabaseHelper } from './database.helper';
+export { LoggingHelper } from './logging.helper';
+export { ErrorHandlingHelper } from './error-handling.helper';
+export { AuditHelper } from './audit.helper';
 
 // 💰 คำนวณราคาตั๋ว
 class PriceCalculator {

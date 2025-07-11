@@ -6,13 +6,11 @@ import {
   Patch,
   Param,
   Delete,
-  Req,
 } from '@nestjs/common';
 import { ZoneService } from './zone.service';
 import { CreateZoneDto } from './dto/create-zone.dto';
 import { UpdateZoneDto } from './dto/update-zone.dto';
-import { Request } from 'express';
-import { success } from '../common/responses';
+import { ApiResponseHelper } from '../common/utils';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 
 @ApiTags('Zones')
@@ -22,36 +20,32 @@ export class ZoneController {
   constructor(private readonly service: ZoneService) {}
 
   @Post()
-  async create(@Body() dto: CreateZoneDto, @Req() req: Request) {
+  async create(@Body() dto: CreateZoneDto) {
     const zone = await this.service.create(dto);
-    return success(zone, 'Zone created', req);
+    return ApiResponseHelper.success(zone, 'Zone created');
   }
 
   @Get()
-  async findAll(@Req() req: Request) {
+  async findAll() {
     const zones = await this.service.findAll();
-    return success(zones, 'All zones', req);
+    return ApiResponseHelper.success(zones, 'All zones');
   }
 
   @Get(':id')
-  async findOne(@Param('id') id: string, @Req() req: Request) {
+  async findOne(@Param('id') id: string) {
     const zone = await this.service.findOne(id);
-    return success(zone, 'Zone details', req);
+    return ApiResponseHelper.success(zone, 'Zone details');
   }
 
   @Patch(':id')
-  async update(
-    @Param('id') id: string,
-    @Body() dto: UpdateZoneDto,
-    @Req() req: Request,
-  ) {
+  async update(@Param('id') id: string, @Body() dto: UpdateZoneDto) {
     const updated = await this.service.update(id, dto);
-    return success(updated, 'Zone updated', req);
+    return ApiResponseHelper.success(updated, 'Zone updated');
   }
 
   @Delete(':id')
-  async remove(@Param('id') id: string, @Req() req: Request) {
+  async remove(@Param('id') id: string) {
     const deleted = await this.service.remove(id);
-    return success(deleted, 'Zone deleted', req);
+    return ApiResponseHelper.success(deleted, 'Zone deleted');
   }
 }

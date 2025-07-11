@@ -3,7 +3,6 @@ import {
   UseGuards,
   Post,
   Body,
-  Req,
   Get,
   Param,
   Patch,
@@ -12,13 +11,12 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { success } from '../common/responses';
 import { CreateSeatDto } from './dto/create-seat.dto';
 import { UpdateSeatDto, UpdateSeatStatusDto } from './dto/update-seat.dto';
 import { SeatService } from './seat.service';
 import { SeatStatus } from '../common/enums';
 import { BadRequestException } from '@nestjs/common';
-import { Request } from 'express';
+import { ApiResponseHelper } from '../common/utils';
 
 @ApiTags('Seats')
 @ApiBearerAuth()
@@ -28,38 +26,39 @@ export class SeatController {
   constructor(private readonly service: SeatService) {}
 
   @Post()
-  async create(@Body() dto: CreateSeatDto, @Req() req: Request) {
+  async create(@Body() dto: CreateSeatDto) {
     const result = await this.service.create(dto);
-    return success(result, 'Seat created', req);
+    return ApiResponseHelper.success(result, 'Seat created successfully');
   }
 
   @Get()
-  async findAll(@Req() req: Request) {
+  async findAll() {
     const result = await this.service.findAll();
-    return success(result, 'All seats', req);
+    return ApiResponseHelper.success(result, 'Seats retrieved successfully');
   }
 
   @Get(':id')
-  async findOne(@Param('id') id: string, @Req() req: Request) {
+  async findOne(@Param('id') id: string) {
     const result = await this.service.findById(id);
-    return success(result, 'Seat detail', req);
+    return ApiResponseHelper.success(result, 'Seat retrieved successfully');
   }
 
   @Get('by-zone/:zoneId')
   async findByZone(
     @Param('zoneId') zoneId: string,
     @Query('showDate') showDate: string,
-    @Req() req: Request,
   ) {
     const result = await this.service.findByZone(zoneId, showDate);
-    return success(result, 'Seats by zone', req);
+    return ApiResponseHelper.success(
+      result,
+      'Seats by zone retrieved successfully',
+    );
   }
 
   @Patch(':id/status')
   async updateStatus(
     @Param('id') id: string,
     @Body() dto: UpdateSeatStatusDto,
-    @Req() req: Request,
   ) {
     // ⚠️ WARNING: การอัพเดทสถานะที่นั่งตรงๆ ควรใช้เฉพาะกรณี maintenance เท่านั้น
     // สำหรับการจองปกติ ระบบจะใช้ seat_booking table
@@ -74,22 +73,21 @@ export class SeatController {
     }
 
     const result = await this.service.updateStatus(id, dto.status);
-    return success(result, 'Seat status updated', req);
+    return ApiResponseHelper.success(
+      result,
+      'Seat status updated successfully',
+    );
   }
 
   @Patch(':id')
-  async update(
-    @Param('id') id: string,
-    @Body() dto: UpdateSeatDto,
-    @Req() req: Request,
-  ) {
+  async update(@Param('id') id: string, @Body() dto: UpdateSeatDto) {
     const result = await this.service.update(id, dto);
-    return success(result, 'Seat updated', req);
+    return ApiResponseHelper.success(result, 'Seat updated successfully');
   }
 
   @Delete(':id')
-  async remove(@Param('id') id: string, @Req() req: Request) {
+  async remove(@Param('id') id: string) {
     const result = await this.service.remove(id);
-    return success(result, 'Seat deleted', req);
+    return ApiResponseHelper.success(result, 'Seat deleted successfully');
   }
 }

@@ -17,6 +17,7 @@ import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
 import { ChangeSeatsDto } from './dto/change-seats.dto';
 import { error, success } from '../common/responses';
+import { ApiResponseHelper } from '../common/utils';
 import {
   ApiTags,
   ApiBearerAuth,
@@ -130,13 +131,24 @@ export class OrderController {
     @Query('search') search?: string,
   ) {
     try {
-      const data = await this.orderService.findAll(
+      const result = await this.orderService.findAll(
         { page, limit, status, search },
         req.user.id,
       );
-      return success(data, 'ดึงรายการออเดอร์สำเร็จ', req);
+
+      return ApiResponseHelper.paginated(
+        result.items,
+        result.total,
+        result.page,
+        result.limit,
+        'ดึงรายการออเดอร์สำเร็จ',
+      );
     } catch (err) {
-      return error(err.message, '400', req);
+      return ApiResponseHelper.error(
+        err.message,
+        err.status || 400,
+        'ORD_FIND_ALL_ERROR',
+      );
     }
   }
 

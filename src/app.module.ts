@@ -1,10 +1,14 @@
-import { Module } from '@nestjs/common';
+import { Module, OnModuleInit } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { DatabaseConfigHelper } from './config/database.config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { JwtModule } from '@nestjs/jwt';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { AuditLog } from './audit/audit-log.entity';
+import { AuditHelper } from './common/utils';
 
 // ========================================
 // 🏗️ CORE MODULES
@@ -59,6 +63,9 @@ import { DashboardModule } from './dashboard/dashboard.module';
         DatabaseConfigHelper.getConfig(configService),
       inject: [ConfigService],
     }),
+
+    // Global TypeORM for AuditHelper
+    TypeOrmModule.forFeature([AuditLog]),
 
     // ========================================
     // 🔐 JWT GLOBAL CONFIGURATION
@@ -121,4 +128,14 @@ import { DashboardModule } from './dashboard/dashboard.module';
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule {}
+export class AppModule implements OnModuleInit {
+  constructor(
+    @InjectRepository(AuditLog)
+    private readonly auditRepo: Repository<AuditLog>,
+  ) {}
+
+  async onModuleInit() {
+    // Initialize AuditHelper with repository
+    AuditHelper.setRepository(this.auditRepo);
+  }
+}
