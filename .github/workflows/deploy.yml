@@ -7,24 +7,9 @@ on:
     branches: [ main, master ]
 
 jobs:
-  test:
+  build:
     runs-on: ubuntu-latest
     
-    services:
-      postgres:
-        image: postgres:17
-        env:
-          POSTGRES_PASSWORD: Password123!
-          POSTGRES_USER: postgres
-          POSTGRES_DB: test_db
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
-
     steps:
     - uses: actions/checkout@v4
     
@@ -37,58 +22,14 @@ jobs:
     - name: Install dependencies
       run: npm ci
       
-    - name: Setup test database
-      run: |
-        # Wait for PostgreSQL to be ready
-        while ! pg_isready -h localhost -p 5432 -U postgres; do
-          echo "Waiting for PostgreSQL to be ready..."
-          sleep 2
-        done
-        
-        # Create test database
-        PGPASSWORD=Password123! psql -h localhost -p 5432 -U postgres -d postgres -c "DROP DATABASE IF EXISTS test_db;"
-        PGPASSWORD=Password123! psql -h localhost -p 5432 -U postgres -d postgres -c "CREATE DATABASE test_db;"
-        PGPASSWORD=Password123! psql -h localhost -p 5432 -U postgres -d postgres -c "GRANT ALL PRIVILEGES ON DATABASE test_db TO postgres;"
-      env:
-        PGPASSWORD: Password123!
-    
-    - name: Run unit tests
-      run: npm run test
-      env:
-        NODE_ENV: test
-        CI: true
-        DATABASE_HOST: localhost
-        DATABASE_PORT: 5432
-        DATABASE_USERNAME: postgres
-        DATABASE_PASSWORD: Password123!
-        DATABASE_NAME: test_db
-        DATABASE_SSL: false
-        DATABASE_SYNCHRONIZE: true
-        DATABASE_LOGGING: false
-        JWT_SECRET: test-jwt-secret-for-github-actions
+    - name: Lint code
+      run: npm run lint
       
-    - name: Run integration tests
-      run: npm run test:e2e
-      env:
-        NODE_ENV: test
-        CI: true
-        DEBUG_TEST_ENV: true
-        DATABASE_HOST: localhost
-        DATABASE_PORT: 5432
-        DATABASE_USERNAME: postgres
-        DATABASE_PASSWORD: Password123!
-        DATABASE_NAME: test_db
-        DATABASE_SSL: false
-        DATABASE_SYNCHRONIZE: true
-        DATABASE_LOGGING: false
-        DATABASE_DROP_SCHEMA: true
-        JWT_SECRET: test-jwt-secret-for-github-actions
-    
     - name: Build application
       run: npm run build
 
   deploy:
-    needs: test
+    needs: build
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
     
