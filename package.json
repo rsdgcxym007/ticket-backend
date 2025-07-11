@@ -13,6 +13,7 @@
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
     "seed:zone": "ts-node src/scripts/zone.seed.ts",
+    "seed:seat": "ts-node src/scripts/seat-from-zone.seed.ts",
     "lint": "eslint \"{src,apps,libs}/**/*.ts\" --fix"
   },
   "dependencies": {

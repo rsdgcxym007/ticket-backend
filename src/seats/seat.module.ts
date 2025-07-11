@@ -5,10 +5,11 @@ import { SeatBooking } from './seat-booking.entity';
 import { SeatService } from './seat.service';
 import { SeatController } from './seat.controller';
 import { Zone } from '../zone/zone.entity';
+import { CacheService } from '../common/services/cache.service';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Seat, SeatBooking, Zone])],
-  providers: [SeatService],
+  providers: [SeatService, CacheService],
   controllers: [SeatController],
   exports: [SeatService, TypeOrmModule],
 })

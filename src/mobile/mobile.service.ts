@@ -10,6 +10,7 @@ import { Payment } from '../payment/payment.entity';
 import { Referrer } from '../referrer/referrer.entity';
 import { ThailandTimeHelper } from '../common/utils/thailand-time.helper';
 import { OrderStatus, SeatStatus } from '../common/enums';
+import { CacheService } from '../common/services/cache.service';
 
 @Injectable()
 export class MobileService {
@@ -23,6 +24,7 @@ export class MobileService {
     @InjectRepository(SeatBooking) private bookingRepo: Repository<SeatBooking>,
     @InjectRepository(Payment) private paymentRepo: Repository<Payment>,
     @InjectRepository(Referrer) private referrerRepo: Repository<Referrer>,
+    private readonly cacheService: CacheService,
   ) {}
 
   /**
@@ -51,29 +53,52 @@ export class MobileService {
   }
 
   /**
-   * รายการโซนที่มีที่นั่งว่าง
+   * รายการโซนที่มีที่นั่งว่าง - Cached Version
    */
   async getAvailableZones() {
+    const cacheKey = 'available_zones';
+    const cached = this.cacheService.get(cacheKey);
+
+    if (cached) {
+      this.logger.debug('Using cached available zones data');
+      return cached;
+    }
+
     const zones = await this.zoneRepo.find({
       where: { isActive: true },
       order: { name: 'ASC' },
     });
 
+    // ใช้ Raw Query เพื่อความเร็ว
     const zoneAvailability = await Promise.all(
       zones.map(async (zone) => {
-        const totalSeats = await this.seatRepo.count({
-          where: { zone: { id: zone.id } },
-        });
+        // Cache สำหรับแต่ละ Zone
+        const zoneCacheKey = this.cacheService.getZoneDataKey(zone.id);
+        const cachedZone = this.cacheService.get(zoneCacheKey);
 
-        const bookedSeats = await this.bookingRepo.count({
-          where: {
-            seat: { zone: { id: zone.id } },
-          },
-        });
+        if (cachedZone) {
+          return cachedZone;
+        }
 
-        const availableSeats = totalSeats - bookedSeats;
+        // Raw Query เร็วกว่า ORM
+        const [seatStats] = await this.seatRepo.query(
+          `
+          SELECT 
+            COUNT(*) as total_seats,
+            COUNT(*) FILTER (WHERE sb.id IS NULL) as available_seats
+          FROM seat s
+          LEFT JOIN seat_booking sb ON s.id = sb.seat_id 
+            AND sb.status IN ('PENDING', 'CONFIRMED', 'PAID')
+          WHERE s.zone_id = $1
+        `,
+          [zone.id],
+        );
 
-        return {
+        const totalSeats = parseInt(seatStats.total_seats);
+        const availableSeats = parseInt(seatStats.available_seats);
+        const bookedSeats = totalSeats - availableSeats;
+
+        const result = {
           id: zone.id,
           name: zone.name,
           totalSeats,
@@ -87,9 +112,15 @@ export class MobileService {
                 ? 'limited'
                 : 'available',
         };
+
+        // Cache ข้อมูล Zone
+        this.cacheService.setZoneData(zone.id, result);
+        return result;
       }),
     );
 
+    // Cache ผลรวม
+    this.cacheService.set(cacheKey, zoneAvailability, 30 * 1000); // 30 วินาที
     return zoneAvailability;
   }
 

@@ -9,6 +9,7 @@ import { Referrer } from '../referrer/referrer.entity';
 import { Seat } from '../seats/seat.entity';
 import { Zone } from '../zone/zone.entity';
 import { User } from '../user/user.entity';
+import { CacheService } from '../common/services/cache.service';
 
 @Module({
   imports: [
@@ -23,6 +24,6 @@ import { User } from '../user/user.entity';
     ]),
   ],
   controllers: [DashboardController],
-  providers: [DashboardService],
+  providers: [DashboardService, CacheService],
 })
 export class DashboardModule {}

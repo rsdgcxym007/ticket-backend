@@ -10,6 +10,7 @@ import { Zone } from '../zone/zone.entity';
 import { User } from '../user/user.entity';
 import { ThailandTimeHelper } from '../common/utils/thailand-time.helper';
 import { OrderStatus, BookingStatus, TicketType } from '../common/enums';
+import { CacheService } from '../common/services/cache.service';
 
 @Injectable()
 export class DashboardService {
@@ -23,6 +24,7 @@ export class DashboardService {
     @InjectRepository(Seat) private seatRepo: Repository<Seat>,
     @InjectRepository(Zone) private zoneRepo: Repository<Zone>,
     @InjectRepository(User) private userRepo: Repository<User>,
+    private readonly cacheService: CacheService,
   ) {}
 
   /**
@@ -445,7 +447,7 @@ export class DashboardService {
   }
 
   /**
-   * ข้อมูลที่นั่งว่างแต่ละโซน (กรองที่นั่งที่ seatNumber เป็น null ออก)
+   * ข้อมูลที่นั่งว่างแต่ละโซน (กรองที่นั่งที่ seatNumber เป็น null ออก) - Cached Version
    */
   async getSeatAvailabilityByZone(showDate?: string) {
     this.logger.log('💺 คำนวณที่นั่งว่างแต่ละโซน');
@@ -457,85 +459,102 @@ export class DashboardService {
         )
       : ThailandTimeHelper.format(ThailandTimeHelper.now(), 'YYYY-MM-DD');
 
-    // ดึงข้อมูลโซนทั้งหมด
-    const zones = await this.zoneRepo.find({
-      where: { isActive: true },
-    });
+    // ตรวจสอบ Cache
+    const cacheKey = `seat_availability_summary:${targetDate}`;
+    const cached = this.cacheService.get(cacheKey);
 
-    const zoneStats = await Promise.all(
-      zones.map(async (zone) => {
-        const totalSeats = await this.seatRepo.count({
-          where: {
-            zone: { id: zone.id },
-            seatNumber: Not(IsNull()),
-          },
-        });
+    if (cached) {
+      this.logger.debug('🚀 Using cached seat availability summary');
+      return cached;
+    }
 
-        // นับที่นั่งที่จองแล้วในวันที่เลือก
-        const bookedSeats = await this.bookingRepo
-          .createQueryBuilder('booking')
-          .leftJoin('booking.seat', 'seat')
-          .leftJoin('seat.zone', 'zone')
-          .where('zone.id = :zoneId', { zoneId: zone.id })
-          .andWhere('booking.showDate = :showDate', { showDate: targetDate })
-          .andWhere('booking.status IN (:...statuses)', {
-            statuses: [
-              BookingStatus.BOOKED,
-              BookingStatus.CONFIRMED,
-              BookingStatus.PENDING,
-              BookingStatus.PAID,
-            ],
-          })
-          .andWhere('seat.seatNumber IS NOT NULL')
-          .getCount();
-
-        // คำนวณที่นั่งว่าง
-        const availableSeats = totalSeats - bookedSeats;
-        const occupancyRate =
-          totalSeats > 0 ? ((bookedSeats / totalSeats) * 100).toFixed(1) : '0';
-
-        return {
-          zoneId: zone.id,
-          zoneName: zone.name,
-          totalSeats,
-          bookedSeats,
-          availableSeats,
-          occupancyRate: parseFloat(occupancyRate),
-          status:
-            availableSeats === 0
-              ? 'เต็ม'
-              : availableSeats < 10
-                ? 'ใกล้เต็ม'
-                : 'ว่าง',
-        };
-      }),
+    // ใช้ Single Raw Query เพื่อประสิทธิภาพสูงสุด
+    const zoneStats = await this.seatRepo.query(
+      `
+      SELECT 
+        z.id as "zoneId",
+        z.name as "zoneName",
+        COUNT(s.id) FILTER (WHERE s."seatNumber" IS NOT NULL) as "totalSeats",
+        COUNT(sb.id) FILTER (WHERE sb.status IN ('PENDING', 'CONFIRMED', 'PAID', 'BOOKED')) as "bookedSeats",
+        COUNT(s.id) FILTER (WHERE s."seatNumber" IS NOT NULL) - 
+        COUNT(sb.id) FILTER (WHERE sb.status IN ('PENDING', 'CONFIRMED', 'PAID', 'BOOKED')) as "availableSeats"
+      FROM zones z
+      LEFT JOIN seat s ON s."zoneId" = z.id AND s."seatNumber" IS NOT NULL
+      LEFT JOIN seat_booking sb ON s.id = sb."seatId" 
+        AND sb."showDate" = $1 
+        AND sb.status IN ('PENDING', 'CONFIRMED', 'PAID', 'BOOKED')
+      WHERE z."isActive" = true
+      GROUP BY z.id, z.name
+      ORDER BY z.name
+    `,
+      [targetDate],
     );
+
+    // แปลงผลลัพธ์
+    const formattedStats = zoneStats.map((zone: any) => {
+      const totalSeats = parseInt(zone.totalSeats) || 0;
+      const bookedSeats = parseInt(zone.bookedSeats) || 0;
+      const availableSeats = totalSeats - bookedSeats;
+      const occupancyRate =
+        totalSeats > 0
+          ? parseFloat(((bookedSeats / totalSeats) * 100).toFixed(1))
+          : 0;
+
+      return {
+        zoneId: zone.zoneId,
+        zoneName: zone.zoneName,
+        totalSeats,
+        bookedSeats,
+        availableSeats,
+        occupancyRate,
+        status:
+          availableSeats === 0
+            ? 'เต็ม'
+            : availableSeats < 10
+              ? 'ใกล้เต็ม'
+              : 'ว่าง',
+      };
+    });
 
     // คำนวณสรุปรวม
     const summary = {
-      totalSeats: zoneStats.reduce((sum, zone) => sum + zone.totalSeats, 0),
-      totalBooked: zoneStats.reduce((sum, zone) => sum + zone.bookedSeats, 0),
-      totalAvailable: zoneStats.reduce(
+      totalSeats: formattedStats.reduce(
+        (sum, zone) => sum + zone.totalSeats,
+        0,
+      ),
+      totalBooked: formattedStats.reduce(
+        (sum, zone) => sum + zone.bookedSeats,
+        0,
+      ),
+      totalAvailable: formattedStats.reduce(
         (sum, zone) => sum + zone.availableSeats,
         0,
       ),
       averageOccupancy:
-        zoneStats.length > 0
+        formattedStats.length > 0
           ? parseFloat(
               (
-                zoneStats.reduce((sum, zone) => sum + zone.occupancyRate, 0) /
-                zoneStats.length
+                formattedStats.reduce(
+                  (sum, zone) => sum + zone.occupancyRate,
+                  0,
+                ) / formattedStats.length
               ).toFixed(1),
             )
           : 0,
     };
 
-    return {
+    const result = {
       showDate: targetDate,
-      zones: zoneStats,
+      zones: formattedStats,
       summary,
       lastUpdated: ThailandTimeHelper.formatDateTime(ThailandTimeHelper.now()),
     };
+
+    // เก็บใน Cache 60 วินาที
+    this.cacheService.set(cacheKey, result, 60 * 1000);
+
+    this.logger.debug(`💾 Cached seat availability summary for ${targetDate}`);
+    return result;
   }
 
   /**
