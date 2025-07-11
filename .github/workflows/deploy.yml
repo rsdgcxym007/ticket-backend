@@ -99,6 +99,8 @@ jobs:
           cd /var/www/ticket-backend
           unzip -o deployment.zip -d current/
           rm deployment.zip
+           echo "✅ Unzipped. Files in current/"
+          ls -al current
           
           cd current
           
