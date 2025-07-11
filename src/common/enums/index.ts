@@ -39,6 +39,7 @@ export enum UserRole {
   USER = 'user',
   STAFF = 'staff',
   ADMIN = 'admin',
+  SYSTEM = 'system',
 }
 
 export enum SeatStatus {
@@ -83,6 +84,8 @@ export enum AuditAction {
   CONFIRM = 'CONFIRM',
   REFUND = 'REFUND',
   VIEW = 'VIEW',
+  LOGIN = 'LOGIN',
+  LOGOUT = 'LOGOUT',
 }
 
 export enum NotificationType {

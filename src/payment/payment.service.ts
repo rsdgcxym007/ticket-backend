@@ -3,7 +3,6 @@ import {
   Injectable,
   InternalServerErrorException,
   NotFoundException,
-  Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DeepPartial, Repository } from 'typeorm';
@@ -21,11 +20,14 @@ import {
   PaymentMethod,
   PaymentStatus,
 } from '../common/enums';
+import {
+  LoggingHelper,
+  ErrorHandlingHelper,
+  AuditHelper,
+} from '../common/utils';
 
 @Injectable()
 export class PaymentService {
-  private readonly logger = new Logger(PaymentService.name);
-
   constructor(
     @InjectRepository(Payment) private paymentRepo: Repository<Payment>,
     @InjectRepository(Order) private orderRepo: Repository<Order>,
@@ -40,18 +42,29 @@ export class PaymentService {
   // ========================================
 
   async payWithCashStanding(dto: CreatePaymentDto, user: User) {
-    try {
+    const logger = LoggingHelper.createContextLogger('PaymentService');
+    const startTime = Date.now();
+
+    return ErrorHandlingHelper.retry(async () => {
       const order = await this.orderRepo.findOne({
         where: { id: dto.orderId },
         relations: ['referrer'],
       });
 
       if (!order) {
-        throw new NotFoundException('ไม่พบคำสั่งซื้อ (Order not found)');
+        throw ErrorHandlingHelper.createError(
+          'ไม่พบคำสั่งซื้อ (Order not found)',
+          404,
+          'ORDER_NOT_FOUND',
+        );
       }
 
       if (order.status === OrderStatus.PAID) {
-        throw new BadRequestException('คำสั่งซื้อนี้ถูกชำระเงินไปแล้ว');
+        throw ErrorHandlingHelper.createError(
+          'คำสั่งซื้อนี้ถูกชำระเงินไปแล้ว',
+          400,
+          'ORDER_ALREADY_PAID',
+        );
       }
 
       // ✅ ตรวจสอบว่า order นี้เป็นตั๋วยืน
@@ -59,7 +72,11 @@ export class PaymentService {
         (order.standingAdultQty || 0) === 0 &&
         (order.standingChildQty || 0) === 0
       ) {
-        throw new BadRequestException('ออเดอร์นี้ไม่มีตั๋วยืน');
+        throw ErrorHandlingHelper.createError(
+          'ออเดอร์นี้ไม่มีตั๋วยืน',
+          400,
+          'NO_STANDING_TICKETS',
+        );
       }
 
       // ✅ ผูก referrer ถ้ายังไม่มี
@@ -68,7 +85,11 @@ export class PaymentService {
           where: { code: dto.referrerCode },
         });
         if (!referrer) {
-          throw new NotFoundException('ไม่พบผู้แนะนำ (Referrer not found)');
+          throw ErrorHandlingHelper.createError(
+            'ไม่พบผู้แนะนำ (Referrer not found)',
+            404,
+            'REFERRER_NOT_FOUND',
+          );
         }
         order.referrer = referrer;
         order.referrerCode = referrer.code;
@@ -77,9 +98,11 @@ export class PaymentService {
       // ✅ อัปเดตชื่อผู้สั่ง (ถ้ามี)
       if (dto.customerName) {
         order.customerName = dto.customerName;
+        LoggingHelper.logBusinessEvent(logger, 'Customer name updated', {
+          orderId: dto.orderId,
+          customerName: dto.customerName,
+        });
       }
-
-      console.log('order.referrer', order.referrer);
 
       // ✅ อัปเดตค่าคอมรวมของ referrer (ถ้ามี)
       if (order.referrer) {
@@ -103,13 +126,46 @@ export class PaymentService {
       const savedPayment = await this.paymentRepo.save(payment);
       order.payment = savedPayment;
       await this.orderRepo.save(order);
-      return savedPayment;
-    } catch (err) {
-      console.error('Critical Error in payWithCashStanding():', err);
-      throw new InternalServerErrorException(
-        `เกิดข้อผิดพลาดในการจ่ายเงิน (${err.name}): ${err.message}`,
+
+      // 📝 Audit logging for payment creation
+      await AuditHelper.logCreate(
+        'Payment',
+        savedPayment.id,
+        {
+          orderId: dto.orderId,
+          amount: savedPayment.amount,
+          method: PaymentMethod.CASH,
+          ticketType: 'STANDING',
+        },
+        AuditHelper.createSystemContext({
+          source: 'PaymentService.payWithCashStanding',
+          userId: user.id,
+          orderNumber: order.orderNumber,
+        }),
       );
-    }
+
+      LoggingHelper.logBusinessEvent(
+        logger,
+        'Standing ticket payment completed',
+        {
+          orderId: dto.orderId,
+          paymentId: savedPayment.id,
+          amount: savedPayment.amount,
+        },
+      );
+
+      LoggingHelper.logPerformance(
+        logger,
+        'payment.payWithCashStanding',
+        startTime,
+        {
+          orderId: dto.orderId,
+          amount: savedPayment.amount,
+        },
+      );
+
+      return savedPayment;
+    }, 2);
   }
 
   // ========================================
@@ -120,50 +176,72 @@ export class PaymentService {
    * ชำระเงินสำหรับตั๋วนั่ง - รูปแบบใหม่ที่ชัดเจน
    */
   async paySeatedTicket(dto: CreatePaymentDto, user: User) {
-    this.logger.log(
-      `💰 Processing seated ticket payment for order: ${dto.orderId} by user: ${user.id}`,
-    );
+    const logger = LoggingHelper.createContextLogger('PaymentService');
+    const startTime = Date.now();
 
-    try {
+    return ErrorHandlingHelper.retry(async () => {
       const order = await this.orderRepo.findOne({
         where: { id: dto.orderId },
         relations: ['referrer', 'seatBookings', 'seatBookings.seat'],
       });
 
       if (!order) {
-        throw new NotFoundException('ไม่พบคำสั่งซื้อ');
+        throw ErrorHandlingHelper.createError(
+          'ไม่พบคำสั่งซื้อ',
+          404,
+          'ORDER_NOT_FOUND',
+        );
       }
 
       if (order.status === OrderStatus.PAID) {
-        throw new BadRequestException('คำสั่งซื้อนี้ถูกชำระเงินไปแล้ว');
+        throw ErrorHandlingHelper.createError(
+          'คำสั่งซื้อนี้ถูกชำระเงินไปแล้ว',
+          400,
+          'ORDER_ALREADY_PAID',
+        );
       }
 
       // ตรวจสอบว่าเป็นตั๋วนั่งหรือไม่
       if (order.ticketType === 'STANDING') {
-        throw new BadRequestException(
+        throw ErrorHandlingHelper.createError(
           'คำสั่งซื้อนี้เป็นตั๋วยืน กรุณาใช้ endpoint สำหรับตั๋วยืน',
+          400,
+          'INVALID_TICKET_TYPE',
         );
       }
 
       // ตรวจสอบว่ามี seat bookings หรือไม่
       if (!order.seatBookings || order.seatBookings.length === 0) {
-        throw new BadRequestException('ไม่พบการจองที่นั่งในคำสั่งซื้อนี้');
+        throw ErrorHandlingHelper.createError(
+          'ไม่พบการจองที่นั่งในคำสั่งซื้อนี้',
+          400,
+          'NO_SEAT_BOOKINGS',
+        );
       }
 
       // อัปเดตข้อมูลลูกค้าและผู้แนะนำ
       if (!order.customerName && dto.customerName) {
         order.customerName = dto.customerName;
-        this.logger.log(`📝 Updated customer name to: ${dto.customerName}`);
+        LoggingHelper.logBusinessEvent(logger, 'Customer name updated', {
+          orderId: dto.orderId,
+          customerName: dto.customerName,
+        });
       }
 
       if (!order.customerPhone && dto.customerPhone) {
         order.customerPhone = dto.customerPhone;
-        this.logger.log(`📞 Updated customer phone to: ${dto.customerPhone}`);
+        LoggingHelper.logBusinessEvent(logger, 'Customer phone updated', {
+          orderId: dto.orderId,
+          customerPhone: dto.customerPhone,
+        });
       }
 
       if (!order.customerEmail && dto.customerEmail) {
         order.customerEmail = dto.customerEmail;
-        this.logger.log(`📧 Updated customer email to: ${dto.customerEmail}`);
+        LoggingHelper.logBusinessEvent(logger, 'Customer email updated', {
+          orderId: dto.orderId,
+          customerEmail: dto.customerEmail,
+        });
       }
 
       await this.updateOrderInfo(order, dto);
@@ -206,26 +284,39 @@ export class PaymentService {
       order.payment = savedPayment;
       await this.orderRepo.save(order);
 
-      this.logger.log(
-        `✅ Seated ticket payment completed for order: ${order.orderNumber}`,
+      LoggingHelper.logBusinessEvent(
+        logger,
+        'Seated ticket payment completed',
+        {
+          orderId: dto.orderId,
+          orderNumber: order.orderNumber,
+          paymentId: savedPayment.id,
+          amount: savedPayment.amount,
+          seatCount: order.seatBookings.length,
+        },
       );
+
+      LoggingHelper.logPerformance(
+        logger,
+        'payment.paySeatedTicket',
+        startTime,
+        {
+          orderId: dto.orderId,
+          amount: savedPayment.amount,
+          seatCount: order.seatBookings.length,
+        },
+      );
+
       return savedPayment;
-    } catch (err) {
-      this.logger.error(
-        `❌ Error in paySeatedTicket: ${err.message}`,
-        err.stack,
-      );
-      throw new InternalServerErrorException(
-        `เกิดข้อผิดพลาดในการชำระเงินตั๋วนั่ง: ${err.message}`,
-      );
-    }
+    }, 2);
   }
 
   /**
    * ชำระเงินสำหรับตั๋วยืน - รูปแบบใหม่ที่ชัดเจน
    */
   async payStandingTicket(dto: CreatePaymentDto, user: User) {
-    this.logger.log(
+    const logger = LoggingHelper.createContextLogger('PaymentService');
+    logger.log(
       `🎫 Processing standing ticket payment for order: ${dto.orderId} by user: ${user.id}`,
     );
 
@@ -296,15 +387,12 @@ export class PaymentService {
       order.payment = savedPayment;
       await this.orderRepo.save(order);
 
-      this.logger.log(
+      logger.log(
         `✅ Standing ticket payment completed for order: ${order.orderNumber}`,
       );
       return savedPayment;
     } catch (err) {
-      this.logger.error(
-        `❌ Error in payStandingTicket: ${err.message}`,
-        err.stack,
-      );
+      logger.error(`❌ Error in payStandingTicket: ${err.message}`, err.stack);
       throw new InternalServerErrorException(
         `เกิดข้อผิดพลาดในการชำระเงินตั๋วยืน: ${err.message}`,
       );
@@ -373,9 +461,8 @@ export class PaymentService {
     userId: string,
     reason: string,
   ): Promise<{ success: boolean; message: string }> {
-    this.logger.log(
-      `🚫 Canceling payment for order: ${orderId} by user: ${userId}`,
-    );
+    const logger = LoggingHelper.createContextLogger('PaymentService');
+    logger.log(`🚫 Canceling payment for order: ${orderId} by user: ${userId}`);
 
     try {
       const order = await this.orderRepo.findOne({
@@ -408,13 +495,26 @@ export class PaymentService {
 
       await this.orderRepo.save(order);
 
-      this.logger.log(`✅ Payment cancelled for order: ${order.orderNumber}`);
+      // 📝 Audit logging for payment cancellation
+      await AuditHelper.logCancel(
+        'Payment',
+        order.payment?.id || order.id,
+        reason,
+        AuditHelper.createSystemContext({
+          source: 'PaymentService.cancelPayment',
+          userId,
+          orderNumber: order.orderNumber,
+          orderStatus: order.status,
+        }),
+      );
+
+      logger.log(`✅ Payment cancelled for order: ${order.orderNumber}`);
       return {
         success: true,
         message: 'ยกเลิกการชำระเงินสำเร็จ',
       };
     } catch (err) {
-      this.logger.error(`❌ Error in cancelPayment: ${err.message}`, err.stack);
+      logger.error(`❌ Error in cancelPayment: ${err.message}`, err.stack);
       throw new InternalServerErrorException(
         `เกิดข้อผิดพลาดในการยกเลิกการชำระเงิน: ${err.message}`,
       );
@@ -432,13 +532,14 @@ export class PaymentService {
     order: Order,
     dto: CreatePaymentDto,
   ): Promise<void> {
+    const logger = LoggingHelper.createContextLogger('PaymentService');
     let orderUpdated = false;
 
     // อัปเดตชื่อลูกค้า
     if (dto.customerName && dto.customerName !== order.customerName) {
       order.customerName = dto.customerName;
       orderUpdated = true;
-      this.logger.log(`📝 Updated customer name to: ${dto.customerName}`);
+      logger.log(`📝 Updated customer name to: ${dto.customerName}`);
     }
 
     // อัปเดตผู้แนะนำ
@@ -457,7 +558,7 @@ export class PaymentService {
       order.referrerId = referrer.id;
       order.referrerCode = dto.referrerCode;
       orderUpdated = true;
-      this.logger.log(`👥 Added referrer: ${dto.referrerCode}`);
+      logger.log(`👥 Added referrer: ${dto.referrerCode}`);
     }
 
     // บันทึกการเปลี่ยนแปลง

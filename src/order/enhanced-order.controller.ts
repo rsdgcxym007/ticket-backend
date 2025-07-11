@@ -6,7 +6,6 @@ import {
   Body,
   Param,
   Get,
-  HttpStatus,
   Logger,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
@@ -15,6 +14,13 @@ import { ConcurrencyService } from '../common/services/concurrency.service';
 import { DuplicateOrderPreventionService } from '../common/services/duplicate-order-prevention.service';
 import { ConcurrencyCleanupService } from '../common/services/concurrency-cleanup.service';
 import { ThailandTimeHelper } from '../common/utils/thailand-time.helper';
+import {
+  AuditHelper,
+  ApiResponseHelper,
+  LoggingHelper,
+  ErrorHandlingHelper,
+} from '../common/utils';
+import { AuditAction, UserRole } from '../common/enums';
 
 /**
  * 🛡️ Enhanced Order Controller with Concurrency Control
@@ -46,6 +52,17 @@ export class EnhancedOrderController {
   @ApiResponse({ status: 429, description: 'คำขอมากเกินไป' })
   async createOrder(@Body() orderData: { userId: string; [key: string]: any }) {
     try {
+      // Log performance and business events
+      const performanceTimer = LoggingHelper.createPerformanceTimer(
+        'EnhancedOrderController.createOrder',
+      );
+
+      LoggingHelper.logBusinessEvent(
+        this.logger,
+        'Starting enhanced order creation',
+        { userId: orderData.userId, hasSeats: !!orderData.seatIds },
+      );
+
       this.logger.log(
         `🎫 Enhanced order creation request from user: ${orderData.userId}`,
       );
@@ -56,30 +73,46 @@ export class EnhancedOrderController {
           orderData,
         );
 
-      return {
-        success: true,
-        data: order,
-        message: 'สร้างออเดอร์สำเร็จ พร้อมการป้องกันการซ้ำกัน',
-        timestamp: ThailandTimeHelper.now(),
-      };
+      // Log audit event for order creation
+      await AuditHelper.logCreate(
+        'order',
+        order.id,
+        {
+          order_type: 'enhanced',
+          concurrency_control: true,
+          seats: orderData.seatIds || [],
+          show_date: orderData.showDate,
+        },
+        AuditHelper.createSystemContext({
+          userId: orderData.userId,
+          controller: 'EnhancedOrderController',
+          action: 'createOrder',
+        }),
+      );
+
+      // End performance timer
+      LoggingHelper.endPerformanceTimer(performanceTimer, this.logger, {
+        orderId: order.id,
+      });
+
+      return ApiResponseHelper.success(
+        order,
+        'สร้างออเดอร์สำเร็จ พร้อมการป้องกันการซ้ำกัน',
+      );
     } catch (err) {
       this.logger.error(`❌ Enhanced order creation failed: ${err.message}`);
 
-      // Return appropriate error status based on error type
-      let statusCode = HttpStatus.BAD_REQUEST;
-      if (
-        err.message.includes('ถูกจองโดยผู้อื่น') ||
-        err.message.includes('กำลังถูกประมวลผล')
-      ) {
-        statusCode = HttpStatus.CONFLICT;
-      }
+      // Log error event
+      LoggingHelper.logError(this.logger, err, {
+        userId: orderData.userId,
+      });
 
-      return {
-        success: false,
-        error: err.message,
-        statusCode,
-        timestamp: ThailandTimeHelper.now(),
-      };
+      // Handle specific error types
+      const handledError = ErrorHandlingHelper.handleDatabaseError(err);
+      return ApiResponseHelper.error(
+        handledError.message,
+        handledError.getStatus(),
+      );
     }
   }
 
@@ -99,6 +132,16 @@ export class EnhancedOrderController {
     @Body() updateData: { userId: string; [key: string]: any },
   ) {
     try {
+      const performanceTimer = LoggingHelper.createPerformanceTimer(
+        'EnhancedOrderController.updateOrder',
+      );
+
+      LoggingHelper.logBusinessEvent(
+        this.logger,
+        'Starting enhanced order update',
+        { orderId: id, userId: updateData.userId },
+      );
+
       this.logger.log(`🔄 Enhanced order update request: ${id}`);
 
       const order =
@@ -108,20 +151,37 @@ export class EnhancedOrderController {
           updateData,
         );
 
-      return {
-        success: true,
-        data: order,
-        message: 'อัปเดตออเดอร์สำเร็จ',
-        timestamp: ThailandTimeHelper.now(),
-      };
+      // Log audit event for order update
+      await AuditHelper.logUpdate(
+        'order',
+        id,
+        {},
+        updateData,
+        AuditHelper.createSystemContext({
+          userId: updateData.userId,
+          controller: 'EnhancedOrderController',
+          action: 'updateOrder',
+        }),
+      );
+
+      LoggingHelper.endPerformanceTimer(performanceTimer, this.logger, {
+        orderId: id,
+      });
+
+      return ApiResponseHelper.success(order, 'อัปเดตออเดอร์สำเร็จ');
     } catch (err) {
       this.logger.error(`❌ Enhanced order update failed: ${err.message}`);
-      return {
-        success: false,
-        error: err.message,
-        statusCode: HttpStatus.BAD_REQUEST,
-        timestamp: ThailandTimeHelper.now(),
-      };
+
+      LoggingHelper.logError(this.logger, err, {
+        orderId: id,
+        userId: updateData.userId,
+      });
+
+      const handledError = ErrorHandlingHelper.handleDatabaseError(err);
+      return ApiResponseHelper.error(
+        handledError.message,
+        handledError.getStatus(),
+      );
     }
   }
 
@@ -141,6 +201,16 @@ export class EnhancedOrderController {
     @Body() cancelData: { userId: string },
   ) {
     try {
+      const performanceTimer = LoggingHelper.createPerformanceTimer(
+        'EnhancedOrderController.cancelOrder',
+      );
+
+      LoggingHelper.logBusinessEvent(
+        this.logger,
+        'Starting enhanced order cancellation',
+        { orderId: id, userId: cancelData.userId },
+      );
+
       this.logger.log(`❌ Enhanced order cancellation request: ${id}`);
 
       const result =
@@ -149,22 +219,38 @@ export class EnhancedOrderController {
           cancelData.userId,
         );
 
-      return {
-        success: true,
-        data: result,
-        message: 'ยกเลิกออเดอร์สำเร็จ',
-        timestamp: ThailandTimeHelper.now(),
-      };
+      // Log audit event for order cancellation
+      await AuditHelper.logCancel(
+        'order',
+        id,
+        'User requested cancellation',
+        AuditHelper.createSystemContext({
+          userId: cancelData.userId,
+          controller: 'EnhancedOrderController',
+          action: 'cancelOrder',
+        }),
+      );
+
+      LoggingHelper.endPerformanceTimer(performanceTimer, this.logger, {
+        orderId: id,
+      });
+
+      return ApiResponseHelper.success(result, 'ยกเลิกออเดอร์สำเร็จ');
     } catch (err) {
       this.logger.error(
         `❌ Enhanced order cancellation failed: ${err.message}`,
       );
-      return {
-        success: false,
-        error: err.message,
-        statusCode: HttpStatus.BAD_REQUEST,
-        timestamp: ThailandTimeHelper.now(),
-      };
+
+      LoggingHelper.logError(this.logger, err, {
+        orderId: id,
+        userId: cancelData.userId,
+      });
+
+      const handledError = ErrorHandlingHelper.handleDatabaseError(err);
+      return ApiResponseHelper.error(
+        handledError.message,
+        handledError.getStatus(),
+      );
     }
   }
 
@@ -185,6 +271,15 @@ export class EnhancedOrderController {
     },
   ) {
     try {
+      const performanceTimer = LoggingHelper.createPerformanceTimer(
+        'EnhancedOrderController.lockSeats',
+      );
+
+      LoggingHelper.logBusinessEvent(this.logger, 'Starting seat locking', {
+        seatCount: lockData.seatIds.length,
+        showDate: lockData.showDate,
+      });
+
       this.logger.log(
         `🔒 Seat locking request: ${lockData.seatIds.join(', ')}`,
       );
@@ -195,20 +290,39 @@ export class EnhancedOrderController {
         lockData.lockDurationMinutes || 5,
       );
 
-      return {
-        success: true,
-        data: result,
-        message: 'ล็อคที่นั่งสำเร็จ',
-        timestamp: ThailandTimeHelper.now(),
-      };
+      // Log audit event for seat locking
+      await AuditHelper.log({
+        action: AuditAction.UPDATE,
+        entityType: 'seat_lock',
+        entityId: lockData.seatIds.join(','),
+        newData: {
+          seats: lockData.seatIds,
+          show_date: lockData.showDate,
+          duration_minutes: lockData.lockDurationMinutes || 5,
+        },
+        context: AuditHelper.createSystemContext({
+          controller: 'EnhancedOrderController',
+          action: 'lockSeats',
+        }),
+      });
+
+      LoggingHelper.endPerformanceTimer(performanceTimer, this.logger, {
+        seatCount: lockData.seatIds.length,
+      });
+
+      return ApiResponseHelper.success(result, 'ล็อคที่นั่งสำเร็จ');
     } catch (err) {
       this.logger.error(`❌ Seat locking failed: ${err.message}`);
-      return {
-        success: false,
-        error: err.message,
-        statusCode: HttpStatus.CONFLICT,
-        timestamp: ThailandTimeHelper.now(),
-      };
+
+      LoggingHelper.logError(this.logger, err, {
+        seatIds: lockData.seatIds,
+      });
+
+      const handledError = ErrorHandlingHelper.handleDatabaseError(err);
+      return ApiResponseHelper.error(
+        handledError.message,
+        handledError.getStatus(),
+      );
     }
   }
 
@@ -221,26 +335,44 @@ export class EnhancedOrderController {
   @ApiResponse({ status: 200, description: 'ปลดล็อคที่นั่งสำเร็จ' })
   async releaseSeats(@Body() releaseData: { seatIds: string[] }) {
     try {
+      LoggingHelper.logBusinessEvent(this.logger, 'Starting seat release', {
+        seatCount: releaseData.seatIds.length,
+      });
+
       this.logger.log(
         `🔓 Seat release request: ${releaseData.seatIds.join(', ')}`,
       );
 
       await this.concurrencyService.releaseSeatLocks(releaseData.seatIds);
 
-      return {
-        success: true,
-        data: { released: releaseData.seatIds },
-        message: 'ปลดล็อคที่นั่งสำเร็จ',
-        timestamp: ThailandTimeHelper.now(),
-      };
+      // Log audit event for seat release
+      await AuditHelper.log({
+        action: AuditAction.DELETE,
+        entityType: 'seat_lock',
+        entityId: releaseData.seatIds.join(','),
+        oldData: { seats: releaseData.seatIds },
+        context: AuditHelper.createSystemContext({
+          controller: 'EnhancedOrderController',
+          action: 'releaseSeats',
+        }),
+      });
+
+      return ApiResponseHelper.success(
+        { released: releaseData.seatIds },
+        'ปลดล็อคที่นั่งสำเร็จ',
+      );
     } catch (err) {
       this.logger.error(`❌ Seat release failed: ${err.message}`);
-      return {
-        success: false,
-        error: err.message,
-        statusCode: HttpStatus.BAD_REQUEST,
-        timestamp: ThailandTimeHelper.now(),
-      };
+
+      LoggingHelper.logError(this.logger, err, {
+        seatIds: releaseData.seatIds,
+      });
+
+      const handledError = ErrorHandlingHelper.handleDatabaseError(err);
+      return ApiResponseHelper.error(
+        handledError.message,
+        handledError.getStatus(),
+      );
     }
   }
 
@@ -258,24 +390,26 @@ export class EnhancedOrderController {
         this.cleanupService.getCleanupStats(),
       ]);
 
-      return {
-        success: true,
-        data: {
+      return ApiResponseHelper.success(
+        {
           systemHealth,
           cleanupStats,
           timestamp: ThailandTimeHelper.now(),
         },
-        message: 'ได้สถิติสุขภาพระบบ',
-        timestamp: ThailandTimeHelper.now(),
-      };
+        'ได้สถิติสุขภาพระบบ',
+      );
     } catch (err) {
       this.logger.error(`❌ System health check failed: ${err.message}`);
-      return {
-        success: false,
-        error: err.message,
-        statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-        timestamp: ThailandTimeHelper.now(),
-      };
+
+      LoggingHelper.logError(this.logger, err, {
+        action: 'getSystemHealth',
+      });
+
+      const handledError = ErrorHandlingHelper.handleDatabaseError(err);
+      return ApiResponseHelper.error(
+        handledError.message,
+        handledError.getStatus(),
+      );
     }
   }
 
@@ -293,24 +427,26 @@ export class EnhancedOrderController {
         this.duplicatePreventionService.getDuplicatePreventionStats(),
       ]);
 
-      return {
-        success: true,
-        data: {
+      return ApiResponseHelper.success(
+        {
           concurrency: concurrencyStats,
           duplicatePrevention: duplicateStats,
           timestamp: ThailandTimeHelper.now(),
         },
-        message: 'ได้สถิติการจัดการ concurrency',
-        timestamp: ThailandTimeHelper.now(),
-      };
+        'ได้สถิติการจัดการ concurrency',
+      );
     } catch (err) {
       this.logger.error(`❌ Concurrency stats failed: ${err.message}`);
-      return {
-        success: false,
-        error: err.message,
-        statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-        timestamp: ThailandTimeHelper.now(),
-      };
+
+      LoggingHelper.logError(this.logger, err, {
+        action: 'getConcurrencyStats',
+      });
+
+      const handledError = ErrorHandlingHelper.handleDatabaseError(err);
+      return ApiResponseHelper.error(
+        handledError.message,
+        handledError.getStatus(),
+      );
     }
   }
 
@@ -323,24 +459,46 @@ export class EnhancedOrderController {
   @ApiResponse({ status: 200, description: 'ทำความสะอาดฉุกเฉินสำเร็จ' })
   async emergencyCleanup() {
     try {
+      LoggingHelper.logSecurityEvent(
+        this.logger,
+        'Emergency cleanup initiated',
+        { timestamp: new Date().toISOString() },
+      );
+
       this.logger.warn('🚨 Emergency cleanup requested');
 
       await this.cleanupService.emergencyCleanup();
 
-      return {
-        success: true,
-        data: { cleanedAt: ThailandTimeHelper.now() },
-        message: 'ทำความสะอาดฉุกเฉินสำเร็จ',
-        timestamp: ThailandTimeHelper.now(),
-      };
+      // Log audit event for emergency cleanup
+      await AuditHelper.log({
+        action: AuditAction.DELETE,
+        entityType: 'system_cleanup',
+        entityId: 'emergency',
+        oldData: { cleanup_type: 'emergency' },
+        context: AuditHelper.createSystemContext({
+          userRole: UserRole.SYSTEM,
+          controller: 'EnhancedOrderController',
+          action: 'emergencyCleanup',
+          isSystemAction: true,
+        }),
+      });
+
+      return ApiResponseHelper.success(
+        { cleanedAt: ThailandTimeHelper.now() },
+        'ทำความสะอาดฉุกเฉินสำเร็จ',
+      );
     } catch (err) {
       this.logger.error(`❌ Emergency cleanup failed: ${err.message}`);
-      return {
-        success: false,
-        error: err.message,
-        statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-        timestamp: ThailandTimeHelper.now(),
-      };
+
+      LoggingHelper.logError(this.logger, err, {
+        action: 'emergencyCleanup',
+      });
+
+      const handledError = ErrorHandlingHelper.handleDatabaseError(err);
+      return ApiResponseHelper.error(
+        handledError.message,
+        handledError.getStatus(),
+      );
     }
   }
 
@@ -353,6 +511,10 @@ export class EnhancedOrderController {
   @ApiResponse({ status: 200, description: 'ทำความสะอาดสำเร็จ' })
   async manualCleanup() {
     try {
+      LoggingHelper.logBusinessEvent(this.logger, 'Manual cleanup initiated', {
+        timestamp: new Date().toISOString(),
+      });
+
       this.logger.log('🧹 Manual cleanup requested');
 
       await Promise.all([
@@ -360,20 +522,39 @@ export class EnhancedOrderController {
         this.cleanupService.cleanupExpiredOrders(),
       ]);
 
-      return {
-        success: true,
-        data: { cleanedAt: ThailandTimeHelper.now() },
-        message: 'ทำความสะอาดสำเร็จ',
-        timestamp: ThailandTimeHelper.now(),
-      };
+      // Log audit event for manual cleanup
+      await AuditHelper.log({
+        action: AuditAction.DELETE,
+        entityType: 'system_cleanup',
+        entityId: 'manual',
+        oldData: {
+          cleanup_type: 'manual',
+          operations: ['expired_seat_locks', 'expired_orders'],
+        },
+        context: AuditHelper.createSystemContext({
+          userRole: UserRole.SYSTEM,
+          controller: 'EnhancedOrderController',
+          action: 'manualCleanup',
+          isSystemAction: true,
+        }),
+      });
+
+      return ApiResponseHelper.success(
+        { cleanedAt: ThailandTimeHelper.now() },
+        'ทำความสะอาดสำเร็จ',
+      );
     } catch (err) {
       this.logger.error(`❌ Manual cleanup failed: ${err.message}`);
-      return {
-        success: false,
-        error: err.message,
-        statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-        timestamp: ThailandTimeHelper.now(),
-      };
+
+      LoggingHelper.logError(this.logger, err, {
+        action: 'manualCleanup',
+      });
+
+      const handledError = ErrorHandlingHelper.handleDatabaseError(err);
+      return ApiResponseHelper.error(
+        handledError.message,
+        handledError.getStatus(),
+      );
     }
   }
 }

@@ -14,7 +14,7 @@ import {
 import { ReferrerService } from './referrer.service';
 import { CreateReferrerDto } from './dto/create-referrer.dto';
 import { UpdateReferrerDto } from './dto/update-referrer.dto';
-import { success } from '../common/responses';
+import { ApiResponseHelper } from '../common/utils';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { OrderService } from '../order/order.service';
 import { Response } from 'express';
@@ -31,7 +31,7 @@ export class ReferrerController {
   @Post()
   async create(@Body() dto: CreateReferrerDto, @Req() req) {
     const data = await this.service.create(dto);
-    return success(data, 'Referrer created', req);
+    return ApiResponseHelper.success(data, 'Referrer created');
   }
 
   @Get()
@@ -48,7 +48,7 @@ export class ReferrerController {
       status,
       search,
     });
-    return success(data, 'Referrers fetched with pagination', req);
+    return ApiResponseHelper.success(data, 'Referrers fetched with pagination');
   }
 
   @Get(':id/orders')
@@ -62,7 +62,7 @@ export class ReferrerController {
       startDate,
       endDate,
     });
-    return success(data, 'Orders fetched', req);
+    return ApiResponseHelper.success(data, 'Orders fetched');
   }
 
   @Get(':id/export-pdf')
@@ -113,7 +113,7 @@ export class ReferrerController {
   @Get(':id')
   async findOne(@Param('id') id: string, @Req() req) {
     const data = await this.service.findOne(id);
-    return success(data, 'Referrer detail', req);
+    return ApiResponseHelper.success(data, 'Referrer detail');
   }
 
   @Patch(':id')
@@ -123,12 +123,12 @@ export class ReferrerController {
     @Req() req,
   ) {
     const data = await this.service.update(id, dto);
-    return success(data, 'Referrer updated', req);
+    return ApiResponseHelper.success(data, 'Referrer updated');
   }
 
   @Delete(':id')
   async remove(@Param('id') id: string, @Req() req) {
     const data = await this.service.remove(id);
-    return success(data, 'Referrer deleted', req);
+    return ApiResponseHelper.success(data, 'Referrer deleted');
   }
 }

@@ -1,9 +1,4 @@
-import {
-  ConflictException,
-  Injectable,
-  NotFoundException,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -12,6 +7,12 @@ import { LoginDto } from './dto/login.dto';
 import * as bcrypt from 'bcrypt';
 import { RegisterDto } from './dto/register.dto';
 import { User } from '../user/user.entity';
+import {
+  LoggingHelper,
+  ErrorHandlingHelper,
+  AuditHelper,
+} from '../common/utils';
+import { AuditAction } from '../common/enums';
 @Injectable()
 export class AuthService {
   constructor(
@@ -23,39 +24,76 @@ export class AuthService {
   ) {}
 
   async login(dto: LoginDto): Promise<{ access_token: string; user: any }> {
-    const auth = await this.authRepo.findOne({
-      where: { email: dto.email },
-      relations: ['user'],
-    });
+    const logger = LoggingHelper.createContextLogger('AuthService');
+    const startTime = Date.now();
 
-    if (!auth) {
-      throw new UnauthorizedException('ไม่พบอีเมลนี้ในระบบ');
-    }
+    return ErrorHandlingHelper.retry(async () => {
+      const auth = await this.authRepo.findOne({
+        where: { email: dto.email },
+        relations: ['user'],
+      });
 
-    const isPasswordValid = await bcrypt.compare(dto.password, auth.password);
-    if (!isPasswordValid) {
-      throw new UnauthorizedException('รหัสผ่านไม่ถูกต้อง');
-    }
+      if (!auth) {
+        throw ErrorHandlingHelper.createError(
+          'ไม่พบอีเมลนี้ในระบบ',
+          401,
+          'AUTH_USER_NOT_FOUND',
+        );
+      }
 
-    if (!auth.user) {
-      throw new NotFoundException('ไม่พบข้อมูลผู้ใช้ที่เชื่อมกับบัญชีนี้');
-    }
+      const isPasswordValid = await bcrypt.compare(dto.password, auth.password);
+      if (!isPasswordValid) {
+        throw ErrorHandlingHelper.createError(
+          'รหัสผ่านไม่ถูกต้อง',
+          401,
+          'AUTH_INVALID_PASSWORD',
+        );
+      }
 
-    const payload = {
-      sub: auth.user.id,
-      email: auth.email,
-      role: auth.user.role,
-    };
+      if (!auth.user) {
+        throw ErrorHandlingHelper.createError(
+          'ไม่พบข้อมูลผู้ใช้ที่เชื่อมกับบัญชีนี้',
+          404,
+          'AUTH_USER_DATA_NOT_FOUND',
+        );
+      }
 
-    const access_token = this.jwtService.sign(payload);
+      const payload = {
+        sub: auth.user.id,
+        email: auth.email,
+        role: auth.user.role,
+      };
 
-    const { password, ...safeUser } = auth;
-    console.log(password);
+      const access_token = this.jwtService.sign(payload);
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { password: _, ...safeUser } = auth;
 
-    return {
-      access_token,
-      user: safeUser,
-    };
+      // 📝 Audit logging for login
+      await AuditHelper.log({
+        action: AuditAction.LOGIN,
+        entityType: 'Auth',
+        entityId: auth.user.id,
+        context: AuditHelper.createSystemContext({
+          source: 'AuthService.login',
+          email: dto.email,
+          loginTime: new Date().toISOString(),
+        }),
+      });
+
+      LoggingHelper.logBusinessEvent(logger, 'User login successful', {
+        userId: auth.user.id,
+        email: dto.email,
+      });
+
+      LoggingHelper.logPerformance(logger, 'auth.login', startTime, {
+        userId: auth.user.id,
+      });
+
+      return {
+        access_token,
+        user: safeUser,
+      };
+    }, 2);
   }
 
   async socialLogin(profile: any): Promise<string> {
@@ -89,37 +127,66 @@ export class AuthService {
   async register(
     dto: RegisterDto,
   ): Promise<{ access_token: string; user: any }> {
-    const email = dto.email.toLowerCase().trim();
+    const logger = LoggingHelper.createContextLogger('AuthService');
+    const startTime = Date.now();
 
-    const existing = await this.authRepo.findOne({ where: { email } });
-    if (existing) {
-      throw new ConflictException('Email already in use');
-    }
+    return ErrorHandlingHelper.retry(async () => {
+      const email = dto.email.toLowerCase().trim();
 
-    const newUser = this.userRepo.create({
-      email,
-      name: dto.name,
-      role: dto.role || 'user',
-    });
-    const savedUser = await this.userRepo.save(newUser);
+      const existing = await this.authRepo.findOne({ where: { email } });
+      if (existing) {
+        throw ErrorHandlingHelper.createError(
+          'Email already in use',
+          409,
+          'EMAIL_ALREADY_EXISTS',
+        );
+      }
 
-    const hashed = await bcrypt.hash(dto.password, 10);
-    const auth = this.authRepo.create({
-      email: savedUser.email,
-      password: hashed,
-      displayName: savedUser.name,
-      provider: 'manual',
-      providerId: savedUser.id,
-      role: savedUser.role,
-    });
-    await this.authRepo.save(auth);
+      const newUser = this.userRepo.create({
+        email,
+        name: dto.name,
+        role: dto.role || 'user',
+      });
+      const savedUser = await this.userRepo.save(newUser);
 
-    const payload = { sub: auth.id, email: auth.email, role: auth.role };
-    const access_token = this.jwtService.sign(payload);
+      const hashed = await bcrypt.hash(dto.password, 10);
+      const auth = this.authRepo.create({
+        email: savedUser.email,
+        password: hashed,
+        displayName: savedUser.name,
+        provider: 'manual',
+        providerId: savedUser.id,
+        role: savedUser.role,
+      });
+      await this.authRepo.save(auth);
 
-    const { password, ...safeUser } = auth;
-    console.log(password);
+      const payload = { sub: auth.id, email: auth.email, role: auth.role };
+      const access_token = this.jwtService.sign(payload);
 
-    return { access_token, user: safeUser };
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { password: _, ...safeUser } = auth;
+
+      // 📝 Audit logging for registration
+      await AuditHelper.logCreate(
+        'Auth',
+        auth.id,
+        { email: dto.email, role: auth.role },
+        AuditHelper.createSystemContext({
+          source: 'AuthService.register',
+          registrationTime: new Date().toISOString(),
+        }),
+      );
+
+      LoggingHelper.logBusinessEvent(logger, 'User registration successful', {
+        userId: auth.id,
+        email: dto.email,
+      });
+
+      LoggingHelper.logPerformance(logger, 'auth.register', startTime, {
+        userId: auth.id,
+      });
+
+      return { access_token, user: safeUser };
+    }, 2);
   }
 }

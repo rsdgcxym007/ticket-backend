@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between } from 'typeorm';
 import { Order } from '../order/order.entity';
@@ -12,6 +12,7 @@ import {
   BookingStatus,
 } from '../common/enums';
 import { ThailandTimeHelper } from '../common/utils';
+import { LoggingHelper } from '../common/utils';
 import { GetCustomReportDto, ExportReportDto } from './dto/analytics.dto';
 
 export interface DailySalesReport {
@@ -98,8 +99,6 @@ export interface RealTimeStats {
 
 @Injectable()
 export class AnalyticsService {
-  private readonly logger = new Logger(AnalyticsService.name);
-
   constructor(
     @InjectRepository(Order)
     private orderRepo: Repository<Order>,
@@ -115,7 +114,8 @@ export class AnalyticsService {
    * 📊 รายงานยอดขายรายวัน
    */
   async getDailySalesReport(date: string): Promise<DailySalesReport> {
-    this.logger.log(`📊 สร้างรายงานยอดขายวันที่ ${date}`);
+    const logger = LoggingHelper.createContextLogger('AnalyticsService');
+    logger.log(`📊 สร้างรายงานยอดขายวันที่ ${date}`);
 
     const startDate = ThailandTimeHelper.startOfDay(date);
     const endDate = ThailandTimeHelper.endOfDay(date);
@@ -198,7 +198,8 @@ export class AnalyticsService {
     year: number,
     month: number,
   ): Promise<DailySalesReport[]> {
-    this.logger.log(`📈 สร้างรายงานรายเดือน ${year}-${month}`);
+    const logger = LoggingHelper.createContextLogger('AnalyticsService');
+    logger.log(`📈 สร้างรายงานรายเดือน ${year}-${month}`);
 
     const startDate = ThailandTimeHelper.toThailandTime(
       `${year}-${month.toString().padStart(2, '0')}-01`,
@@ -225,7 +226,8 @@ export class AnalyticsService {
     startDate: string,
     endDate: string,
   ): Promise<ReferrerReport[]> {
-    this.logger.log(`👥 สร้างรายงานผู้แนะนำ ${startDate} - ${endDate}`);
+    const logger = LoggingHelper.createContextLogger('AnalyticsService');
+    logger.log(`👥 สร้างรายงานผู้แนะนำ ${startDate} - ${endDate}`);
 
     const start = ThailandTimeHelper.startOfDay(startDate);
     const end = ThailandTimeHelper.endOfDay(endDate);
@@ -267,7 +269,8 @@ export class AnalyticsService {
    * 💺 รายงานการใช้งานที่นั่ง
    */
   async getSeatUtilizationReport(date: string): Promise<SeatUtilizationReport> {
-    this.logger.log(`💺 สร้างรายงานการใช้งานที่นั่งวันที่ ${date}`);
+    const logger = LoggingHelper.createContextLogger('AnalyticsService');
+    logger.log(`💺 สร้างรายงานการใช้งานที่นั่งวันที่ ${date}`);
 
     const targetDate = ThailandTimeHelper.toThailandTime(date);
 
@@ -308,7 +311,8 @@ export class AnalyticsService {
    * 📊 สรุปสถิติแบบ Real-time
    */
   async getRealtimeStats() {
-    this.logger.log('📊 ดึงสถิติแบบ Real-time');
+    const logger = LoggingHelper.createContextLogger('AnalyticsService');
+    logger.log('📊 ดึงสถิติแบบ Real-time');
 
     const today = ThailandTimeHelper.format(ThailandTimeHelper.now());
 
@@ -341,7 +345,8 @@ export class AnalyticsService {
    * 📈 เปรียบเทียบยอดขายรายสัปดาห์
    */
   async getWeeklyComparison() {
-    this.logger.log('📈 เปรียบเทียบยอดขายรายสัปดาห์');
+    const logger = LoggingHelper.createContextLogger('AnalyticsService');
+    logger.log('📈 เปรียบเทียบยอดขายรายสัปดาห์');
 
     const thisWeekStart = ThailandTimeHelper.startOfWeek(
       ThailandTimeHelper.now(),
@@ -401,7 +406,8 @@ export class AnalyticsService {
     startDate: string,
     endDate: string,
   ): Promise<RevenueReport> {
-    this.logger.log(`📊 สร้างรายงานยอดขายตั้งแต่ ${startDate} ถึง ${endDate}`);
+    const logger = LoggingHelper.createContextLogger('AnalyticsService');
+    logger.log(`📊 สร้างรายงานยอดขายตั้งแต่ ${startDate} ถึง ${endDate}`);
 
     const start = new Date(startDate);
     const end = new Date(endDate);
@@ -510,7 +516,8 @@ export class AnalyticsService {
     startDate?: string,
     endDate?: string,
   ): Promise<ReferrerReport[]> {
-    this.logger.log(`📊 หาผู้แนะนำที่ดีที่สุด ${limit} คน`);
+    const logger = LoggingHelper.createContextLogger('AnalyticsService');
+    logger.log(`📊 หาผู้แนะนำที่ดีที่สุด ${limit} คน`);
 
     const whereClause: any = {};
 
@@ -566,7 +573,8 @@ export class AnalyticsService {
     startDate: string,
     endDate: string,
   ): Promise<PaymentMethodStats[]> {
-    this.logger.log(`📊 สถิติวิธีการชำระเงิน ${startDate} - ${endDate}`);
+    const logger = LoggingHelper.createContextLogger('AnalyticsService');
+    logger.log(`📊 สถิติวิธีการชำระเงิน ${startDate} - ${endDate}`);
 
     const orders = await this.orderRepo.find({
       where: {
@@ -619,7 +627,8 @@ export class AnalyticsService {
    * 📊 สถิติรายชั่วโมง
    */
   async getHourlyStats(date: string): Promise<HourlyStats[]> {
-    this.logger.log(`📊 สถิติรายชั่วโมง ${date}`);
+    const logger = LoggingHelper.createContextLogger('AnalyticsService');
+    logger.log(`📊 สถิติรายชั่วโมง ${date}`);
 
     const startDate = ThailandTimeHelper.startOfDay(date);
     const endDate = ThailandTimeHelper.endOfDay(date);
@@ -661,7 +670,8 @@ export class AnalyticsService {
     startDate?: string,
     endDate?: string,
   ): Promise<PerformanceMetrics> {
-    this.logger.log(`📊 เมตริกการประสิทธิภาพ`);
+    const logger = LoggingHelper.createContextLogger('AnalyticsService');
+    logger.log(`📊 เมตริกการประสิทธิภาพ`);
 
     const whereClause: any = {};
 
@@ -729,7 +739,8 @@ export class AnalyticsService {
    * 📊 สถิติเรียลไทม์
    */
   async getRealTimeStats(): Promise<RealTimeStats> {
-    this.logger.log('📊 ดึงสถิติเรียลไทม์');
+    const logger = LoggingHelper.createContextLogger('AnalyticsService');
+    logger.log('📊 ดึงสถิติเรียลไทม์');
 
     const today = ThailandTimeHelper.format(ThailandTimeHelper.now());
     const startOfDay = ThailandTimeHelper.startOfDay(today);
@@ -769,7 +780,8 @@ export class AnalyticsService {
    * 📊 รายงานแบบกำหนดเอง
    */
   async getCustomReport(dto: GetCustomReportDto): Promise<any> {
-    this.logger.log(`📊 สร้างรายงานแบบกำหนดเอง: ${dto.reportName}`);
+    const logger = LoggingHelper.createContextLogger('AnalyticsService');
+    logger.log(`📊 สร้างรายงานแบบกำหนดเอง: ${dto.reportName}`);
 
     // This is a simplified implementation
     const query = this.orderRepo
@@ -809,7 +821,8 @@ export class AnalyticsService {
    * 📊 ส่งออกรายงาน
    */
   async exportReport(dto: ExportReportDto): Promise<Buffer> {
-    this.logger.log(`📊 ส่งออกรายงาน: ${dto.reportType}`);
+    const logger = LoggingHelper.createContextLogger('AnalyticsService');
+    logger.log(`📊 ส่งออกรายงาน: ${dto.reportType}`);
 
     const reportData = await this.getDateRangeSalesReport(
       dto.startDate,
@@ -825,7 +838,8 @@ export class AnalyticsService {
    * 📊 สร้างรายงาน PDF
    */
   async generatePDFReport(reportType: string, date: string): Promise<Buffer> {
-    this.logger.log(`📊 สร้างรายงาน PDF: ${reportType} สำหรับวันที่ ${date}`);
+    const logger = LoggingHelper.createContextLogger('AnalyticsService');
+    logger.log(`📊 สร้างรายงาน PDF: ${reportType} สำหรับวันที่ ${date}`);
 
     const reportData = await this.getDailySalesReport(date);
 

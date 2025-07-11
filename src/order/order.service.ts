@@ -47,6 +47,8 @@ import {
   DateTimeHelper,
   ReferenceGenerator,
   BusinessLogicHelper,
+  LoggingHelper,
+  ErrorHandlingHelper,
 } from '../common/utils';
 
 import { OrderData } from '../common/interfaces';
@@ -352,46 +354,74 @@ export class OrderService {
   async findAll(options: FindAllOptions, userId?: string): Promise<any> {
     const { page = 1, limit = 10, status, search } = options;
 
-    const query = this.orderRepo
-      .createQueryBuilder('order')
-      .leftJoinAndSelect('order.user', 'user')
-      .leftJoinAndSelect('order.referrer', 'referrer')
-      .leftJoinAndSelect('order.payment', 'payment')
-      .leftJoinAndSelect('order.seatBookings', 'seatBookings')
-      .leftJoinAndSelect('seatBookings.seat', 'seat')
-      .leftJoinAndSelect('seat.zone', 'zone')
-      .orderBy('order.createdAt', 'DESC')
-      .skip((page - 1) * limit)
-      .take(limit);
+    try {
+      const contextLogger = LoggingHelper.createContextLogger('OrderService', {
+        operation: 'findAll',
+        userId: userId ? 'provided' : 'none',
+      });
 
-    // User can only see their own orders
-    if (userId) {
-      const user = await this.userRepo.findOne({ where: { id: userId } });
-      if (user && user.role === UserRole.USER) {
-        query.andWhere('order.userId = :userId', { userId });
+      contextLogger.logWithContext('info', 'Finding orders', { options });
+
+      const query = this.orderRepo
+        .createQueryBuilder('order')
+        .leftJoinAndSelect('order.user', 'user')
+        .leftJoinAndSelect('order.referrer', 'referrer')
+        .leftJoinAndSelect('order.payment', 'payment')
+        .leftJoinAndSelect('order.seatBookings', 'seatBookings')
+        .leftJoinAndSelect('seatBookings.seat', 'seat')
+        .leftJoinAndSelect('seat.zone', 'zone')
+        .orderBy('order.createdAt', 'DESC');
+
+      // User can only see their own orders
+      if (userId) {
+        const user = await this.userRepo.findOne({ where: { id: userId } });
+        if (user && user.role === UserRole.USER) {
+          query.andWhere('order.userId = :userId', { userId });
+        }
       }
-    }
 
-    if (status) {
-      query.andWhere('order.status = :status', { status });
-    }
+      if (status) {
+        query.andWhere('order.status = :status', { status });
+      }
 
-    if (search) {
-      query.andWhere(
-        '(order.orderNumber LIKE :search OR order.customerName LIKE :search OR order.customerPhone LIKE :search)',
-        { search: `%${search}%` },
+      if (search) {
+        query.andWhere(
+          '(order.orderNumber LIKE :search OR order.customerName LIKE :search OR order.customerPhone LIKE :search)',
+          { search: `%${search}%` },
+        );
+      }
+
+      // Manual pagination since we're using query builder
+      query.skip((page - 1) * limit).take(limit);
+      const [items, total] = await query.getManyAndCount();
+
+      contextLogger.logWithContext('info', 'Orders found successfully', {
+        total,
+        page,
+        totalPages: Math.ceil(total / limit),
+      });
+
+      return {
+        items: items.map((order) => this.mapToOrderData(order)),
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      };
+    } catch (error) {
+      LoggingHelper.logError(
+        this.logger,
+        error as Error,
+        {
+          operation: 'findAll',
+        },
+        {
+          options,
+          userId,
+        },
       );
+      throw ErrorHandlingHelper.handleDatabaseError(error);
     }
-
-    const [items, total] = await query.getManyAndCount();
-
-    return {
-      items: items.map((order) => this.mapToOrderData(order)),
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    };
   }
 
   // ===================================================================

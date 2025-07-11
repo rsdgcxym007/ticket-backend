@@ -10,7 +10,6 @@ import {
 } from '@nestjs/common';
 import { PaymentService } from './payment.service';
 import { CreatePaymentDto } from './dto/create-payment.dto';
-import { success } from '../common/responses';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -21,6 +20,7 @@ import {
   ApiOperation,
   ApiResponse,
 } from '@nestjs/swagger';
+import { ApiResponseHelper } from '../common/utils';
 
 @ApiTags('Payments')
 @ApiBearerAuth()
@@ -36,7 +36,7 @@ export class PaymentController {
   @ApiResponse({ status: 404, description: 'ไม่พบคำสั่งซื้อ' })
   async paySeatedTicket(@Body() dto: CreatePaymentDto, @Req() req) {
     const payment = await this.paymentService.paySeatedTicket(dto, req.user);
-    return success(payment, 'ชำระเงินตั๋วนั่งสำเร็จ', req);
+    return ApiResponseHelper.success(payment, 'ชำระเงินตั๋วนั่งสำเร็จ');
   }
 
   @Post('standing')
@@ -46,16 +46,16 @@ export class PaymentController {
   @ApiResponse({ status: 404, description: 'ไม่พบคำสั่งซื้อ' })
   async payStandingTicket(@Body() dto: CreatePaymentDto, @Req() req) {
     const payment = await this.paymentService.payStandingTicket(dto, req.user);
-    return success(payment, 'ชำระเงินตั๋วยืนสำเร็จ', req);
+    return ApiResponseHelper.success(payment, 'ชำระเงินตั๋วยืนสำเร็จ');
   }
 
   @Get('order/:orderId')
   @ApiOperation({ summary: 'ดูข้อมูลการชำระเงินของคำสั่งซื้อ' })
   @ApiResponse({ status: 200, description: 'ดึงข้อมูลสำเร็จ' })
   @ApiResponse({ status: 404, description: 'ไม่พบคำสั่งซื้อ' })
-  async getOrderPaymentInfo(@Param('orderId') orderId: string, @Req() req) {
+  async getOrderPaymentInfo(@Param('orderId') orderId: string) {
     const paymentInfo = await this.paymentService.getOrderPaymentInfo(orderId);
-    return success(paymentInfo, 'ดึงข้อมูลการชำระเงินสำเร็จ', req);
+    return ApiResponseHelper.success(paymentInfo, 'ดึงข้อมูลการชำระเงินสำเร็จ');
   }
 
   @Patch('cancel/:orderId')
@@ -75,6 +75,6 @@ export class PaymentController {
       req.user.id,
       reason || 'ยกเลิกโดย Admin/Staff',
     );
-    return success(result, 'ยกเลิกการชำระเงินสำเร็จ', req);
+    return ApiResponseHelper.success(result, 'ยกเลิกการชำระเงินสำเร็จ');
   }
 }

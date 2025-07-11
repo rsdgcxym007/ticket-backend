@@ -6,16 +6,16 @@ import {
   Delete,
   Param,
   Body,
-  Req,
   UseGuards,
+  Req,
 } from '@nestjs/common';
 import { UserService } from './user.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { success } from '../common/responses';
-import { Request } from 'express';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
+import { ApiResponseHelper, AuditHelper } from '../common/utils';
+import { Request } from 'express';
 
 @ApiTags('Users')
 @ApiBearerAuth()
@@ -25,36 +25,48 @@ export class UserController {
   constructor(private readonly userService: UserService) {}
 
   @Get()
-  async findAll(@Req() req: Request) {
+  async findAll() {
     const users = await this.userService.findAll();
-    return success(users, 'List users', req);
+    return ApiResponseHelper.success(users, 'Users retrieved successfully');
   }
 
   @Get(':id')
   async findOne(@Param('id') id: string, @Req() req: Request) {
     const user = await this.userService.findById(id);
-    return success(user, 'User detail', req);
+
+    // 📝 Audit logging for sensitive user data access
+    const currentUser = (req as any).user;
+    if (currentUser && currentUser.sub !== id) {
+      // Only audit when viewing other users' data
+      await AuditHelper.logView(
+        'User',
+        id,
+        AuditHelper.createContextFromRequest(
+          req,
+          currentUser.sub,
+          currentUser.role,
+        ),
+      );
+    }
+
+    return ApiResponseHelper.success(user, 'User retrieved successfully');
   }
 
   @Post()
-  async create(@Body() dto: CreateUserDto, @Req() req: Request) {
+  async create(@Body() dto: CreateUserDto) {
     const newUser = await this.userService.create(dto);
-    return success(newUser, 'User created', req);
+    return ApiResponseHelper.success(newUser, 'User created successfully');
   }
 
   @Patch(':id')
-  async update(
-    @Param('id') id: string,
-    @Body() dto: UpdateUserDto,
-    @Req() req: Request,
-  ) {
+  async update(@Param('id') id: string, @Body() dto: UpdateUserDto) {
     const updated = await this.userService.update(id, dto);
-    return success(updated, 'User updated', req);
+    return ApiResponseHelper.success(updated, 'User updated successfully');
   }
 
   @Delete(':id')
-  async remove(@Param('id') id: string, @Req() req: Request) {
+  async remove(@Param('id') id: string) {
     await this.userService.remove(id);
-    return success(null, 'User deleted', req);
+    return ApiResponseHelper.success(null, 'User deleted successfully');
   }
 }

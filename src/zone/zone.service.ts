@@ -5,6 +5,7 @@ import { Zone } from './zone.entity';
 import { Repository } from 'typeorm';
 import { CreateZoneDto } from './dto/create-zone.dto';
 import { UpdateZoneDto } from './dto/update-zone.dto';
+import { AuditHelper } from '../common/utils';
 
 @Injectable()
 export class ZoneService {
@@ -15,7 +16,19 @@ export class ZoneService {
 
   async create(dto: CreateZoneDto) {
     const zone = this.repo.create(dto);
-    return await this.repo.save(zone);
+    const savedZone = await this.repo.save(zone);
+
+    // 📝 Audit logging for zone creation
+    await AuditHelper.logCreate(
+      'Zone',
+      savedZone.id,
+      dto,
+      AuditHelper.createSystemContext({
+        source: 'ZoneService.create',
+      }),
+    );
+
+    return savedZone;
   }
 
   async findAll() {
@@ -29,13 +42,39 @@ export class ZoneService {
   }
 
   async update(id: string, dto: UpdateZoneDto) {
-    await this.findOne(id);
+    const oldZone = await this.findOne(id);
     await this.repo.update(id, dto);
-    return this.findOne(id);
+    const updatedZone = await this.findOne(id);
+
+    // 📝 Audit logging for zone update
+    await AuditHelper.logUpdate(
+      'Zone',
+      id,
+      oldZone,
+      dto,
+      AuditHelper.createSystemContext({
+        source: 'ZoneService.update',
+        changes: Object.keys(dto),
+      }),
+    );
+
+    return updatedZone;
   }
 
   async remove(id: string) {
     const zone = await this.findOne(id);
-    return await this.repo.remove(zone);
+    const removedZone = await this.repo.remove(zone);
+
+    // 📝 Audit logging for zone removal
+    await AuditHelper.logDelete(
+      'Zone',
+      id,
+      zone,
+      AuditHelper.createSystemContext({
+        source: 'ZoneService.remove',
+      }),
+    );
+
+    return removedZone;
   }
 }
