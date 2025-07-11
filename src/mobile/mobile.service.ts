@@ -161,7 +161,7 @@ export class MobileService {
       },
       seatMap,
       stats,
-      pricing: await this.getZonePricing(zoneId),
+      pricing: await this.getZonePricing(),
     };
   }
 
@@ -189,14 +189,8 @@ export class MobileService {
   /**
    * ข้อมูลราคาโซน
    */
-  async getZonePricing(zoneId: string) {
+  async getZonePricing() {
     // ในอนาคตอาจมีราคาแบบไดนามิก
-    const zoneMapping = {
-      ringside: { price: 1800, label: 'ริงไซด์' },
-      stadium: { price: 1800, label: 'สเตเดียม' },
-      standing: { price: 1500, label: 'ยืน' },
-    };
-
     return {
       regular: 1500,
       vip: 2000,
