@@ -1,8 +1,0 @@
-services:
-  - type: web
-    name: boxing-ticket-backend
-    runtime: node
-    buildCommand: npm install && npm run build
-    startCommand: npm run start:prod
-    env: node
-    plan: free
