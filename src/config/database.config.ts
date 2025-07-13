@@ -9,6 +9,7 @@ import { Zone } from '../zone/zone.entity';
 import { Referrer } from '../referrer/referrer.entity';
 import { AuditLog } from '../audit/audit-log.entity';
 import { AppConfig } from './config.entity';
+import { Staff } from '../staff/staff.entity';
 
 export class DatabaseConfigHelper {
   static getConfig(configService: ConfigService) {
@@ -58,6 +59,7 @@ export class DatabaseConfigHelper {
         Referrer,
         AuditLog,
         AppConfig,
+        Staff,
       ],
       autoLoadEntities: true,
       migrations: ['dist/migrations/*{.ts,.js}'],

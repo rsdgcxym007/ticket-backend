@@ -202,7 +202,7 @@ export class AuditService {
     offset?: number;
     sortBy?: string;
     sortOrder?: 'ASC' | 'DESC';
-  }): Promise<{ logs: AuditLog[]; total: number }> {
+  }): Promise<{ logs: AuditLog[]; total: number; page: number }> {
     const queryBuilder = this.auditRepo.createQueryBuilder('audit');
 
     if (query.entityType) {
@@ -252,7 +252,7 @@ export class AuditService {
 
     const [logs, total] = await queryBuilder.getManyAndCount();
 
-    return { logs, total };
+    return { logs, total, page: Math.floor(offset / limit) + 1 };
   }
 
   /**

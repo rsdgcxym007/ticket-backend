@@ -65,17 +65,18 @@ export class AuditController {
   @Get()
   @Roles(UserRole.ADMIN, UserRole.STAFF)
   async getAuditLogs(@Query() query: GetAuditLogsDto) {
+    const offset = query.offset || 0;
+    const limit = query.limit || 20;
     const { logs, total } = await this.auditService.getAuditLogs(query);
-    console.log('query', query);
 
     return {
       success: true,
       data: {
         logs,
         total,
-        page: Math.floor((query.offset || 0) / (query.limit || 20)) + 1,
-        limit: query.limit || 20,
-        totalPages: Math.ceil(total / (query.limit || 20)),
+        page: Math.floor(offset / limit) + 1,
+        limit,
+        totalPages: Math.ceil(total / limit),
       },
     };
   }

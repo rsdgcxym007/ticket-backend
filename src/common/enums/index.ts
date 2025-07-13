@@ -38,6 +38,7 @@ export enum OrderSource {
 export enum UserRole {
   USER = 'user',
   STAFF = 'staff',
+  MANAGER = 'manager',
   ADMIN = 'admin',
   SYSTEM = 'system',
 }
