@@ -84,7 +84,11 @@ export class GetAuditLogsDto {
   @Type(() => Number)
   @IsNumber()
   @Min(0)
-  offset?: number = 0;
+  page?: number = 1;
+
+  get offset(): number {
+    return (this.page - 1) * (this.limit || 20);
+  }
 
   @IsOptional()
   @IsString()

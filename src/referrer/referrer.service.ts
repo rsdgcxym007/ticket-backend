@@ -77,7 +77,7 @@ export class ReferrerService {
   }
 
   async update(id: string, dto: UpdateReferrerDto) {
-    // Exclude createdAt and updatedAt from the update payload
+    // Removed exclusion of isActive property
     const filteredDto = { ...dto };
     delete filteredDto.createdAt;
     delete filteredDto.updatedAt;

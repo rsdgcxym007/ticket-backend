@@ -30,6 +30,9 @@ import { TasksModule } from './tasks/tasks.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AuditModule } from './audit/audit.module';
 import { ConfigModule as ConfigAppModule } from './config/config.module';
+import { ApiIntegrationModule } from './api-integration/api-integration.module';
+import { StaffModule } from './staff/staff.module';
+
 // import { NotificationModule } from './notifications/notification.module';
 // import { UploadModule } from './upload/upload.module';
 // import { OcrModule } from './ocr/ocr.module';
@@ -123,6 +126,8 @@ import { DashboardModule } from './dashboard/dashboard.module';
     ConfigAppModule,
     PerformanceModule,
     TasksModule,
+    ApiIntegrationModule,
+    StaffModule,
 
     // NotificationModule,
     // UploadModule,

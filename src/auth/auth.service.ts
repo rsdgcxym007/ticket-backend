@@ -7,6 +7,7 @@ import { LoginDto } from './dto/login.dto';
 import * as bcrypt from 'bcrypt';
 import { RegisterDto } from './dto/register.dto';
 import { User } from '../user/user.entity';
+import { Staff } from '../staff/staff.entity';
 import {
   LoggingHelper,
   ErrorHandlingHelper,
@@ -21,9 +22,13 @@ export class AuthService {
     private readonly authRepo: Repository<Auth>,
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
+    @InjectRepository(Staff)
+    private readonly staffRepo: Repository<Staff>,
   ) {}
 
-  async login(dto: LoginDto): Promise<{ access_token: string; user: any }> {
+  async login(
+    dto: LoginDto,
+  ): Promise<{ access_token: string; user: any; staff?: any }> {
     const logger = LoggingHelper.createContextLogger('AuthService');
     const startTime = Date.now();
 
@@ -58,10 +63,17 @@ export class AuthService {
         );
       }
 
+      // ตรวจสอบว่ามีข้อมูล Staff หรือไม่
+      const staff = await this.staffRepo.findOne({
+        where: { email: dto.email },
+      });
+
       const payload = {
         sub: auth.user.id,
         email: auth.email,
         role: auth.user.role,
+        staffId: staff?.id || null,
+        permissions: staff?.permissions || [],
       };
 
       const access_token = this.jwtService.sign(payload);
@@ -77,22 +89,39 @@ export class AuthService {
           source: 'AuthService.login',
           email: dto.email,
           loginTime: new Date().toISOString(),
+          hasStaffProfile: !!staff,
         }),
       });
 
       LoggingHelper.logBusinessEvent(logger, 'User login successful', {
         userId: auth.user.id,
         email: dto.email,
+        hasStaffProfile: !!staff,
       });
 
       LoggingHelper.logPerformance(logger, 'auth.login', startTime, {
         userId: auth.user.id,
       });
 
-      return {
+      const result: any = {
         access_token,
         user: safeUser,
       };
+
+      if (staff) {
+        result.staff = {
+          id: staff.id,
+          staffCode: staff.staffCode,
+          fullName: staff.fullName,
+          role: staff.role,
+          status: staff.status,
+          permissions: staff.permissions,
+          department: staff.department,
+          position: staff.position,
+        };
+      }
+
+      return result;
     }, 2);
   }
 
