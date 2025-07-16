@@ -279,6 +279,8 @@ export class OrderController {
     @Req() req: AuthenticatedRequest,
   ) {
     try {
+      console.log('id', id, req.user.id);
+
       const tickets = await this.orderService.generateTickets(id, req.user.id);
       return success(tickets, 'ออกตั๋วสำเร็จ', req);
     } catch (err) {
