@@ -665,32 +665,83 @@ export class OrderService {
       );
     }
 
-    if (order.status !== OrderStatus.CONFIRMED) {
+    if (![OrderStatus.CONFIRMED, OrderStatus.PAID].includes(order.status)) {
       throw new BadRequestException(
         'Can only generate tickets for confirmed orders',
       );
     }
+    console.log('order', order);
 
-    // Generate tickets (mock implementation)
-    const tickets = order.seatBookings.map((booking) => ({
-      id: booking.id,
-      orderNumber: order.orderNumber,
-      seatNumber: booking.seat.seatNumber,
-      zone: booking.seat.zone
-        ? {
-            id: booking.seat.zone.id,
-            name: booking.seat.zone.name,
-          }
-        : null,
-      customerName: order.customerName,
-      showDate: DateTimeHelper.formatDate(order.showDate),
-      qrCode: `QR_${order.orderNumber}_${booking.seat.seatNumber}`,
-    }));
+    let tickets = [];
+
+    // Generate tickets based on ticket type
+    if (order.ticketType === TicketType.STANDING) {
+      // Generate tickets for standing orders
+      const adultQty = order.standingAdultQty || 0;
+      const childQty = order.standingChildQty || 0;
+
+      // Generate adult tickets
+      for (let i = 1; i <= adultQty; i++) {
+        tickets.push({
+          id: `${order.id}_adult_${i}`,
+          orderNumber: order.orderNumber,
+          seatNumber: null,
+          type: order.ticketType,
+          ticketCategory: 'ADULT',
+          zone: null,
+          customerName: order.customerName,
+          showDate: DateTimeHelper.formatDate(order.showDate),
+          qrCode: `QR_${order.orderNumber}_STANDING_ADULT_${i}`,
+        });
+      }
+
+      // Generate child tickets
+      for (let i = 1; i <= childQty; i++) {
+        tickets.push({
+          id: `${order.id}_child_${i}`,
+          orderNumber: order.orderNumber,
+          seatNumber: null,
+          type: order.ticketType,
+          ticketCategory: 'CHILD',
+          zone: null,
+          customerName: order.customerName,
+          showDate: DateTimeHelper.formatDate(order.showDate),
+          qrCode: `QR_${order.orderNumber}_STANDING_CHILD_${i}`,
+        });
+      }
+    } else {
+      // Generate tickets for seated orders (existing logic)
+      tickets = order.seatBookings.map((booking) => ({
+        id: booking.id,
+        orderNumber: order.orderNumber,
+        seatNumber: booking.seat.seatNumber,
+        type: order.ticketType,
+        ticketCategory: 'SEAT',
+        zone: booking.seat.zone
+          ? {
+              id: booking.seat.zone.id,
+              name: booking.seat.zone.name,
+            }
+          : null,
+        customerName: order.customerName,
+        showDate: DateTimeHelper.formatDate(order.showDate),
+        qrCode: `QR_${order.orderNumber}_${booking.seat.seatNumber}`,
+      }));
+    }
 
     // Create audit log
     await this.createAuditLog(AuditAction.VIEW, 'Order', id, userId, {
       action: 'Tickets generated',
       ticketCount: tickets.length,
+      ticketType: order.ticketType,
+      standingAdultQty:
+        order.ticketType === TicketType.STANDING
+          ? order.standingAdultQty
+          : undefined,
+      standingChildQty:
+        order.ticketType === TicketType.STANDING
+          ? order.standingChildQty
+          : undefined,
     });
 
     return { tickets, totalTickets: tickets.length };
