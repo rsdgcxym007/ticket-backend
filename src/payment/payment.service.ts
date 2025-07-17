@@ -110,6 +110,7 @@ export class PaymentService {
       }
 
       // ✅ อัปเดตสถานะ order
+      order.paymentMethod = dto.method || PaymentMethod.CASH;
       order.status = OrderStatus.PAID;
       await this.orderRepo.save(order);
 
@@ -117,7 +118,7 @@ export class PaymentService {
       const payment = this.paymentRepo.create({
         order,
         amount: dto.amount || order.total,
-        method: PaymentMethod.CASH,
+        method: dto.method || PaymentMethod.CASH,
         paidAt: new Date(),
         createdBy: user,
         user,
@@ -134,7 +135,7 @@ export class PaymentService {
         {
           orderId: dto.orderId,
           amount: savedPayment.amount,
-          method: PaymentMethod.CASH,
+          method: dto.method || PaymentMethod.CASH,
           ticketType: 'STANDING',
         },
         AuditHelper.createSystemContext({
@@ -263,6 +264,7 @@ export class PaymentService {
       }
 
       // อัปเดตสถานะคำสั่งซื้อ
+      order.paymentMethod = dto.method || PaymentMethod.CASH;
       order.status = OrderStatus.PAID;
       order.updatedBy = user.id;
       await this.orderRepo.save(order);
@@ -366,6 +368,7 @@ export class PaymentService {
       }
 
       // อัปเดตสถานะคำสั่งซื้อ
+      order.paymentMethod = dto.method || PaymentMethod.CASH;
       order.status = OrderStatus.PAID;
       order.updatedBy = user.id;
       await this.orderRepo.save(order);
