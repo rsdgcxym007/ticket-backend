@@ -50,7 +50,7 @@ export const NOTIFICATION_SETTINGS = {
 
 // 🏷️ รหัสอ้างอิง
 export const REFERENCE_PREFIXES = {
-  ORDER: 'TKT',
+  ORDER: 'ORD',
   PAYMENT: 'PAY',
   REFUND: 'REF',
   VOUCHER: 'VCH',
