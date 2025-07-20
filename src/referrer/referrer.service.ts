@@ -188,7 +188,14 @@ export class ReferrerService {
           dayjs(endDate).tz('Asia/Bangkok').endOf('day').toDate(),
         ),
       },
-      relations: ['user', 'payment', 'payment.user', 'seats', 'referrer'],
+      relations: [
+        'user',
+        'payment',
+        'payment.user',
+        'seatBookings',
+        'seatBookings.seat',
+        'referrer',
+      ],
       order: { createdAt: 'ASC' },
     });
     console.log('orders', orders);
@@ -201,12 +208,16 @@ export class ReferrerService {
           Number(order.referrerCommission || 0) +
           Number(order.standingCommission || 0);
         const netTotal = total - commission;
+        const commissionStaring = order.standingCommission || 0;
+        const commissionRingside = order.referrerCommission || 0;
         const qty =
-          (order.seats?.length || 0) +
+          (order.seatBookings?.length || 0) +
           order.standingAdultQty +
           order.standingChildQty;
-        const unitPrice = qty > 0 ? netTotal / qty : 0;
-
+        const unitPrice =
+          order.ticketType === 'STANDING'
+            ? commissionStaring
+            : commissionRingside;
         return [
           {
             text: dayjs(order.createdAt)
@@ -215,7 +226,7 @@ export class ReferrerService {
             alignment: 'center',
           },
           { text: 'THAI BOXING', alignment: 'center' },
-          { text: order.customerName, alignment: 'center' },
+          { text: order.orderNumber, alignment: 'center' },
           { text: `${qty}`, alignment: 'center' },
           {
             text: unitPrice.toLocaleString(undefined, {
@@ -231,6 +242,7 @@ export class ReferrerService {
           },
         ];
       });
+
     const MAX_ROWS = 124;
     const emptyRow = [
       { text: '', alignment: 'center' },

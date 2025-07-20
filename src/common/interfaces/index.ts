@@ -46,6 +46,7 @@ export interface OrderData {
   quantity: number;
   price: number;
   totalAmount: number;
+  referrerCommission: number;
   status: OrderStatus;
   paymentMethod?: PaymentMethod;
   paymentStatus: PaymentStatus;
@@ -73,6 +74,11 @@ export interface OrderData {
       name: string;
     } | null;
   }>;
+  referrer?: {
+    id: string;
+    code: string;
+    name: string;
+  } | null; // ข้อมูลตัวแทนขาย (ถ้ามี)
 }
 
 // 🎪 ข้อมูลตั๋วยืน

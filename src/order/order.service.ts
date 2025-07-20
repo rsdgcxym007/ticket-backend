@@ -1417,13 +1417,13 @@ export class OrderService {
       price: order.totalAmount,
       totalAmount: order.totalAmount,
       status: order.status,
+      referrerCommission: order.referrerCommission,
       paymentMethod: order.paymentMethod || PaymentMethod.CASH,
       paymentStatus: order?.payment?.status || PaymentStatus.PENDING,
       showDate: DateTimeHelper.formatDate(order.showDate),
       createdAt: order.createdAt,
       updatedAt: order.updatedAt,
       expiresAt: order.expiresAt,
-      referrerCode: order.referrerCode,
       source: order.source,
       note: order.note,
       createdBy: order.userId,
@@ -1432,6 +1432,13 @@ export class OrderService {
       standingChildQty: order.standingChildQty,
       standingTotal: order.standingTotal,
       standingCommission: order.standingCommission,
+      referrer: order.referrer
+        ? {
+            id: order.referrer.id,
+            code: order.referrer.code,
+            name: order.referrer.name,
+          }
+        : null,
       seats:
         order.seatBookings?.map((booking) => {
           return {
