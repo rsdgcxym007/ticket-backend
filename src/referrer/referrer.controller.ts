@@ -69,8 +69,6 @@ export class ReferrerController {
     @Query('endDate') endDate: string,
     @Res() res: Response,
   ) {
-    console.log('exportReferrerPdf');
-
     const buffer = await this.service.generateReferrerPdf(
       id,
       startDate,
@@ -81,6 +79,9 @@ export class ReferrerController {
       'Content-Disposition',
       `attachment; filename=referrer-report-${startDate}_to_${endDate}.pdf`,
     );
+    // เพิ่ม CORS header สำหรับ PDF download
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.send(buffer);
   }
 

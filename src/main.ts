@@ -45,12 +45,7 @@ async function bootstrap() {
   // 🌐 CORS CONFIGURATION
   // ========================================
   app.enableCors({
-    origin: [
-      'http://43.229.133.51:3000',
-      'http://localhost:3000',
-      'https://boxing-ticket-frontend.vercel.app',
-      'https://boxing-ticket-frontend-cj9x.vercel.app',
-    ],
+    origin: ['http://43.229.133.51:3000', 'http://localhost:3000'],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
     credentials: true,
