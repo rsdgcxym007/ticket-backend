@@ -79,9 +79,16 @@ export class ReferrerController {
       'Content-Disposition',
       `attachment; filename=referrer-report-${startDate}_to_${endDate}.pdf`,
     );
-    // เพิ่ม CORS header สำหรับ PDF download
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    // ปรับ CORS ให้รองรับ credentials และ whitelist origin
+    const allowedOrigins = [
+      'http://43.229.133.51:3000',
+      'http://localhost:3000',
+    ];
+    const reqOrigin = (res.req as any)?.headers?.origin;
+    if (allowedOrigins.includes(reqOrigin)) {
+      res.setHeader('Access-Control-Allow-Origin', reqOrigin);
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+    }
     res.send(buffer);
   }
 
@@ -100,11 +107,17 @@ export class ReferrerController {
     );
 
     res.setHeader('Content-Type', 'application/pdf');
-
     res.setHeader('Content-Disposition', 'inline; filename="referrer.pdf"');
-
-    res.setHeader('Access-Control-Allow-Origin', '*');
-
+    // ปรับ CORS ให้รองรับ credentials และ whitelist origin
+    const allowedOrigins = [
+      'http://43.229.133.51:3000',
+      'http://localhost:3000',
+    ];
+    const reqOrigin = (res.req as any)?.headers?.origin;
+    if (allowedOrigins.includes(reqOrigin)) {
+      res.setHeader('Access-Control-Allow-Origin', reqOrigin);
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+    }
     res.send(buffer);
   }
 
