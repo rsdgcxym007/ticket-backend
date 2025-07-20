@@ -7,7 +7,7 @@ export class CacheService {
 
   // Cache TTL (Time To Live) ในมิลลิวินาที
   private readonly DEFAULT_TTL = 30 * 1000; // 30 วินาที
-  private readonly SEAT_AVAILABILITY_TTL = 10 * 1000; // 10 วินาที
+  // private readonly SEAT_AVAILABILITY_TTL = 0; // ปิด cache ที่นั่ง
   private readonly ZONE_DATA_TTL = 5 * 60 * 1000; // 5 นาที
 
   /**
@@ -95,16 +95,15 @@ export class CacheService {
    * Cache สำหรับ Seat Availability
    */
   setSeatAvailability(zoneId: string, showDate: string, data: any): void {
-    const key = this.getSeatAvailabilityKey(zoneId, showDate);
-    this.set(key, data, this.SEAT_AVAILABILITY_TTL);
+    // ปิด cache ที่นั่ง: ไม่ทำอะไรเลย
   }
 
   /**
    * ดึง Cache สำหรับ Seat Availability
    */
   getSeatAvailability(zoneId: string, showDate: string): any {
-    const key = this.getSeatAvailabilityKey(zoneId, showDate);
-    return this.get(key);
+    // ปิด cache ที่นั่ง: คืนค่า null เสมอ
+    return null;
   }
 
   /**
