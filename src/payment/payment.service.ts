@@ -360,7 +360,7 @@ export class PaymentService {
         const childCommission = (order.standingChildQty || 0) * 200;
         const totalCommission = adultCommission + childCommission;
 
-        order.referrerCommission = totalCommission;
+        order.referrerCommission = 0;
         order.standingCommission = totalCommission;
         order.referrer.totalCommission =
           (order.referrer.totalCommission || 0) + totalCommission;

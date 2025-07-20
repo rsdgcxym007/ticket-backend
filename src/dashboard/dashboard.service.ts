@@ -140,7 +140,7 @@ export class DashboardService {
         'referrer.code as referrerCode',
         'COUNT(order.id) as orderCount',
         'SUM(CASE WHEN order.status = :paidStatus THEN order.totalAmount ELSE 0 END) as totalAmount',
-        'SUM(CASE WHEN order.status = :paidStatus THEN order.referrerCommission ELSE 0 END) as totalCommission',
+        'SUM(CASE WHEN order.status = :paidStatus THEN (COALESCE(order.referrerCommission,0) + COALESCE(order.standingCommission,0)) ELSE 0 END) as totalCommission',
         'COUNT(CASE WHEN order.status = :paidStatus THEN 1 END) as paidOrders',
         'COUNT(CASE WHEN order.status = :pendingStatus THEN 1 END) as pendingOrders',
       ])
@@ -391,7 +391,9 @@ export class DashboardService {
     );
     const totalCommission = Number(
       paidOrders.reduce(
-        (sum, order) => sum + Number(order.referrerCommission || 0),
+        (sum, order) =>
+          sum +
+          Number(order.referrerCommission + order.standingCommission || 0),
         0,
       ),
     );
@@ -420,7 +422,12 @@ export class DashboardService {
     const referrerCommissions = Number(
       paidOrders
         .filter((order) => order.referrerId)
-        .reduce((sum, order) => sum + Number(order.referrerCommission || 0), 0),
+        .reduce(
+          (sum, order) =>
+            sum +
+            Number(order.referrerCommission + order.standingCommission || 0),
+          0,
+        ),
     );
 
     const directSalesRevenue = Number(
