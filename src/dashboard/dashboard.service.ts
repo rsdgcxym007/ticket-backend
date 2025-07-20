@@ -9,7 +9,12 @@ import { Seat } from '../seats/seat.entity';
 import { Zone } from '../zone/zone.entity';
 import { User } from '../user/user.entity';
 import { ThailandTimeHelper } from '../common/utils/thailand-time.helper';
-import { OrderStatus, BookingStatus, TicketType } from '../common/enums';
+import {
+  OrderStatus,
+  BookingStatus,
+  TicketType,
+  PaymentMethod,
+} from '../common/enums';
 import { CacheService } from '../common/services/cache.service';
 
 @Injectable()
@@ -289,13 +294,25 @@ export class DashboardService {
 
     // นับตั๋วแยกตามประเภท
     const ringsideTickets = orders
-      .filter((order) => order.ticketType === TicketType.RINGSIDE)
+      .filter(
+        (order) =>
+          order.ticketType === TicketType.RINGSIDE &&
+          order.status === OrderStatus.PAID,
+      )
       .reduce((sum, order) => sum + (order.quantity || 0), 0);
     const stadiumTickets = orders
-      .filter((order) => order.ticketType === TicketType.STADIUM)
+      .filter(
+        (order) =>
+          order.ticketType === TicketType.STADIUM &&
+          order.status === OrderStatus.PAID,
+      )
       .reduce((sum, order) => sum + (order.quantity || 0), 0);
     const standingTickets = orders
-      .filter((order) => order.ticketType === TicketType.STANDING)
+      .filter(
+        (order) =>
+          order.ticketType === TicketType.STANDING &&
+          order.status === OrderStatus.PAID,
+      )
       .reduce((sum, order) => sum + (order.quantity || 0), 0);
 
     return {
@@ -382,6 +399,25 @@ export class DashboardService {
       },
     });
 
+    // เฉพาะออเดอร์ที่ชำระด้วยบัตรเครดิต
+    const orderCountpaymentCertificate = paidOrders.filter(
+      (order) => order.paymentMethod === PaymentMethod.CREDIT_CARD,
+    );
+    // ผลรวมยอดเงินทั้งหมดของออเดอร์ที่ชำระด้วยบัตรเครดิต
+    const totalAmountCreditCard = orderCountpaymentCertificate.reduce(
+      (sum, order) => sum + Number(order.totalAmount || 0),
+      0,
+    );
+
+    const orderCountpaymentCash = paidOrders.filter(
+      (order) => order.paymentMethod === PaymentMethod.CASH,
+    );
+    // ผลรวมยอดเงินทั้งหมดของออเดอร์ที่ชำระด้วยบัตรเครดิต
+    const totalAmountCash = orderCountpaymentCash.reduce(
+      (sum, order) => sum + Number(order.totalAmount || 0),
+      0,
+    );
+
     // ใช้ Number() เพื่อให้แน่ใจว่าผลลัพธ์เป็นตัวเลขเสมอ
     const grossRevenue = Number(
       paidOrders.reduce(
@@ -450,6 +486,10 @@ export class DashboardService {
         paidOrders.length > 0
           ? parseFloat((grossRevenue / paidOrders.length).toFixed(2))
           : 0,
+      countpaymentCertificate: orderCountpaymentCertificate.length,
+      totalAmountCreditCard: parseFloat(totalAmountCreditCard.toFixed(2)),
+      countpaymentCash: orderCountpaymentCash.length,
+      totalAmountCash: parseFloat(totalAmountCash.toFixed(2)),
     };
   }
 
