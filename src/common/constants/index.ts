@@ -32,12 +32,12 @@ export const BOOKING_LIMITS = {
     maxOrdersPerDay: 5,
   },
   staff: {
-    maxSeatsPerOrder: 50,
-    maxOrdersPerDay: 20,
+    maxSeatsPerOrder: 99999,
+    maxOrdersPerDay: 999999,
   },
   admin: {
-    maxSeatsPerOrder: 100,
-    maxOrdersPerDay: 50,
+    maxSeatsPerOrder: 9999999,
+    maxOrdersPerDay: 999999,
   },
 } as const;
 
