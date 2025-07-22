@@ -5,12 +5,16 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  Index,
 } from 'typeorm';
 import { Seat } from '../seats/seat.entity';
 import { Order } from '../order/order.entity';
 import { BookingStatus } from '../common/enums';
 
 @Entity()
+@Index(['orderId'])
+@Index(['seat'])
+@Index(['showDate'])
 export class SeatBooking {
   @PrimaryGeneratedColumn('uuid')
   id: string;

@@ -6,12 +6,15 @@ import {
   ManyToOne,
   JoinColumn,
   OneToOne,
+  Index,
 } from 'typeorm';
 import { Order } from '../order/order.entity';
 import { User } from '../user/user.entity';
 import { PaymentMethod, PaymentStatus } from '../common/enums';
 
 @Entity()
+@Index(['userId'])
+@Index(['orderId'])
 export class Payment {
   @PrimaryGeneratedColumn('uuid')
   id: string;

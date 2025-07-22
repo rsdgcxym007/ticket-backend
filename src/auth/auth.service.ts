@@ -124,7 +124,38 @@ export class AuthService {
       return result;
     }, 2);
   }
-
+  async changePasswordByEmail(
+    email: string,
+    oldPassword: string,
+    newPassword: string,
+  ): Promise<void> {
+    const auth = await this.authRepo.findOne({ where: { email } });
+    if (!auth) {
+      throw ErrorHandlingHelper.createError(
+        'User not found',
+        404,
+        'USER_NOT_FOUND',
+      );
+    }
+    if (!auth.password) {
+      throw ErrorHandlingHelper.createError(
+        'No password set',
+        400,
+        'NO_PASSWORD',
+      );
+    }
+    const isMatch = await bcrypt.compare(oldPassword, auth.password);
+    if (!isMatch) {
+      throw ErrorHandlingHelper.createError(
+        'Old password incorrect',
+        400,
+        'INVALID_OLD_PASSWORD',
+      );
+    }
+    const hashed = await bcrypt.hash(newPassword, 12);
+    auth.password = hashed;
+    await this.authRepo.save(auth);
+  }
   async socialLogin(profile: any): Promise<string> {
     const { id, provider, emails, displayName, photos } = profile;
     const email = emails?.[0]?.value || '';
