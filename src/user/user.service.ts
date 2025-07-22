@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import * as bcrypt from 'bcrypt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from './user.entity';
@@ -13,6 +14,70 @@ import {
 
 @Injectable()
 export class UserService {
+  async changePasswordByEmail(
+    email: string,
+    oldPassword: string,
+    newPassword: string,
+  ): Promise<void> {
+    const user = await this.userRepo.findOne({ where: { email } });
+    if (!user) {
+      throw ErrorHandlingHelper.createError(
+        'User not found',
+        404,
+        'USER_NOT_FOUND',
+      );
+    }
+    if (!user.password) {
+      throw ErrorHandlingHelper.createError(
+        'No password set',
+        400,
+        'NO_PASSWORD',
+      );
+    }
+    const isMatch = await bcrypt.compare(oldPassword, user.password);
+    if (!isMatch) {
+      throw ErrorHandlingHelper.createError(
+        'Old password incorrect',
+        400,
+        'INVALID_OLD_PASSWORD',
+      );
+    }
+    const hashed = await bcrypt.hash(newPassword, 12);
+    user.password = hashed;
+    await this.userRepo.save(user);
+  }
+  async changePassword(
+    id: string,
+    oldPassword: string,
+    newPassword: string,
+  ): Promise<void> {
+    const user = await this.userRepo.findOne({ where: { id } });
+    if (!user) {
+      throw ErrorHandlingHelper.createError(
+        'User not found',
+        404,
+        'USER_NOT_FOUND',
+      );
+    }
+    if (!user.password) {
+      throw ErrorHandlingHelper.createError(
+        'No password set',
+        400,
+        'NO_PASSWORD',
+      );
+    }
+    const isMatch = await bcrypt.compare(oldPassword, user.password);
+    if (!isMatch) {
+      throw ErrorHandlingHelper.createError(
+        'Old password incorrect',
+        400,
+        'INVALID_OLD_PASSWORD',
+      );
+    }
+    const hashed = await bcrypt.hash(newPassword, 12);
+    user.password = hashed;
+    await this.userRepo.save(user);
+  }
   constructor(
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,

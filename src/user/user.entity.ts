@@ -5,10 +5,14 @@ import {
   PrimaryGeneratedColumn,
   CreateDateColumn,
   OneToMany,
+  Index,
 } from 'typeorm';
 
 @Entity('users')
+@Index(['email'])
 export class User {
+  @Column({ nullable: true })
+  password: string;
   @PrimaryGeneratedColumn('uuid')
   id: string;
 

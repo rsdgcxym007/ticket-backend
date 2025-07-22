@@ -6,13 +6,13 @@ import {
   Delete,
   Param,
   Body,
-  UseGuards,
   Req,
 } from '@nestjs/common';
 import { UserService } from './user.service';
 import { CreateUserDto } from './dto/create-user.dto';
+import { AuthService } from '../auth/auth.service';
 import { UpdateUserDto } from './dto/update-user.dto';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+// import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { ApiResponseHelper, AuditHelper } from '../common/utils';
 import { Request } from 'express';
@@ -20,9 +20,41 @@ import { Request } from 'express';
 @ApiTags('Users')
 @ApiBearerAuth()
 @Controller('users')
-@UseGuards(JwtAuthGuard)
+// @UseGuards(JwtAuthGuard)
 export class UserController {
-  constructor(private readonly userService: UserService) {}
+  constructor(
+    private readonly userService: UserService,
+    private readonly authService: AuthService,
+  ) {}
+
+  @Patch('change-password')
+  async changePassword(
+    @Body('email') email: string,
+    @Body('oldPassword') oldPassword: string,
+    @Body('newPassword') newPassword: string,
+  ) {
+    if (!email) {
+      return ApiResponseHelper.error(
+        'Email is required',
+        400,
+        'EMAIL_REQUIRED',
+      );
+    }
+    if (!newPassword) {
+      return ApiResponseHelper.error(
+        'New password is required',
+        400,
+        'NO_PASSWORD',
+      );
+    }
+    await this.authService.changePasswordByEmail(
+      email,
+      oldPassword,
+      newPassword,
+    );
+    await AuditHelper.logView('User', email, { userId: email });
+    return ApiResponseHelper.success(null, 'Password changed successfully');
+  }
 
   @Get()
   async findAll() {

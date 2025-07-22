@@ -9,6 +9,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { UserModule } from '../user/user.module';
+import { forwardRef } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 
 @Module({
@@ -19,13 +20,14 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => ({
         secret: configService.get('JWT_SECRET') || 'myUltraSecretHash123',
-        signOptions: { expiresIn: '7d' },
+        signOptions: { expiresIn: '1d' },
       }),
       inject: [ConfigService],
     }),
-    UserModule,
+    forwardRef(() => UserModule),
   ],
   providers: [AuthService, JwtStrategy],
   controllers: [AuthController],
+  exports: [AuthService],
 })
 export class AuthModule {}

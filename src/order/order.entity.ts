@@ -13,6 +13,7 @@ import {
   UpdateDateColumn,
   JoinColumn,
   OneToOne,
+  Index,
 } from 'typeorm';
 import {
   OrderStatus,
@@ -22,6 +23,8 @@ import {
 } from '../common/enums';
 
 @Entity()
+@Index(['userId'])
+@Index(['orderNumber'])
 export class Order {
   @PrimaryGeneratedColumn('uuid')
   id: string;
