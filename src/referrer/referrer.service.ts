@@ -15,6 +15,11 @@ dayjs.extend(utc);
 dayjs.extend(timezone);
 @Injectable()
 export class ReferrerService {
+  /**
+   * สร้าง PDF ใบเสร็จความร้อน 57x38mm ขาวดำ
+   * @param order ข้อมูลออเดอร์เดียว (Order entity)
+   */
+
   constructor(
     @InjectRepository(Referrer) private repo: Repository<Referrer>,
     @InjectRepository(Order) private orderRepo: Repository<Order>,
@@ -403,6 +408,113 @@ export class ReferrerService {
       defaultStyle: {
         font: 'THSarabunNew',
         fontSize: 14,
+      },
+    };
+
+    return await createPdfBuffer(docDefinition);
+  }
+
+  /**
+   * สร้าง PDF ใบเสร็จความร้อน 57x38mm ขาวดำ จาก tickets array
+   * @param tickets array of ticket objects
+   */
+  async generateThermalReceiptPdf(tickets: any[]) {
+    if (!tickets || tickets.length === 0) {
+      throw new Error('No tickets data');
+    }
+    // ใช้ข้อมูลจาก ticket แรกเป็นหัวใบเสร็จ
+
+    // ...existing code...
+
+    // thermal receipt PDF แบบหลายหน้า (1 หน้า/1 ตั๋ว)
+    const pages = tickets.map((ticket, idx) => {
+      const isStanding = ticket.type === 'STANDING';
+      let seatText = '';
+      if (isStanding) {
+        seatText = 'ประเภท: ตั๋วยืน';
+      } else {
+        seatText =
+          (ticket.seatNumber ? `ที่นั่ง ${ticket.seatNumber}` : '') +
+          (ticket.zone?.name ? ` | โซน ${ticket.zone?.name}` : '');
+        seatText = seatText.trim() || '-';
+      }
+      const stack = [
+        {
+          text: 'PATONG BOXING STADIUM',
+          alignment: 'center',
+          bold: true,
+          fontSize: 10,
+          color: '#000',
+          margin: [0, 0, 0, 1],
+          ...(idx > 0 ? { pageBreak: 'before' } : {}),
+        },
+        {
+          text: 'มวยไทยป่าตอง',
+          alignment: 'center',
+          fontSize: 8,
+          color: '#000',
+          margin: [0, 0, 0, 1],
+        },
+        {
+          canvas: [
+            {
+              type: 'line',
+              x1: 0,
+              y1: 0,
+              x2: 153,
+              y2: 0,
+              lineWidth: 0.5,
+              lineColor: '#333',
+            },
+          ],
+          margin: [0, 1, 0, 1],
+        },
+        {
+          text: `Order No: ${ticket.orderNumber || '-'}`,
+          fontSize: 8,
+          color: '#000',
+          margin: [0, 1, 0, 0],
+        },
+        {
+          text: `Show Date: ${ticket.showDate || '-'}`,
+          fontSize: 8,
+          color: '#000',
+          margin: [0, 0, 0, 0],
+        },
+        {
+          text: `Customer: ${ticket.customerName || '-'}`,
+          fontSize: 8,
+          color: '#000',
+          margin: [0, 0, 0, 0],
+        },
+        {
+          text: seatText,
+          fontSize: 8,
+          bold: true,
+          color: '#000',
+          margin: [0, 1, 0, 0],
+        },
+        {
+          text: `ประเภทบัตร: ${ticket.type === 'STANDING' ? 'ตั๋วยืน' : ticket.ticketCategory || '-'}`,
+          fontSize: 8,
+          color: '#000',
+          margin: [0, 0, 0, 1],
+        },
+      ];
+      return { stack };
+    });
+
+    // 1 mm = 2.83465 pt, 57mm = 161.57pt, 38mm = 107.72pt
+    const docDefinition = {
+      pageSize: {
+        width: 161.6, // 57mm
+        height: 107.7, // 38mm
+      },
+      pageMargins: [4, 4, 4, 4], // ลด margin ให้เหมาะกับ thermal
+      content: pages,
+      defaultStyle: {
+        font: 'THSarabunNew',
+        fontSize: 7,
       },
     };
 
