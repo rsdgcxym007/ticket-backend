@@ -89,6 +89,20 @@ export interface FindAllOptions {
 
 @Injectable()
 export class OrderService {
+  /**
+   * ดึง order ด้วย id (public method สำหรับ controller)
+   */
+  async getOrderById(id: string): Promise<Order | null> {
+    return await this.orderRepo.findOne({
+      where: { id },
+      relations: [
+        'user',
+        'seatBookings',
+        'seatBookings.seat',
+        'seatBookings.seat.zone',
+      ],
+    });
+  }
   private readonly logger = new Logger(OrderService.name);
 
   constructor(
@@ -683,6 +697,7 @@ export class OrderService {
       // Generate adult tickets
       for (let i = 1; i <= adultQty; i++) {
         tickets.push({
+          orderId: order.id,
           id: `${order.id}_adult_${i}`,
           orderNumber: order.orderNumber,
           seatNumber: null,
@@ -698,6 +713,7 @@ export class OrderService {
       // Generate child tickets
       for (let i = 1; i <= childQty; i++) {
         tickets.push({
+          orderId: order.id,
           id: `${order.id}_child_${i}`,
           orderNumber: order.orderNumber,
           seatNumber: null,
@@ -712,6 +728,7 @@ export class OrderService {
     } else {
       // Generate tickets for seated orders (existing logic)
       tickets = order.seatBookings.map((booking) => ({
+        orderId: order.id,
         id: booking.id,
         orderNumber: order.orderNumber,
         seatNumber: booking.seat.seatNumber,
@@ -731,6 +748,7 @@ export class OrderService {
 
     // Create audit log
     await this.createAuditLog(AuditAction.VIEW, 'Order', id, userId, {
+      orderId: order.id,
       action: 'Tickets generated',
       ticketCount: tickets.length,
       ticketType: order.ticketType,

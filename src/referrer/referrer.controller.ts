@@ -9,6 +9,7 @@ import {
   Query,
   Res,
   Header,
+  NotFoundException,
 } from '@nestjs/common';
 import { ReferrerService } from './referrer.service';
 import { CreateReferrerDto } from './dto/create-referrer.dto';
@@ -137,5 +138,43 @@ export class ReferrerController {
   async remove(@Param('id') id: string) {
     const data = await this.service.remove(id);
     return ApiResponseHelper.success(data, 'Referrer deleted');
+  }
+
+  @Get(':orderId/thermal-receipt')
+  async previewThermalReceipt(
+    @Param('orderId') orderId: string,
+    @Res() res: Response,
+  ) {
+    // ดึง tickets จาก orderService.generateTickets
+    // NOTE: ต้องระบุ userId (เช่น จาก req.user.id หรือ null ถ้าไม่ใช้ auth)
+    // ดึง userId จาก order
+    // ใช้ public method ใน OrderService เพื่อดึง order
+    const order = await this.orderService.getOrderById(orderId);
+    const userId = order ? order.userId : null;
+    if (!userId) throw new NotFoundException('Order or user not found');
+    const result = await this.orderService.generateTickets(orderId, userId);
+    console.log('resultdwqdwqdwqdwqdqw', result);
+
+    if (!result || !result.tickets)
+      throw new NotFoundException('Order not found');
+    // ส่ง tickets ให้ service สร้าง thermal receipt PDF
+
+    const buffer = await this.service.generateThermalReceiptPdf(result.tickets);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      'inline; filename="thermal-receipt.pdf"',
+    );
+    // ปรับ CORS ให้รองรับ credentials และ whitelist origin
+    const allowedOrigins = [
+      'http://43.229.133.51:3000',
+      'http://localhost:3000',
+    ];
+    const reqOrigin = (res.req as any)?.headers?.origin;
+    if (allowedOrigins.includes(reqOrigin)) {
+      res.setHeader('Access-Control-Allow-Origin', reqOrigin);
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+    }
+    res.send(buffer);
   }
 }
