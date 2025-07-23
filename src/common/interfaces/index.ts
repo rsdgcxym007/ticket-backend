@@ -14,6 +14,16 @@ import {
   BookingStatus,
 } from '../enums';
 
+// 🗺️ ข้อมูลโซนที่นั่ง (ZoneData)
+export interface ZoneData {
+  id: string;
+  name: string;
+  description?: string;
+  totalSeats: number;
+  availableSeats: number;
+  bookedSeats: number;
+  price: number;
+}
 // 🎫 ข้อมูลการจองตั๋วจาก OCR
 export interface TicketOrderOCR {
   orderNumber: string; // เช่น HKT-11274
@@ -35,38 +45,49 @@ export interface TicketOrderOCR {
   note?: string; // หมายเหตุ เช่น "แจกเสื้อ"
 }
 
-// 📱 ข้อมูลการจอง
+// 📱 ข้อมูลการจอง (ใช้ interface เดียว)
 export interface OrderData {
   id: string;
   orderNumber: string;
   customerName: string;
   customerPhone?: string;
   email?: string;
-  ticketType: TicketType;
+  ticketType: TicketType | string;
   quantity: number;
   price: number;
   totalAmount: number;
-  referrerCommission: number;
-  status: OrderStatus;
-  paymentMethod?: PaymentMethod;
-  paymentStatus: PaymentStatus;
+  referrerCommission?: number;
+  status: OrderStatus | string;
+  paymentMethod?: PaymentMethod | string;
+  paymentStatus: PaymentStatus | string;
   showDate: string;
   createdAt: Date;
   updatedAt: Date;
   expiresAt?: Date;
   referrerCode?: string;
-  source: OrderSource;
+  source?: OrderSource | string;
   seatNumbers?: string[];
   standingTickets?: StandingTicketData[];
   note?: string;
   slipUrl?: string;
   createdBy?: string;
   updatedBy?: string;
+  // เพิ่มชื่อผู้สร้างออเดอร์
+  createdByName?: string | null;
+  // เพิ่มชื่อผู้กดจ่ายเงิน (ถ้ามี)
+  paidByName?: string | null;
+  // เพิ่มชื่อผู้แก้ไขล่าสุด (ถ้ามี)
+  lastUpdatedByName?: string | null;
   standingAdultQty?: number;
   standingChildQty?: number;
   standingTotal?: number;
   standingCommission?: number;
-  seats?: Array<{
+  referrer?: {
+    id: string;
+    code: string;
+    name: string;
+  } | null;
+  seats: Array<{
     id: string;
     seatNumber: string;
     zone: {
@@ -74,11 +95,6 @@ export interface OrderData {
       name: string;
     } | null;
   }>;
-  referrer?: {
-    id: string;
-    code: string;
-    name: string;
-  } | null; // ข้อมูลตัวแทนขาย (ถ้ามี)
 }
 
 // 🎪 ข้อมูลตั๋วยืน
@@ -105,57 +121,7 @@ export interface SeatData {
   lockedBy?: string;
 }
 
-// 🏷️ ข้อมูลโซน
-export interface ZoneData {
-  id: string;
-  name: string;
-  type: TicketType;
-  rows: number;
-  columns: number;
-  price: number;
-  color: string;
-  isActive: boolean;
-  totalSeats: number;
-  availableSeats: number;
-  bookedSeats: number;
-}
-
-// 💰 ข้อมูลการชำระเงิน
-export interface PaymentData {
-  id: string;
-  orderId: string;
-  amount: number;
-  method: PaymentMethod;
-  status: PaymentStatus;
-  slipUrl?: string;
-  slipVerified?: boolean;
-  slipVerifiedAt?: Date;
-  slipVerifiedBy?: string;
-  transactionId?: string;
-  paidAt?: Date;
-  createdAt: Date;
-  updatedAt: Date;
-  createdBy?: string;
-  note?: string;
-}
-
-// 🎫 ข้อมูลการจอง
-export interface BookingData {
-  id: string;
-  orderId: string;
-  seatId?: string;
-  showDate: string;
-  status: BookingStatus;
-  ticketType: TicketType;
-  quantity: number;
-  price: number;
-  totalAmount: number;
-  commission: number;
-  createdAt: Date;
-  updatedAt: Date;
-  seat?: SeatData;
-  standingTickets?: StandingTicketData[];
-}
+// 🏷️ ข้อมูลโซน (ลบ OrderData ซ้ำ)
 
 // 👤 ข้อมูลผู้ใช้
 export interface UserData {

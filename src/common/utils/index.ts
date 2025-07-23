@@ -274,7 +274,7 @@ class BusinessLogicHelper {
     }
 
     return [OrderStatus.PENDING, OrderStatus.PENDING_SLIP].includes(
-      order.status,
+      OrderStatus[order.status],
     );
   }
 

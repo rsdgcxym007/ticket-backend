@@ -1424,6 +1424,8 @@ export class OrderService {
   }
 
   private mapToOrderData(order: Order): OrderData {
+    console.log('order', order);
+
     return {
       id: order.id,
       orderNumber: order.orderNumber,
@@ -1446,6 +1448,23 @@ export class OrderService {
       note: order.note,
       createdBy: order.userId,
       updatedBy: order.updatedBy,
+      // เพิ่มชื่อผู้สร้างออเดอร์
+      createdByName: order.user?.name || null,
+      // เพิ่มชื่อผู้กดจ่ายเงิน (ถ้ามี)
+      paidByName:
+        order.payment?.user?.name ||
+        (order.payment?.userId
+          ? order.user && order.payment.userId === order.user.id
+            ? order.user.name
+            : order.payment.userId
+          : order.payment?.createdById
+            ? order.user && order.payment.createdById === order.user.id
+              ? order.user.name
+              : order.payment.createdById
+            : null),
+      // เพิ่มชื่อผู้แก้ไขล่าสุด (ถ้ามี)
+      lastUpdatedByName:
+        order.updatedBy === order.userId ? order.user?.name || null : null,
       standingAdultQty: order.standingAdultQty,
       standingChildQty: order.standingChildQty,
       standingTotal: order.standingTotal,
