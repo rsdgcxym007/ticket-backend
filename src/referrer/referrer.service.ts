@@ -10,6 +10,8 @@ import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
 import { OrderStatus } from '../common/enums';
 import { createPdfBuffer } from '../utils/createPdfBuffer';
+import { getImageBase64 } from '../utils/imageBase64';
+import * as path from 'path';
 import ThaiBahtText from 'thai-baht-text';
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -422,9 +424,15 @@ export class ReferrerService {
     if (!tickets || tickets.length === 0) {
       throw new Error('No tickets data');
     }
-    // ใช้ข้อมูลจาก ticket แรกเป็นหัวใบเสร็จ
-
-    // ...existing code...
+    // โหลดโลโก้เป็น base64 จาก images/ ที่ root
+    const logoPath = path.join(process.cwd(), 'images/LOGOST.png');
+    let logoBase64 = '';
+    try {
+      logoBase64 = getImageBase64(logoPath);
+    } catch {
+      logoBase64 = '';
+    }
+    console.log('logoBase64', logoBase64);
 
     // thermal receipt PDF แบบหลายหน้า (1 หน้า/1 ตั๋ว)
     const pages = tickets.map((ticket, idx) => {
@@ -439,19 +447,32 @@ export class ReferrerService {
         seatText = seatText.trim() || '-';
       }
       const stack = [
+        ...(logoBase64
+          ? [
+              {
+                image: logoBase64,
+                width: 35,
+                alignment: 'center',
+                margin: [0, 0, 0, 2],
+                ...(idx > 0 ? { pageBreak: 'before' } : {}),
+              },
+            ]
+          : []),
         {
           text: 'PATONG BOXING STADIUM',
           alignment: 'center',
           bold: true,
-          fontSize: 10,
+          fontSize: 6,
           color: '#000',
           margin: [0, 0, 0, 1],
-          ...(idx > 0 ? { pageBreak: 'before' } : {}),
+          ...(logoBase64 === '' && idx > 0 ? { pageBreak: 'before' } : {}),
         },
         {
-          text: 'มวยไทยป่าตอง',
+          text:
+            '2/59 Soi Keb Sub 2, Sai Nam Yen RD, Patong Beach, Phuket 83150\n' +
+            'Tel. 076-345578, 086-4761724, 080-5354042',
           alignment: 'center',
-          fontSize: 8,
+          fontSize: 5,
           color: '#000',
           margin: [0, 0, 0, 1],
         },
@@ -471,32 +492,33 @@ export class ReferrerService {
         },
         {
           text: `Order No: ${ticket.orderNumber || '-'}`,
-          fontSize: 8,
+          fontSize: 5,
           color: '#000',
+          bold: true,
           margin: [0, 1, 0, 0],
         },
         {
           text: `Show Date: ${ticket.showDate || '-'}`,
-          fontSize: 8,
+          fontSize: 5,
           color: '#000',
           margin: [0, 0, 0, 0],
         },
         {
           text: `Customer: ${ticket.customerName || '-'}`,
-          fontSize: 8,
+          fontSize: 5,
           color: '#000',
           margin: [0, 0, 0, 0],
         },
         {
           text: seatText,
-          fontSize: 8,
+          fontSize: 5,
           bold: true,
           color: '#000',
           margin: [0, 1, 0, 0],
         },
         {
           text: `ประเภทบัตร: ${ticket.type === 'STANDING' ? 'ตั๋วยืน' : ticket.ticketCategory || '-'}`,
-          fontSize: 8,
+          fontSize: 5,
           color: '#000',
           margin: [0, 0, 0, 1],
         },
