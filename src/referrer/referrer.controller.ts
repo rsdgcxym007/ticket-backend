@@ -153,11 +153,8 @@ export class ReferrerController {
     const userId = order ? order.userId : null;
     if (!userId) throw new NotFoundException('Order or user not found');
     const result = await this.orderService.generateTickets(orderId, userId);
-    console.log('resultdwqdwqdwqdwqdqw', result);
-
     if (!result || !result.tickets)
       throw new NotFoundException('Order not found');
-    // ส่ง tickets ให้ service สร้าง thermal receipt PDF
 
     const buffer = await this.service.generateThermalReceiptPdf(result.tickets);
     res.setHeader('Content-Type', 'application/pdf');
@@ -165,7 +162,6 @@ export class ReferrerController {
       'Content-Disposition',
       'inline; filename="thermal-receipt.pdf"',
     );
-    // ปรับ CORS ให้รองรับ credentials และ whitelist origin
     const allowedOrigins = [
       'http://43.229.133.51:3000',
       'http://localhost:3000',
