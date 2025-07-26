@@ -469,7 +469,6 @@ export class ReferrerService {
             margin: [0, 0, 0, 6],
           },
 
-          // Line
           {
             canvas: [
               {
@@ -485,7 +484,6 @@ export class ReferrerService {
             margin: [0, 4, 0, 6],
           },
 
-          // Compact Table
           {
             table: {
               widths: ['28%', '*'],
@@ -505,7 +503,6 @@ export class ReferrerService {
             margin: [0, 0, 0, 6],
           },
 
-          // Line
           {
             canvas: [
               {
@@ -521,12 +518,31 @@ export class ReferrerService {
             margin: [0, 4, 0, 2],
           },
 
-          // Footer
+          // ✅ Footer with extra notes
           {
-            text: `Printed: ${printedDate} ${printedTime}`,
-            alignment: 'center',
-            fontSize: 6.5,
-            color: 'gray',
+            stack: [
+              {
+                text: `Printed: ${printedDate} ${printedTime}`,
+                alignment: 'center',
+                fontSize: 6.5,
+                color: 'gray',
+                margin: [0, 0, 0, 2],
+              },
+              {
+                text: 'Non-refundable',
+                alignment: 'center',
+                fontSize: 6,
+                bold: true,
+                color: 'red',
+                margin: [0, 2, 0, 0],
+              },
+              {
+                text: 'Valid on show date only',
+                alignment: 'center',
+                fontSize: 6,
+                color: 'gray',
+              },
+            ],
           },
         ],
       };
