@@ -439,11 +439,11 @@ export class ReferrerService {
       const isStanding = ticket.type === 'STANDING';
       let seatText = '';
       if (isStanding) {
-        seatText = 'ประเภท: ตั๋วยืน';
+        seatText = 'Type: Standing';
       } else {
         seatText =
-          (ticket.seatNumber ? `ที่นั่ง ${ticket.seatNumber}` : '') +
-          (ticket.zone?.name ? ` | โซน ${ticket.zone?.name}` : '');
+          (ticket.seatNumber ? `Seat ${ticket.seatNumber}` : '') +
+          (ticket.zone?.name ? ` | Zone ${ticket.zone?.name}` : '');
         seatText = seatText.trim() || '-';
       }
       const stack = [
@@ -451,9 +451,9 @@ export class ReferrerService {
           ? [
               {
                 image: logoBase64,
-                width: 35,
+                width: 24,
                 alignment: 'center',
-                margin: [0, 0, 0, 2],
+                margin: [0, 2, 0, 2],
                 ...(idx > 0 ? { pageBreak: 'before' } : {}),
               },
             ]
@@ -462,7 +462,7 @@ export class ReferrerService {
           text: 'PATONG BOXING STADIUM',
           alignment: 'center',
           bold: true,
-          fontSize: 6,
+          fontSize: 8,
           color: '#000',
           margin: [0, 0, 0, 1],
           ...(logoBase64 === '' && idx > 0 ? { pageBreak: 'before' } : {}),
@@ -472,7 +472,7 @@ export class ReferrerService {
             '2/59 Soi Keb Sub 2, Sai Nam Yen RD, Patong Beach, Phuket 83150\n' +
             'Tel. 076-345578, 086-4761724, 080-5354042',
           alignment: 'center',
-          fontSize: 5,
+          fontSize: 6,
           color: '#000',
           margin: [0, 0, 0, 1],
         },
@@ -482,7 +482,7 @@ export class ReferrerService {
               type: 'line',
               x1: 0,
               y1: 0,
-              x2: 153,
+              x2: 140,
               y2: 0,
               lineWidth: 0.5,
               lineColor: '#333',
@@ -491,48 +491,63 @@ export class ReferrerService {
           margin: [0, 1, 0, 1],
         },
         {
-          text: `Order No: ${ticket.orderNumber || '-'}`,
-          fontSize: 5,
-          color: '#000',
-          bold: true,
+          columns: [
+            { text: 'Order No:', width: 38, fontSize: 6, bold: true },
+            { text: ticket.orderNumber || '-', fontSize: 6, alignment: 'left' },
+          ],
           margin: [0, 1, 0, 0],
         },
         {
-          text: `Show Date: ${ticket.showDate || '-'}`,
-          fontSize: 5,
-          color: '#000',
+          columns: [
+            { text: 'Show Date:', width: 38, fontSize: 6, bold: true },
+            { text: ticket.showDate || '-', fontSize: 6, alignment: 'left' },
+          ],
           margin: [0, 0, 0, 0],
         },
         {
-          text: `Customer: ${ticket.customerName || '-'}`,
-          fontSize: 5,
-          color: '#000',
+          columns: [
+            { text: 'Customer:', width: 38, fontSize: 6, bold: true },
+            {
+              text: ticket.customerName || '-',
+              fontSize: 6,
+              alignment: 'left',
+            },
+          ],
           margin: [0, 0, 0, 0],
         },
         {
-          text: seatText,
-          fontSize: 5,
-          bold: true,
-          color: '#000',
+          columns: [
+            { text: 'Seat/Zone:', width: 38, fontSize: 6, bold: true },
+            { text: seatText, fontSize: 6, alignment: 'left', bold: false },
+          ],
           margin: [0, 1, 0, 0],
         },
         {
-          text: `ประเภทบัตร: ${ticket.type === 'STANDING' ? 'ตั๋วยืน' : ticket.ticketCategory || '-'}`,
-          fontSize: 5,
-          color: '#000',
-          margin: [0, 0, 0, 1],
+          columns: [
+            { text: 'Ticket Type:', width: 38, fontSize: 6, bold: true },
+            {
+              text:
+                ticket.type === 'STANDING'
+                  ? 'Standing'
+                  : ticket.ticketCategory || '-',
+              fontSize: 6,
+              alignment: 'left',
+            },
+          ],
+          margin: [0, 0, 0, 0],
         },
       ];
       return { stack };
     });
 
-    // 1 mm = 2.83465 pt, 57mm = 161.57pt, 38mm = 107.72pt
+    // 1 mm = 2.83465 pt, 2x4 นิ้ว = 50.8mm x 101.6mm
+    // 50.8mm = 144 pt, 101.6mm = 288 pt
     const docDefinition = {
       pageSize: {
-        width: 161.6, // 57mm
-        height: 107.7, // 38mm
+        width: 144, // 2 นิ้ว
+        height: 288, // 4 นิ้ว
       },
-      pageMargins: [4, 4, 4, 4], // ลด margin ให้เหมาะกับ thermal
+      pageMargins: [2, 2, 2, 2], // ลด margin ให้เหมาะกับ thermal
       content: pages,
       defaultStyle: {
         font: 'THSarabunNew',
