@@ -461,7 +461,6 @@ export class ReferrerService {
         {
           text: 'PATONG BOXING STADIUM',
           alignment: 'center',
-          bold: true,
           fontSize: 8,
           color: '#000',
           margin: [0, 0, 0, 0],
@@ -492,21 +491,21 @@ export class ReferrerService {
         },
         {
           columns: [
-            { text: 'Order No:', width: 38, fontSize: 8, bold: true },
+            { text: 'Order No:', width: 38, fontSize: 8 },
             { text: ticket.orderNumber || '-', fontSize: 8, alignment: 'left' },
           ],
           margin: [0, 0, 0, 0],
         },
         {
           columns: [
-            { text: 'Show Date:', width: 38, fontSize: 8, bold: true },
+            { text: 'Show Date:', width: 38, fontSize: 8 },
             { text: ticket.showDate || '-', fontSize: 8, alignment: 'left' },
           ],
           margin: [0, 0, 0, 0],
         },
         {
           columns: [
-            { text: 'Customer:', width: 38, fontSize: 8, bold: true },
+            { text: 'Customer:', width: 38, fontSize: 8 },
             {
               text: ticket.customerName || '-',
               fontSize: 8,
@@ -517,14 +516,14 @@ export class ReferrerService {
         },
         {
           columns: [
-            { text: 'Seat/Zone:', width: 38, fontSize: 8, bold: true },
-            { text: seatText, fontSize: 8, alignment: 'left', bold: false },
+            { text: 'Seat/Zone:', width: 38, fontSize: 8 },
+            { text: seatText, fontSize: 8, alignment: 'left' },
           ],
           margin: [0, 0, 0, 0],
         },
         {
           columns: [
-            { text: 'Ticket Type:', width: 38, fontSize: 8, bold: true },
+            { text: 'Ticket Type:', width: 38, fontSize: 8 },
             {
               text:
                 ticket.type === 'STANDING'
@@ -550,7 +549,7 @@ export class ReferrerService {
       pageMargins: [0, 0, 0, 0], // top, left, right, bottom (top=0)
       content: pages,
       defaultStyle: {
-        font: 'THSarabunNew',
+        font: 'Helvetica', // ฟอนต์สากลมาตรฐาน
         fontSize: 7,
       },
     };

@@ -8,11 +8,28 @@ const fonts = {
     italics: path.resolve(__dirname, '../../fonts/THSarabunNew-Italic.ttf'),
     bolditalics: path.resolve(__dirname, '../../fonts/THSarabunNew-Italic.ttf'),
   },
+  Helvetica: {
+    normal: 'Helvetica',
+    bold: 'Helvetica-Bold',
+    italics: 'Helvetica-Oblique',
+    bolditalics: 'Helvetica-BoldOblique',
+  },
 };
 
-const printer = new PdfPrinter(fonts);
+const printerTH = new PdfPrinter({ THSarabunNew: fonts.THSarabunNew });
+const printerStandard = new PdfPrinter({ Helvetica: fonts.Helvetica });
 
 export function createPdfBuffer(docDefinition: any): Promise<Buffer> {
+  // เลือก printer ตามฟอนต์ที่ใช้ใน docDefinition
+  let printer: PdfPrinter;
+  if (
+    docDefinition.defaultStyle &&
+    docDefinition.defaultStyle.font === 'Helvetica'
+  ) {
+    printer = printerStandard;
+  } else {
+    printer = printerTH;
+  }
   const pdfDoc = printer.createPdfKitDocument(docDefinition);
   const chunks: Buffer[] = [];
 
