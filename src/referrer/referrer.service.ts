@@ -563,7 +563,8 @@ export class ReferrerService {
     });
 
     const docDefinition = {
-      pageSize: { width: 144, height: 288 }, // 2x4 inch
+      pageSize: { width: 288, height: 144 }, // 4"x2" แต่ม้วนหมุนแนวนอน
+      pageOrientation: 'landscape',
       pageMargins: [0, 0, 0, 0], // 🔥 เริ่มพิมพ์ชิดขอบ
       content: pages,
       defaultStyle: {
