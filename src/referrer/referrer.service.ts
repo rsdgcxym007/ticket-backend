@@ -453,7 +453,7 @@ export class ReferrerService {
                 image: logoBase64,
                 width: 24,
                 alignment: 'center',
-                margin: [0, 2, 0, 2],
+                margin: [0, 2, 0, 0],
                 ...(idx > 0 ? { pageBreak: 'before' } : {}),
               },
             ]
@@ -464,7 +464,7 @@ export class ReferrerService {
           bold: true,
           fontSize: 8,
           color: '#000',
-          margin: [0, 0, 0, 1],
+          margin: [0, 0, 0, 0],
           ...(logoBase64 === '' && idx > 0 ? { pageBreak: 'before' } : {}),
         },
         {
@@ -472,9 +472,9 @@ export class ReferrerService {
             '2/59 Soi Keb Sub 2, Sai Nam Yen RD, Patong Beach, Phuket 83150\n' +
             'Tel. 076-345578, 086-4761724, 080-5354042',
           alignment: 'center',
-          fontSize: 6,
+          fontSize: 8,
           color: '#000',
-          margin: [0, 0, 0, 1],
+          margin: [0, 0, 0, 0],
         },
         {
           canvas: [
@@ -488,28 +488,28 @@ export class ReferrerService {
               lineColor: '#333',
             },
           ],
-          margin: [0, 1, 0, 1],
+          margin: [0, 0, 0, 0],
         },
         {
           columns: [
-            { text: 'Order No:', width: 38, fontSize: 6, bold: true },
-            { text: ticket.orderNumber || '-', fontSize: 6, alignment: 'left' },
-          ],
-          margin: [0, 1, 0, 0],
-        },
-        {
-          columns: [
-            { text: 'Show Date:', width: 38, fontSize: 6, bold: true },
-            { text: ticket.showDate || '-', fontSize: 6, alignment: 'left' },
+            { text: 'Order No:', width: 38, fontSize: 8, bold: true },
+            { text: ticket.orderNumber || '-', fontSize: 8, alignment: 'left' },
           ],
           margin: [0, 0, 0, 0],
         },
         {
           columns: [
-            { text: 'Customer:', width: 38, fontSize: 6, bold: true },
+            { text: 'Show Date:', width: 38, fontSize: 8, bold: true },
+            { text: ticket.showDate || '-', fontSize: 8, alignment: 'left' },
+          ],
+          margin: [0, 0, 0, 0],
+        },
+        {
+          columns: [
+            { text: 'Customer:', width: 38, fontSize: 8, bold: true },
             {
               text: ticket.customerName || '-',
-              fontSize: 6,
+              fontSize: 8,
               alignment: 'left',
             },
           ],
@@ -517,14 +517,14 @@ export class ReferrerService {
         },
         {
           columns: [
-            { text: 'Seat/Zone:', width: 38, fontSize: 6, bold: true },
-            { text: seatText, fontSize: 6, alignment: 'left', bold: false },
+            { text: 'Seat/Zone:', width: 38, fontSize: 8, bold: true },
+            { text: seatText, fontSize: 8, alignment: 'left', bold: false },
           ],
-          margin: [0, 1, 0, 0],
+          margin: [0, 0, 0, 0],
         },
         {
           columns: [
-            { text: 'Ticket Type:', width: 38, fontSize: 6, bold: true },
+            { text: 'Ticket Type:', width: 38, fontSize: 8, bold: true },
             {
               text:
                 ticket.type === 'STANDING'
