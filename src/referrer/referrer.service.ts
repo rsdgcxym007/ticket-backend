@@ -564,7 +564,7 @@ export class ReferrerService {
 
     const docDefinition = {
       pageSize: { width: 144, height: 288 }, // 2x4 inch
-      pageMargins: [0, 0, 0, 0], // 🔥 เริ่มพิมพ์ชิดขอบ
+      pageMargins: [0, -20, 0, 0], // 🔥 เริ่มพิมพ์ชิดขอบ
       content: pages,
       defaultStyle: {
         font: 'Roboto',
