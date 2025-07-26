@@ -14,15 +14,27 @@ const fonts = {
     italics: 'Helvetica-Oblique',
     bolditalics: 'Helvetica-BoldOblique',
   },
+  Roboto: {
+    normal: path.resolve(__dirname, '../../fonts/Roboto-Regular.ttf'),
+    bold: path.resolve(__dirname, '../../fonts/Roboto-Bold.ttf'),
+    italics: path.resolve(__dirname, '../../fonts/Roboto-Italic.ttf'),
+    bolditalics: path.resolve(__dirname, '../../fonts/Roboto-BoldItalic.ttf'),
+  },
 };
 
 const printerTH = new PdfPrinter({ THSarabunNew: fonts.THSarabunNew });
 const printerStandard = new PdfPrinter({ Helvetica: fonts.Helvetica });
+const printerRoboto = new PdfPrinter({ Roboto: fonts.Roboto });
 
 export function createPdfBuffer(docDefinition: any): Promise<Buffer> {
   // เลือก printer ตามฟอนต์ที่ใช้ใน docDefinition
   let printer: PdfPrinter;
   if (
+    docDefinition.defaultStyle &&
+    docDefinition.defaultStyle.font === 'Roboto'
+  ) {
+    printer = printerRoboto;
+  } else if (
     docDefinition.defaultStyle &&
     docDefinition.defaultStyle.font === 'Helvetica'
   ) {

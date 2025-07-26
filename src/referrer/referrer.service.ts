@@ -424,7 +424,7 @@ export class ReferrerService {
     if (!tickets || tickets.length === 0) {
       throw new Error('No tickets data');
     }
-    // โหลดโลโก้เป็น base64 จาก images/ ที่ root
+
     const logoPath = path.join(process.cwd(), 'images/LOGOST.png');
     let logoBase64 = '';
     try {
@@ -432,125 +432,119 @@ export class ReferrerService {
     } catch {
       logoBase64 = '';
     }
-    console.log('logoBase64', logoBase64);
 
-    // thermal receipt PDF แบบหลายหน้า (1 หน้า/1 ตั๋ว)
     const pages = tickets.map((ticket, idx) => {
       const isStanding = ticket.type === 'STANDING';
-      let seatText = '';
-      if (isStanding) {
-        seatText = 'Type: Standing';
-      } else {
-        seatText =
-          (ticket.seatNumber ? `Seat ${ticket.seatNumber}` : '') +
-          (ticket.zone?.name ? ` | Zone ${ticket.zone?.name}` : '');
-        seatText = seatText.trim() || '-';
-      }
-      const stack = [
-        ...(logoBase64
-          ? [
+      const seatText = isStanding
+        ? 'Standing'
+        : `${ticket.seatNumber ? `Seat ${ticket.seatNumber}` : ''}${ticket.zone?.name ? ` | Zone ${ticket.zone?.name}` : ''}`.trim() ||
+          '-';
+
+      return {
+        stack: [
+          ...(logoBase64
+            ? [
+                {
+                  image: logoBase64,
+                  width: 36,
+                  alignment: 'center',
+                  margin: [0, 0, 0, 6],
+                  ...(idx > 0 ? { pageBreak: 'before' } : {}),
+                },
+              ]
+            : []),
+          {
+            text: 'PATONG BOXING STADIUM',
+            alignment: 'center',
+            fontSize: 11,
+            bold: true,
+            margin: [0, 0, 0, 4],
+          },
+          {
+            text: '2/59 Soi Keb Sub 2, Sai Nam Yen RD, Patong Beach, Phuket 83150\nTel. 076-345578, 086-4761724, 080-5354042',
+            alignment: 'center',
+            fontSize: 7.8,
+            margin: [0, 0, 0, 6],
+          },
+          {
+            canvas: [
               {
-                image: logoBase64,
-                width: 24,
-                alignment: 'center',
-                margin: [0, 2, 0, 0],
-                ...(idx > 0 ? { pageBreak: 'before' } : {}),
+                type: 'line',
+                x1: 0,
+                y1: 0,
+                x2: 132,
+                y2: 0,
+                lineWidth: 0.5,
+                lineColor: '#000',
               },
-            ]
-          : []),
-        {
-          text: 'PATONG BOXING STADIUM',
-          alignment: 'center',
-          fontSize: 8,
-          color: '#000',
-          margin: [0, 0, 0, 0],
-          ...(logoBase64 === '' && idx > 0 ? { pageBreak: 'before' } : {}),
-        },
-        {
-          text:
-            '2/59 Soi Keb Sub 2, Sai Nam Yen RD, Patong Beach, Phuket 83150\n' +
-            'Tel. 076-345578, 086-4761724, 080-5354042',
-          alignment: 'center',
-          fontSize: 8,
-          color: '#000',
-          margin: [0, 0, 0, 0],
-        },
-        {
-          canvas: [
-            {
-              type: 'line',
-              x1: 0,
-              y1: 0,
-              x2: 140,
-              y2: 0,
-              lineWidth: 0.5,
-              lineColor: '#333',
+            ],
+            margin: [0, 4, 0, 6],
+          },
+          {
+            table: {
+              widths: ['35%', '65%'],
+              body: [
+                [
+                  { text: 'Order No:', bold: true, fontSize: 8.5 },
+                  {
+                    text: ticket.orderNumber || '-',
+                    fontSize: 8.5,
+                    bold: true,
+                  },
+                ],
+                [
+                  { text: 'Show Date:', bold: true, fontSize: 8.5 },
+                  { text: ticket.showDate || '-', fontSize: 8.5 },
+                ],
+                [
+                  { text: 'Customer:', bold: true, fontSize: 8.5 },
+                  { text: ticket.customerName || '-', fontSize: 8.5 },
+                ],
+                [
+                  { text: 'Seat & Zone:', bold: true, fontSize: 8.5 },
+                  {
+                    text: seatText,
+                    fontSize: 8.5,
+                    noWrap: false,
+                  },
+                ],
+                [
+                  { text: 'Ticket Type:', bold: true, fontSize: 8.5 },
+                  {
+                    text:
+                      ticket.type === 'STANDING'
+                        ? 'Standing'
+                        : ticket.ticketCategory || '-',
+                    fontSize: 8.5,
+                  },
+                ],
+              ],
             },
-          ],
-          margin: [0, 0, 0, 0],
-        },
-        {
-          columns: [
-            { text: 'Order No:', width: 38, fontSize: 8 },
-            { text: ticket.orderNumber || '-', fontSize: 8, alignment: 'left' },
-          ],
-          margin: [0, 0, 0, 0],
-        },
-        {
-          columns: [
-            { text: 'Show Date:', width: 38, fontSize: 8 },
-            { text: ticket.showDate || '-', fontSize: 8, alignment: 'left' },
-          ],
-          margin: [0, 0, 0, 0],
-        },
-        {
-          columns: [
-            { text: 'Customer:', width: 38, fontSize: 8 },
-            {
-              text: ticket.customerName || '-',
-              fontSize: 8,
-              alignment: 'left',
+            layout: {
+              hLineWidth: () => 0,
+              vLineWidth: () => 0,
+              paddingLeft: () => 0,
+              paddingRight: () => 0,
+              paddingTop: () => 1,
+              paddingBottom: () => 2,
             },
-          ],
-          margin: [0, 0, 0, 0],
-        },
-        {
-          columns: [
-            { text: 'Seat/Zone:', width: 38, fontSize: 8 },
-            { text: seatText, fontSize: 8, alignment: 'left' },
-          ],
-          margin: [0, 0, 0, 0],
-        },
-        {
-          columns: [
-            { text: 'Ticket Type:', width: 38, fontSize: 8 },
-            {
-              text:
-                ticket.type === 'STANDING'
-                  ? 'Standing'
-                  : ticket.ticketCategory || '-',
-              fontSize: 6,
-              alignment: 'left',
-            },
-          ],
-          margin: [0, 0, 0, 0],
-        },
-      ];
-      return { stack };
+            margin: [0, 0, 0, 4],
+          },
+        ],
+      };
     });
 
-    // 1 mm = 2.83465 pt, 2.00”x4.00” = 50.8mm x 101.6mm
-    // 50.8mm = 144 pt, 101.6mm = 288 pt
     const docDefinition = {
       pageSize: {
-        width: 144, // 2.00 นิ้ว (50.8mm)
-        height: 288, // 4.00 นิ้ว (101.6mm)
+        width: 144,
+        height: 288,
       },
-      pageMargins: [0, 0, 0, 0], // top, left, right, bottom (top=0)
+      pageMargins: [10, 10, 10, 10],
       content: pages,
       defaultStyle: {
-        font: 'Helvetica', // ฟอนต์สากลมาตรฐาน
-        fontSize: 7,
+        font: 'Roboto',
+        fontSize: 8.5,
+        lineHeight: 1.3,
       },
     };
 
