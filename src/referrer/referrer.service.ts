@@ -540,12 +540,12 @@ export class ReferrerService {
       return { stack };
     });
 
-    // 1 mm = 2.83465 pt, 2x4 นิ้ว = 50.8mm x 101.6mm
+    // 1 mm = 2.83465 pt, 2.00”x4.00” = 50.8mm x 101.6mm
     // 50.8mm = 144 pt, 101.6mm = 288 pt
     const docDefinition = {
       pageSize: {
-        width: 144, // 2 นิ้ว
-        height: 288, // 4 นิ้ว
+        width: 144, // 2.00 นิ้ว (50.8mm)
+        height: 288, // 4.00 นิ้ว (101.6mm)
       },
       pageMargins: [0, 0, 0, 0], // ลด margin ให้เหมาะกับ thermal
       content: pages,
