@@ -421,9 +421,7 @@ export class ReferrerService {
    * @param tickets array of ticket objects
    */
   async generateThermalReceiptPdf(tickets: any[]) {
-    if (!tickets || tickets.length === 0) {
-      throw new Error('No tickets data');
-    }
+    if (!tickets || tickets.length === 0) throw new Error('No tickets data');
 
     const logoPath = path.join(process.cwd(), 'images/LOGOST.png');
     let logoBase64 = '';
@@ -434,16 +432,14 @@ export class ReferrerService {
     }
 
     const printedAt = new Date();
-    const printedDate = printedAt.toLocaleDateString('en-GB'); // format: DD/MM/YYYY
-    const printedTime = printedAt.toLocaleTimeString('en-GB'); // format: HH:mm:ss
+    const printedDate = printedAt.toLocaleDateString('en-GB');
+    const printedTime = printedAt.toLocaleTimeString('en-GB');
 
     const pages = tickets.map((ticket, idx) => {
-      const isStanding = ticket.type === 'STANDING';
       const seat = ticket.seatNumber || '-';
       const zone = ticket.zone?.name || '-';
-      const ticketType = isStanding
-        ? 'Standing'
-        : ticket.ticketCategory || 'Seat';
+      const type =
+        ticket.type === 'STANDING' ? 'Standing' : ticket.ticketCategory || '-';
 
       return {
         stack: [
@@ -451,26 +447,29 @@ export class ReferrerService {
             ? [
                 {
                   image: logoBase64,
-                  width: 40,
+                  width: 36,
                   alignment: 'center',
                   margin: [0, 0, 0, 6],
                   ...(idx > 0 ? { pageBreak: 'before' } : {}),
                 },
               ]
             : []),
+
           {
             text: 'PATONG BOXING STADIUM',
             alignment: 'center',
-            fontSize: 10,
             bold: true,
+            fontSize: 10,
             margin: [0, 0, 0, 2],
           },
           {
-            text: '2/59 Soi Keb Sub 2, Sai Nam Yen RD, Patong Beach, Phuket 83150\nTel. 076-345578, 086-4761724, 080-5354042',
+            text: '2/59 Soi Keb Sub 2, Sai Nam Yen RD\nPatong Beach, Phuket 83150\nTel. 076-345578, 086-4761724, 080-5354042',
             alignment: 'center',
-            fontSize: 7.5,
+            fontSize: 7,
             margin: [0, 0, 0, 6],
           },
+
+          // Line
           {
             canvas: [
               {
@@ -485,46 +484,28 @@ export class ReferrerService {
             ],
             margin: [0, 4, 0, 6],
           },
+
+          // Compact Table
           {
             table: {
-              widths: ['35%', '*'],
+              widths: ['28%', '*'],
               body: [
-                [
-                  { text: 'Order No.', bold: true, fontSize: 8 },
-                  { text: ticket.orderNumber || '-', fontSize: 8 },
-                ],
-                [
-                  { text: 'Show Date', bold: true, fontSize: 8 },
-                  { text: ticket.showDate || '-', fontSize: 8 },
-                ],
-                [
-                  { text: 'Customer', bold: true, fontSize: 8 },
-                  { text: ticket.customerName || '-', fontSize: 8 },
-                ],
-                [
-                  { text: 'Seat', bold: true, fontSize: 8 },
-                  { text: seat, fontSize: 8 },
-                ],
-                [
-                  { text: 'Zone', bold: true, fontSize: 8 },
-                  { text: zone, fontSize: 8 },
-                ],
-                [
-                  { text: 'Ticket Type', bold: true, fontSize: 8 },
-                  { text: ticketType, fontSize: 8 },
-                ],
-              ],
+                ['Order', ticket.orderNumber || '-'],
+                ['Date', ticket.showDate || '-'],
+                ['Name', ticket.customerName || '-'],
+                ['Seat', seat],
+                ['Zone', zone],
+                ['Type', type],
+              ].map(([label, value]) => [
+                { text: `${label} :`, bold: true, fontSize: 8 },
+                { text: value, fontSize: 8 },
+              ]),
             },
-            layout: {
-              hLineWidth: () => 0,
-              vLineWidth: () => 0,
-              paddingLeft: () => 0,
-              paddingRight: () => 0,
-              paddingTop: () => 1,
-              paddingBottom: () => 1.5,
-            },
+            layout: 'noBorders',
             margin: [0, 0, 0, 6],
           },
+
+          // Line
           {
             canvas: [
               {
@@ -534,15 +515,17 @@ export class ReferrerService {
                 x2: 132,
                 y2: 0,
                 lineWidth: 0.5,
-                lineColor: '#000',
+                lineColor: '#ccc',
               },
             ],
-            margin: [0, 6, 0, 4],
+            margin: [0, 4, 0, 2],
           },
+
+          // Footer
           {
-            text: `Printed on: ${printedDate} ${printedTime}`,
-            fontSize: 6.5,
+            text: `Printed: ${printedDate} ${printedTime}`,
             alignment: 'center',
+            fontSize: 6.5,
             color: 'gray',
           },
         ],
@@ -550,10 +533,7 @@ export class ReferrerService {
     });
 
     const docDefinition = {
-      pageSize: {
-        width: 144,
-        height: 288,
-      },
+      pageSize: { width: 144, height: 288 }, // 2x4 inch
       pageMargins: [10, 10, 10, 10],
       content: pages,
       defaultStyle: {
