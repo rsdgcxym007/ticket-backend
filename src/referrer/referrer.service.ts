@@ -433,12 +433,17 @@ export class ReferrerService {
       logoBase64 = '';
     }
 
+    const printedAt = new Date();
+    const printedDate = printedAt.toLocaleDateString('en-GB'); // format: DD/MM/YYYY
+    const printedTime = printedAt.toLocaleTimeString('en-GB'); // format: HH:mm:ss
+
     const pages = tickets.map((ticket, idx) => {
       const isStanding = ticket.type === 'STANDING';
-      const seatText = isStanding
+      const seat = ticket.seatNumber || '-';
+      const zone = ticket.zone?.name || '-';
+      const ticketType = isStanding
         ? 'Standing'
-        : `${ticket.seatNumber ? `Seat ${ticket.seatNumber}` : ''}${ticket.zone?.name ? ` | Zone ${ticket.zone?.name}` : ''}`.trim() ||
-          '-';
+        : ticket.ticketCategory || 'Seat';
 
       return {
         stack: [
@@ -446,7 +451,7 @@ export class ReferrerService {
             ? [
                 {
                   image: logoBase64,
-                  width: 36,
+                  width: 40,
                   alignment: 'center',
                   margin: [0, 0, 0, 6],
                   ...(idx > 0 ? { pageBreak: 'before' } : {}),
@@ -456,14 +461,14 @@ export class ReferrerService {
           {
             text: 'PATONG BOXING STADIUM',
             alignment: 'center',
-            fontSize: 11,
+            fontSize: 10,
             bold: true,
-            margin: [0, 0, 0, 4],
+            margin: [0, 0, 0, 2],
           },
           {
             text: '2/59 Soi Keb Sub 2, Sai Nam Yen RD, Patong Beach, Phuket 83150\nTel. 076-345578, 086-4761724, 080-5354042',
             alignment: 'center',
-            fontSize: 7.8,
+            fontSize: 7.5,
             margin: [0, 0, 0, 6],
           },
           {
@@ -482,41 +487,31 @@ export class ReferrerService {
           },
           {
             table: {
-              widths: ['35%', '65%'],
+              widths: ['35%', '*'],
               body: [
                 [
-                  { text: 'Order No:', bold: true, fontSize: 8.5 },
-                  {
-                    text: ticket.orderNumber || '-',
-                    fontSize: 8.5,
-                    bold: true,
-                  },
+                  { text: 'Order No.', bold: true, fontSize: 8 },
+                  { text: ticket.orderNumber || '-', fontSize: 8 },
                 ],
                 [
-                  { text: 'Show Date:', bold: true, fontSize: 8.5 },
-                  { text: ticket.showDate || '-', fontSize: 8.5 },
+                  { text: 'Show Date', bold: true, fontSize: 8 },
+                  { text: ticket.showDate || '-', fontSize: 8 },
                 ],
                 [
-                  { text: 'Customer:', bold: true, fontSize: 8.5 },
-                  { text: ticket.customerName || '-', fontSize: 8.5 },
+                  { text: 'Customer', bold: true, fontSize: 8 },
+                  { text: ticket.customerName || '-', fontSize: 8 },
                 ],
                 [
-                  { text: 'Seat & Zone:', bold: true, fontSize: 8.5 },
-                  {
-                    text: seatText,
-                    fontSize: 8.5,
-                    noWrap: false,
-                  },
+                  { text: 'Seat', bold: true, fontSize: 8 },
+                  { text: seat, fontSize: 8 },
                 ],
                 [
-                  { text: 'Ticket Type:', bold: true, fontSize: 8.5 },
-                  {
-                    text:
-                      ticket.type === 'STANDING'
-                        ? 'Standing'
-                        : ticket.ticketCategory || '-',
-                    fontSize: 8.5,
-                  },
+                  { text: 'Zone', bold: true, fontSize: 8 },
+                  { text: zone, fontSize: 8 },
+                ],
+                [
+                  { text: 'Ticket Type', bold: true, fontSize: 8 },
+                  { text: ticketType, fontSize: 8 },
                 ],
               ],
             },
@@ -526,9 +521,29 @@ export class ReferrerService {
               paddingLeft: () => 0,
               paddingRight: () => 0,
               paddingTop: () => 1,
-              paddingBottom: () => 2,
+              paddingBottom: () => 1.5,
             },
-            margin: [0, 0, 0, 4],
+            margin: [0, 0, 0, 6],
+          },
+          {
+            canvas: [
+              {
+                type: 'line',
+                x1: 0,
+                y1: 0,
+                x2: 132,
+                y2: 0,
+                lineWidth: 0.5,
+                lineColor: '#000',
+              },
+            ],
+            margin: [0, 6, 0, 4],
+          },
+          {
+            text: `Printed on: ${printedDate} ${printedTime}`,
+            fontSize: 6.5,
+            alignment: 'center',
+            color: 'gray',
           },
         ],
       };
@@ -543,8 +558,8 @@ export class ReferrerService {
       content: pages,
       defaultStyle: {
         font: 'Roboto',
-        fontSize: 8.5,
-        lineHeight: 1.3,
+        fontSize: 8,
+        lineHeight: 1.25,
       },
     };
 
