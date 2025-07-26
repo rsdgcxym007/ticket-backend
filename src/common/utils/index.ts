@@ -174,9 +174,10 @@ class DateTimeHelper {
 // 🏷️ สร้างรหัสอ้างอิง
 class ReferenceGenerator {
   static generateOrderNumber(): string {
-    const timestamp = Date.now().toString(36);
-    const random = Math.random().toString(36).substr(2, 5);
-    return `${REFERENCE_PREFIXES.ORDER}-${timestamp}${random}`.toUpperCase();
+    const timePart = Date.now().toString(36).slice(-2);
+    const perfPart = Math.floor(performance.now() % 100).toString(36);
+    const randPart = Math.random().toString(36).substr(2, 3);
+    return `${REFERENCE_PREFIXES.ORDER}-${timePart}${perfPart}${randPart}`.toUpperCase();
   }
 
   static generatePaymentId(): string {
