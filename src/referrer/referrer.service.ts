@@ -546,11 +546,12 @@ export class ReferrerService {
         width: 144, // 2.00 นิ้ว (50.8mm)
         height: 288, // 4.00 นิ้ว (101.6mm)
       },
-      pageMargins: [0, 0, 0, 0], // top, left, right, bottom (top=0)
+      pageMargins: [0, 4, 0, 0], // top, left, right, bottom (ขอบซ้าย 4pt)
       content: pages,
       defaultStyle: {
-        font: 'Helvetica', // ฟอนต์สากลมาตรฐาน
-        fontSize: 7,
+        font: 'Roboto', // ฟอนต์ Roboto
+        fontSize: 8.5, // ขนาดใหญ่ขึ้นเล็กน้อย
+        lineHeight: 1.15, // เพิ่มระยะบรรทัด
       },
     };
 
