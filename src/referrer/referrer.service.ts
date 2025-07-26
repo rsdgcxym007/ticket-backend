@@ -443,6 +443,21 @@ export class ReferrerService {
 
       return {
         stack: [
+          // 🟦 Debug line (optional): ลบได้ถ้าไม่ต้องการ
+          {
+            canvas: [
+              {
+                type: 'line',
+                x1: 0,
+                y1: 0,
+                x2: 144, // ความกว้างหน้ากระดาษ
+                y2: 0,
+                lineWidth: 0.5,
+                lineColor: 'red',
+              },
+            ],
+          },
+
           ...(logoBase64
             ? [
                 {
@@ -460,13 +475,15 @@ export class ReferrerService {
             alignment: 'center',
             bold: true,
             fontSize: 10,
-            margin: [0, 0, 0, 2],
           },
           {
-            text: '2/59 Soi Keb Sub 2, Sai Nam Yen RD\nPatong Beach, Phuket 83150\nTel. 076-345578, 086-4761724, 080-5354042',
+            text:
+              '2/59 Soi Keb Sub 2, Sai Nam Yen RD\n' +
+              'Patong Beach, Phuket 83150\n' +
+              'Tel. 076-345578, 086-4761724, 080-5354042',
             alignment: 'center',
             fontSize: 7,
-            margin: [0, 0, 0, 6],
+            margin: [0, 2, 0, 6],
           },
 
           {
@@ -481,7 +498,7 @@ export class ReferrerService {
                 lineColor: '#000',
               },
             ],
-            margin: [0, 4, 0, 6],
+            margin: [0, 2, 0, 6],
           },
 
           {
@@ -500,7 +517,6 @@ export class ReferrerService {
               ]),
             },
             layout: 'noBorders',
-            margin: [0, 0, 0, 6],
           },
 
           {
@@ -515,10 +531,9 @@ export class ReferrerService {
                 lineColor: '#ccc',
               },
             ],
-            margin: [0, 4, 0, 2],
+            margin: [0, 6, 0, 2],
           },
 
-          // ✅ Footer with extra notes
           {
             stack: [
               {
@@ -534,7 +549,6 @@ export class ReferrerService {
                 fontSize: 6,
                 bold: true,
                 color: 'red',
-                margin: [0, 2, 0, 0],
               },
               {
                 text: 'Valid on show date only',
@@ -550,7 +564,7 @@ export class ReferrerService {
 
     const docDefinition = {
       pageSize: { width: 144, height: 288 }, // 2x4 inch
-      pageMargins: [0, 0, 0, 0],
+      pageMargins: [0, 0, 0, 0], // 🔥 เริ่มพิมพ์ชิดขอบ
       content: pages,
       defaultStyle: {
         font: 'Roboto',
