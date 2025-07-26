@@ -547,7 +547,7 @@ export class ReferrerService {
         width: 144, // 2.00 นิ้ว (50.8mm)
         height: 288, // 4.00 นิ้ว (101.6mm)
       },
-      pageMargins: [0, 0, 0, 0], // ลด margin ให้เหมาะกับ thermal
+      pageMargins: [0, 0, 0, 0], // top, left, right, bottom (top=0)
       content: pages,
       defaultStyle: {
         font: 'THSarabunNew',
