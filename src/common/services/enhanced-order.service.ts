@@ -472,22 +472,42 @@ export class EnhancedOrderService {
         throw new BadRequestException('Cannot cancel confirmed orders');
       }
 
-      // 2. Cancel order + ลบค่าคอมมิชชั่นถ้ามี referrer
-      if (currentOrder.referrerId || currentOrder.referrerCode) {
+      // 2. Cancel order + ลบค่าคอมมิชชั่นถ้ามี referrer (คืนค่าคอมมิชชั่นเฉพาะออเดอร์ที่ยังไม่ถูกยกเลิก)
+      this.logger.debug('currentOrder (before cancel):', currentOrder);
+      if (currentOrder.status !== OrderStatus.CANCELLED) {
+        // ต้องใช้ snake_case เพราะ queryRunner.query คืนค่ามาเป็น snake_case
+        const oldRefCommission = Number(currentOrder.referrerCommission || 0);
+        const oldStandingCommission = Number(
+          currentOrder.standingCommission || 0,
+        );
+        const totalToSubtract = oldRefCommission + oldStandingCommission;
+
         await queryRunner.query(
           `UPDATE "order" 
            SET status = $1, "updatedAt" = $2, "referrerCommission" = 0, "standingCommission" = 0 
            WHERE id = $3`,
           [OrderStatus.CANCELLED, ThailandTimeHelper.now(), orderId],
         );
+
+        // อัปเดต totalCommission ของ referrer (ถ้ามี referrerId จริง)
+        if (currentOrder.referrerId && totalToSubtract > 0) {
+          this.logger.log(
+            `Updating referrer totalCommission: referrerId=${currentOrder.referrerId}, subtract=${totalToSubtract}`,
+          );
+          await queryRunner.query(
+            `UPDATE referrer SET "totalCommission" = COALESCE("totalCommission",0) - $1 WHERE id = $2`,
+            [totalToSubtract, currentOrder.referrerId],
+          );
+        }
       } else {
-        await queryRunner.query(
-          `UPDATE "order" 
-           SET status = $1, "updatedAt" = $2 
-           WHERE id = $3`,
-          [OrderStatus.CANCELLED, ThailandTimeHelper.now(), orderId],
-        );
+        this.logger.warn(`Order already cancelled, skip subtract commission.`);
       }
+
+      // 2.1 อัปเดต payment ที่เกี่ยวข้องกับ order นี้ให้เป็น CANCELLED ด้วย
+      await queryRunner.query(
+        `UPDATE payment SET status = $1, "updatedAt" = $2 WHERE "orderId" = $3`,
+        [OrderStatus.CANCELLED, ThailandTimeHelper.now(), orderId],
+      );
 
       // 3. Cancel seat bookings
       await queryRunner.query(
@@ -720,26 +740,22 @@ export class EnhancedOrderService {
     commission: number;
   } {
     const { ticketType, quantity = 0, seatIds = [] } = request;
-    const totalSeats = quantity + seatIds.length;
-
     let pricePerSeat;
+    let commissionPerTicket = 0;
+    let totalAmount = 0;
+    let commission = 0;
+
     if (ticketType === TicketType.STANDING) {
       pricePerSeat = TICKET_PRICES.STANDING_ADULT;
+      commissionPerTicket = COMMISSION_RATES.STANDING_ADULT;
+      totalAmount = quantity * pricePerSeat;
+      commission = quantity * commissionPerTicket;
     } else {
       pricePerSeat = TICKET_PRICES[ticketType];
+      commissionPerTicket = COMMISSION_RATES.SEAT;
+      totalAmount = seatIds.length * pricePerSeat;
+      commission = seatIds.length * commissionPerTicket;
     }
-
-    // ✅ ใช้ commission ต่อตั๋ว แทนการคูณ percentage
-    let commissionPerTicket = 0;
-    // ✅ เลือกค่าที่เฉพาะเจาะจงตามประเภทตั๋ว
-    if (ticketType === TicketType.STANDING) {
-      commissionPerTicket = COMMISSION_RATES.STANDING_ADULT; // 300
-    } else if (ticketType === TicketType.RINGSIDE) {
-      commissionPerTicket = COMMISSION_RATES.SEAT; // 400
-    } else if (ticketType === TicketType.STADIUM) {
-      commissionPerTicket = COMMISSION_RATES.SEAT; // 400
-    }
-    console.log('commissionPerTicket', commissionPerTicket);
 
     // Validate constants
     if (
@@ -757,9 +773,6 @@ export class EnhancedOrderService {
     this.logger.log(`Calculating pricing for ticketType: ${ticketType}`);
     this.logger.log(`TICKET_PRICES: ${JSON.stringify(TICKET_PRICES)}`);
     this.logger.log(`COMMISSION_RATES: ${JSON.stringify(COMMISSION_RATES)}`);
-
-    const totalAmount = totalSeats * pricePerSeat;
-    const commission = totalSeats * commissionPerTicket;
 
     return { totalAmount, commission };
   }
