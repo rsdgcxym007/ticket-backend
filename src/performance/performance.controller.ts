@@ -33,7 +33,7 @@ export class PerformanceController {
         cache: cacheStats,
         timestamp: new Date().toISOString(),
       },
-      'Performance report retrieved successfully',
+      'ดึงรายงานประสิทธิภาพสำเร็จ',
     );
   }
 
@@ -53,7 +53,7 @@ export class PerformanceController {
         after: statsAfter,
         cleared: statsBefore.totalKeys,
       },
-      'Cache cleared successfully',
+      'ล้างแคชสำเร็จ',
     );
   }
 
@@ -66,8 +66,8 @@ export class PerformanceController {
     this.performanceService.resetMetrics();
 
     return ApiResponseHelper.success(
-      { message: 'Performance metrics reset' },
-      'Metrics reset successfully',
+      { message: 'รีเซ็ตข้อมูลประสิทธิภาพเรียบร้อยแล้ว' },
+      'รีเซ็ตข้อมูลสำเร็จ',
     );
   }
 
@@ -79,9 +79,6 @@ export class PerformanceController {
   async getCacheStats() {
     const stats = this.cacheService.getStats();
 
-    return ApiResponseHelper.success(
-      stats,
-      'Cache stats retrieved successfully',
-    );
+    return ApiResponseHelper.success(stats, 'ดึงข้อมูลสถิติแคชสำเร็จ');
   }
 }

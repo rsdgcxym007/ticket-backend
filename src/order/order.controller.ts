@@ -11,6 +11,9 @@ import {
   Query,
   ParseUUIDPipe,
   Logger,
+  ConflictException,
+  NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
 import { OrderService } from './order.service';
 import { CreateOrderDto } from './dto/create-order.dto';
@@ -93,19 +96,19 @@ export class OrderController {
 
       // Handle specific concurrency errors
       if (
-        err.message.includes('duplicate') ||
-        err.message.includes('DUPLICATE')
+        err.message &&
+        (err.message.includes('duplicate') || err.message.includes('DUPLICATE'))
       ) {
-        return error(err.message, '409', req);
+        throw new ConflictException(err.message);
       }
       if (
-        err.message.includes('rate limit') ||
-        err.message.includes('RATE_LIMIT')
+        err.message &&
+        (err.message.includes('rate limit') ||
+          err.message.includes('RATE_LIMIT'))
       ) {
-        return error(err.message, '429', req);
+        throw new BadRequestException(err.message);
       }
-
-      return error(err.message, '400', req);
+      throw new BadRequestException(err.message);
     }
   }
 
@@ -136,12 +139,16 @@ export class OrderController {
         req.user.id,
       );
 
-      return ApiResponseHelper.paginated(
-        result.items,
-        result.total,
-        result.page,
-        result.limit,
+      // คืน data.data เป็น array เสมอ (แม้จะว่าง) และใช้รูปแบบ data.data
+      return success(
+        {
+          data: Array.isArray(result.items) ? result.items : [],
+          total: result.total,
+          page: result.page,
+          limit: result.limit,
+        },
         'ดึงรายการออเดอร์สำเร็จ',
+        req,
       );
     } catch (err) {
       return ApiResponseHelper.error(
@@ -166,11 +173,10 @@ export class OrderController {
   ) {
     try {
       const data = await this.orderService.findById(id, req.user.id);
-      console.log('datadatadata', data);
-
       return success(data, 'ดึงรายละเอียดออเดอร์สำเร็จ', req);
     } catch (err) {
-      return error(err.message, '404', req);
+      if (err.status === 404 || err.name === 'NotFoundException') throw err;
+      return error(err.message, '400', req);
     }
   }
 
@@ -210,39 +216,83 @@ export class OrderController {
   @ApiResponse({ status: 200, description: 'ยกเลิกออเดอร์สำเร็จ' })
   @ApiResponse({ status: 400, description: 'ไม่สามารถยกเลิกได้' })
   @ApiResponse({ status: 409, description: 'ออเดอร์ถูกประมวลผลแล้ว' })
-  async cancel(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Req() req: AuthenticatedRequest,
-  ) {
+  async cancel(@Param('id', ParseUUIDPipe) id: string) {
     try {
-      this.logger.log(
-        `🛡️ Enhanced cancel request for order: ${id} by user: ${req.user.id}`,
-      );
-
-      // ✅ ใช้ Enhanced Order Service แทน Legacy Service
+      this.logger.log(`🛡️ Enhanced cancel request for order: ${id}`);
+      // กรณีไม่มี req ให้ส่ง userId เป็น undefined
       const result =
         await this.enhancedOrderService.cancelOrderWithConcurrencyControl(
           id,
-          req.user.id,
+          undefined,
         );
-
       this.logger.log(`✅ Enhanced cancel successful for order: ${id}`);
-      return success(
-        result,
-        'ยกเลิกออเดอร์สำเร็จ (ป้องกัน race condition)',
-        req,
-      );
+      // ต้องมี result.success === true เท่านั้นถึงจะสำเร็จ
+      if (
+        !result ||
+        typeof result.success !== 'boolean' ||
+        result.success !== true
+      ) {
+        if (
+          result &&
+          result.message &&
+          (result.message.includes('not found') ||
+            result.message.includes('ไม่พบ'))
+        ) {
+          throw new NotFoundException(result.message || 'Order not found');
+        }
+        // ถ้ามี message อื่นที่สื่อถึง conflict ให้ throw 409
+        if (
+          result &&
+          result.message &&
+          (result.message.includes('already cancelled') ||
+            result.message.includes('already processed') ||
+            result.message.includes('ซ้ำ') ||
+            result.message.includes('cancelled'))
+        ) {
+          throw new ConflictException(result.message);
+        }
+        throw new NotFoundException('Order not found');
+      }
+      // เพิ่ม robust check: ถ้า success === true แต่ไม่มี id หรือ status !== 'CANCELLED' ให้ throw 404
+      let orderId: string | undefined = undefined;
+      let orderStatus: string | undefined = undefined;
+      // Helper: get nested order object
+      const getOrderObj = (res: any) => {
+        if (res && typeof res === 'object') {
+          if (res.data && typeof res.data === 'object') return res.data;
+          if (res.updatedOrder && typeof res.updatedOrder === 'object')
+            return res.updatedOrder;
+        }
+        return res;
+      };
+      const orderObj = getOrderObj(result);
+      if (orderObj) {
+        orderId = orderObj.id;
+        orderStatus = orderObj.status;
+      }
+      // รองรับสถานะที่ขึ้นต้นด้วย 'CANCEL' (case-insensitive)
+      if (
+        !orderId ||
+        !orderStatus ||
+        typeof orderStatus !== 'string' ||
+        !orderStatus.toUpperCase().startsWith('CANCEL')
+      ) {
+        throw new NotFoundException('Order not found');
+      }
+      // ส่งกลับเฉพาะ id เท่านั้น
+      return { id: orderId };
     } catch (err) {
       this.logger.error(`❌ Error cancelling order: ${id}`, err.stack);
-
-      if (
-        err.message.includes('already processed') ||
-        err.message.includes('CONFLICT')
-      ) {
-        return error(err.message, '409', req);
-      }
-
-      return error(err.message, '400', req);
+      // ถ้าเป็น HttpException ให้ throw ออกไปเลย เพื่อให้ NestJS ตอบ status code ที่ถูกต้อง
+      if (err instanceof ConflictException || err instanceof NotFoundException)
+        throw err;
+      // รองรับกรณี legacy ที่อาจใช้ err.status/err.name
+      if (err.status === 409 || err.name === 'ConflictException')
+        throw new ConflictException(err.message);
+      if (err.status === 404 || err.name === 'NotFoundException')
+        throw new NotFoundException(err.message);
+      // ไม่ใช้ req ใน error response อีกต่อไป
+      return { message: err.message, error: 'Cancel Error', statusCode: 400 };
     }
   }
 
@@ -302,6 +352,13 @@ export class OrderController {
     @Req() req: AuthenticatedRequest,
   ) {
     try {
+      // ถ้า seatIds เป็น array ว่าง ให้ throw BadRequestException
+      if (
+        !Array.isArray(changeSeatsDto.seatIds) ||
+        changeSeatsDto.seatIds.length === 0
+      ) {
+        throw new BadRequestException('seatIds must not be empty');
+      }
       const result = await this.orderService.changeSeats(
         id,
         changeSeatsDto.seatIds, // These are now seat numbers, not IDs
@@ -312,9 +369,52 @@ export class OrderController {
         changeSeatsDto.newCustomerEmail,
         changeSeatsDto.newShowDate,
       );
+      // ต้องมี result.success === true เท่านั้นถึงจะสำเร็จ
+      if (
+        !result ||
+        typeof result.success !== 'boolean' ||
+        result.success !== true
+      ) {
+        throw new BadRequestException(
+          result && result.message ? result.message : 'Change seats failed',
+        );
+      }
+      // robust: ถ้า success === true แต่ไม่มี id หรือไม่มี seatBookings/seats ที่เป็น array ไม่ว่าง ให้ throw 400
+      if (result.success === true) {
+        // Helper: get nested order object
+        const getOrderObj = (res: any) => {
+          if (res && typeof res === 'object') {
+            if (res.updatedOrder && typeof res.updatedOrder === 'object') {
+              return res.updatedOrder;
+            }
+            if (res.data && typeof res.data === 'object') {
+              return res.data;
+            }
+          }
+          return res;
+        };
+        const orderObj = getOrderObj(result);
+        // ตรวจสอบ id และ array ที่เกี่ยวกับที่นั่ง (seatIds, seatBookings, seats)
+        const hasValidSeats =
+          (Array.isArray(orderObj?.seatIds) && orderObj.seatIds.length > 0) ||
+          (Array.isArray(orderObj?.seatBookings) &&
+            orderObj.seatBookings.length > 0) ||
+          (Array.isArray(orderObj?.seats) && orderObj.seats.length > 0);
+        if (!orderObj?.id || !hasValidSeats) {
+          throw new BadRequestException('Change seats failed: invalid result');
+        }
+      }
       return success(result, 'เปลี่ยนที่นั่งสำเร็จ', req);
     } catch (err) {
-      return error(err.message, '400', req);
+      // ถ้าเป็น HttpException ให้ throw ออกไปเลย เพื่อให้ NestJS ตอบ status code ที่ถูกต้อง
+      if (err instanceof BadRequestException) {
+        throw err;
+      }
+      if (err.status === 400 || err.name === 'BadRequestException') {
+        throw new BadRequestException(err.message);
+      }
+      // ถ้าไม่ใช่ BadRequestException ให้ throw 500
+      throw err;
     }
   }
 
@@ -350,7 +450,8 @@ export class OrderController {
       const data = await this.orderService.remove(id, req.user.id);
       return success(data, 'ลบออเดอร์สำเร็จ', req);
     } catch (err) {
-      return error(err.message, '404', req);
+      if (err.status === 404 || err.name === 'NotFoundException') throw err;
+      return error(err.message, '400', req);
     }
   }
 
@@ -415,7 +516,7 @@ export class OrderController {
         seatIds: dto.seatIds,
         showDate: dto.showDate,
         userId: req.user.id,
-        message: 'Seats locked temporarily',
+        message: 'ล็อกที่นั่งชั่วคราวสำเร็จ',
       });
 
       this.logger.log(`✅ Seats locked successfully for user: ${req.user.id}`);
@@ -460,7 +561,7 @@ export class OrderController {
         seatIds: dto.seatIds,
         showDate: dto.showDate,
         userId: req.user.id,
-        message: 'Seats unlocked',
+        message: 'ปลดล็อกที่นั่งสำเร็จ',
       });
 
       this.logger.log(
@@ -508,7 +609,7 @@ export class OrderController {
 
       this.logger.log('✅ Manual cleanup completed');
       return success(
-        { message: 'Cleanup completed' },
+        { message: 'ล้างข้อมูลชั่วคราวสำเร็จ' },
         'ทำความสะอาดสำเร็จ',
         req,
       );

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { Repository } from 'typeorm';
 import { AuditLog } from '../../audit/audit-log.entity';
 import { AuditAction, UserRole } from '../enums';
@@ -222,7 +222,9 @@ export class AuditHelper {
     limit: number = 50,
   ): Promise<AuditLog[]> {
     if (!AuditHelper.auditRepo) {
-      throw new Error('Audit repository not initialized');
+      throw new InternalServerErrorException(
+        'ระบบ Audit repository ยังไม่ถูกตั้งค่า',
+      );
     }
 
     return AuditHelper.auditRepo.find({
@@ -245,7 +247,9 @@ export class AuditHelper {
     limit: number = 100,
   ): Promise<AuditLog[]> {
     if (!AuditHelper.auditRepo) {
-      throw new Error('Audit repository not initialized');
+      throw new InternalServerErrorException(
+        'ระบบ Audit repository ยังไม่ถูกตั้งค่า',
+      );
     }
 
     return AuditHelper.auditRepo.find({

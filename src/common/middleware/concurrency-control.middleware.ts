@@ -1,4 +1,10 @@
-import { Injectable, NestMiddleware, Logger, HttpStatus } from '@nestjs/common';
+import {
+  Injectable,
+  NestMiddleware,
+  Logger,
+  HttpStatus,
+  BadRequestException,
+} from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
 import { RateLimiterMemory } from 'rate-limiter-flexible';
 import { ThailandTimeHelper } from '../utils/thailand-time.helper';
@@ -84,7 +90,7 @@ export class ConcurrencyControlMiddleware implements NestMiddleware {
       this.logger.warn(
         `⚠️ Rate limit exceeded for ${type}: ${key} (retry in ${secs}s)`,
       );
-      throw new Error(
+      throw new BadRequestException(
         `Rate limit exceeded for ${type}. Try again in ${secs} seconds.`,
       );
     }

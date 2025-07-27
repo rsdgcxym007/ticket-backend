@@ -5,6 +5,7 @@ import {
   ForbiddenException,
   NotFoundException,
   InternalServerErrorException,
+  ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, In } from 'typeorm';
@@ -144,7 +145,9 @@ export class OrderService {
     });
 
     if (!user) {
-      throw new BadRequestException('User not found');
+      throw new BadRequestException(
+        'ไม่พบข้อมูลผู้ใช้ที่ระบุ กรุณาตรวจสอบอีกครั้ง',
+      );
     }
 
     request.userId = user.id;
@@ -168,7 +171,9 @@ export class OrderService {
 
       if (!referrer) {
         this.logger.warn(`Invalid referrer code: ${request.referrerCode}`);
-        throw new BadRequestException('Invalid referrer code');
+        throw new BadRequestException(
+          'รหัสผู้แนะนำไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง',
+        );
       }
     }
 
@@ -238,7 +243,7 @@ export class OrderService {
           `Invalid constants: TICKET_PRICES.STANDING_ADULT=${TICKET_PRICES.STANDING_ADULT}, TICKET_PRICES.STANDING_CHILD=${TICKET_PRICES.STANDING_CHILD}, COMMISSION_RATES.STANDING_ADULT=${COMMISSION_RATES.STANDING_ADULT}, COMMISSION_RATES.STANDING_CHILD=${COMMISSION_RATES.STANDING_CHILD}`,
         );
         throw new InternalServerErrorException(
-          'Invalid ticket pricing or commission rates. Please contact support.',
+          'ข้อมูลราคาบัตรหรือค่าคอมมิชชั่นไม่ถูกต้อง กรุณาติดต่อเจ้าหน้าที่',
         );
       }
 
@@ -249,7 +254,7 @@ export class OrderService {
       // Validate calculations
       if (isNaN(adultTotal) || isNaN(childTotal) || isNaN(standingTotal)) {
         throw new BadRequestException(
-          'Invalid standing ticket calculations. Please check ticket quantities and pricing.',
+          'ไม่สามารถคำนวณบัตรยืนได้ กรุณาตรวจสอบจำนวนบัตรและราคาอีกครั้ง',
         );
       }
 
@@ -313,7 +318,9 @@ export class OrderService {
       : savedOrderResult;
 
     if (!savedOrder) {
-      throw new Error('Order not found after saving');
+      throw new InternalServerErrorException(
+        'ไม่พบข้อมูลออเดอร์หลังบันทึก กรุณาติดต่อเจ้าหน้าที่',
+      );
     }
 
     // Create seat bookings
@@ -336,7 +343,9 @@ export class OrderService {
     });
 
     if (!reloadedOrder) {
-      throw new Error('Order not found after reloading');
+      throw new NotFoundException(
+        'ไม่พบข้อมูลออเดอร์หลังโหลดใหม่ กรุณาตรวจสอบอีกครั้ง',
+      );
     }
 
     return {
@@ -373,9 +382,7 @@ export class OrderService {
         operation: 'findAll',
         userId: userId ? 'provided' : 'none',
       });
-
       contextLogger.logWithContext('info', 'Finding orders', { options });
-
       const query = this.orderRepo
         .createQueryBuilder('order')
         .leftJoinAndSelect('order.user', 'user')
@@ -385,7 +392,6 @@ export class OrderService {
         .leftJoinAndSelect('seatBookings.seat', 'seat')
         .leftJoinAndSelect('seat.zone', 'zone')
         .orderBy('order.createdAt', 'DESC');
-
       // User can only see their own orders
       if (userId) {
         const user = await this.userRepo.findOne({ where: { id: userId } });
@@ -393,28 +399,24 @@ export class OrderService {
           query.andWhere('order.userId = :userId', { userId });
         }
       }
-
       if (status) {
         query.andWhere('order.status = :status', { status });
       }
-
       if (search) {
+        const searchValue = `%${search.toLowerCase()}%`;
         query.andWhere(
-          '(order.orderNumber LIKE :search OR order.customerName LIKE :search OR order.customerPhone LIKE :search)',
-          { search: `%${search}%` },
+          '(LOWER(order.orderNumber) LIKE :search OR LOWER(order.customerName) LIKE :search OR LOWER(order.customerPhone) LIKE :search)',
+          { search: searchValue },
         );
       }
-
       // Manual pagination since we're using query builder
       query.skip((page - 1) * limit).take(limit);
       const [items, total] = await query.getManyAndCount();
-
       contextLogger.logWithContext('info', 'Orders found successfully', {
         total,
         page,
         totalPages: Math.ceil(total / limit),
       });
-
       return {
         items: items.map((order) => this.mapToOrderData(order)),
         total,
@@ -423,6 +425,16 @@ export class OrderService {
         totalPages: Math.ceil(total / limit),
       };
     } catch (error) {
+      // ถ้าเกิด error จาก database (filter cancelled แล้วไม่มี order) ให้คืน array ว่าง
+      if (error && error.name && error.name.includes('QueryFailedError')) {
+        return {
+          items: [],
+          total: 0,
+          page: options.page || 1,
+          limit: options.limit || 10,
+          totalPages: 0,
+        };
+      }
       LoggingHelper.logError(
         this.logger,
         error as Error,
@@ -455,7 +467,7 @@ export class OrderService {
     });
 
     if (!order) {
-      return null;
+      throw new NotFoundException('Order not found');
     }
 
     console.log('order', order);
@@ -558,7 +570,7 @@ export class OrderService {
     }
 
     if (order.status === OrderStatus.CANCELLED) {
-      throw new BadRequestException('Order is already cancelled');
+      throw new ConflictException('Order is already cancelled');
     }
 
     // Cancel order
@@ -584,7 +596,7 @@ export class OrderService {
       reason: 'Order cancelled by user',
     });
 
-    return { success: true, message: 'Order cancelled successfully' };
+    return { success: true, message: 'ยกเลิกออเดอร์สำเร็จ' };
   }
 
   // ===============================================================
@@ -644,7 +656,7 @@ export class OrderService {
       reason: 'Payment confirmed by staff',
     });
 
-    return { success: true, message: 'Payment confirmed successfully' };
+    return { success: true, message: 'ยืนยันการชำระเงินสำเร็จ' };
   }
 
   // ============================================================
@@ -779,82 +791,112 @@ export class OrderService {
     newShowDate?: string,
   ): Promise<{ success: boolean; message: string; updatedOrder?: any }> {
     this.logger.log(`🔄 Changing seats for order ${id} by user ${userId}`);
+    try {
+      const user = await this.userRepo.findOne({ where: { id: userId } });
+      if (!user) {
+        return {
+          success: false,
+          message: 'ไม่พบผู้ใช้',
+          updatedOrder: null,
+        };
+      }
 
-    const user = await this.userRepo.findOne({ where: { id: userId } });
-    if (!user) {
-      throw new BadRequestException('User not found');
-    }
+      const order = await this.orderRepo.findOne({
+        where: { id },
+        relations: ['seatBookings', 'seatBookings.seat', 'referrer', 'payment'],
+      });
 
-    const order = await this.orderRepo.findOne({
-      where: { id },
-      relations: ['seatBookings', 'seatBookings.seat', 'referrer', 'payment'],
-    });
+      if (!order) {
+        return {
+          success: false,
+          message: 'ไม่พบออเดอร์',
+          updatedOrder: null,
+        };
+      }
 
-    if (!order) {
-      throw new NotFoundException('Order not found');
-    }
+      // Only staff and admin can change seats
+      if (user.role !== UserRole.STAFF && user.role !== UserRole.ADMIN) {
+        return {
+          success: false,
+          message: 'เฉพาะแอดมินหรือสตาฟเท่านั้นที่เปลี่ยนที่นั่งได้',
+          updatedOrder: null,
+        };
+      }
 
-    // Only staff and admin can change seats
-    if (user.role !== UserRole.STAFF && user.role !== UserRole.ADMIN) {
-      throw new ForbiddenException('Only staff and admin can change seats');
-    }
+      // Validate order status
+      if (
+        ![OrderStatus.PENDING, OrderStatus.BOOKED, OrderStatus.PAID].includes(
+          order.status,
+        )
+      ) {
+        return {
+          success: false,
+          message: `ไม่สามารถเปลี่ยนที่นั่งสำหรับสถานะ: ${order.status}`,
+          updatedOrder: null,
+        };
+      }
 
-    // Validate order status
-    if (
-      ![OrderStatus.PENDING, OrderStatus.BOOKED, OrderStatus.PAID].includes(
-        order.status,
-      )
-    ) {
-      throw new BadRequestException(
-        'Cannot change seats for orders with status: ' + order.status,
+      // Validate ticket type
+      if (order.ticketType === TicketType.STANDING) {
+        return {
+          success: false,
+          message: 'ไม่สามารถเปลี่ยนที่นั่งสำหรับบัตรยืน',
+          updatedOrder: null,
+        };
+      }
+
+      // Convert seat numbers to seat IDs
+      const newSeatIds = await this.convertSeatNumbersToIds(newSeatNumbers);
+
+      // Get current seat count
+      const currentSeatCount = order.seatBookings?.length || 0;
+      const newSeatCount = newSeatIds.length;
+
+      this.logger.log(
+        `Current seats: ${currentSeatCount}, New seats: ${newSeatCount}`,
       );
-    }
 
-    // Validate ticket type
-    if (order.ticketType === TicketType.STANDING) {
-      throw new BadRequestException('Cannot change seats for standing tickets');
-    }
+      // Handle different order statuses
+      switch (order.status) {
+        case OrderStatus.PENDING:
+        case OrderStatus.BOOKED:
+          return await this.changePendingBookedSeats(
+            order,
+            newSeatIds,
+            userId,
+            user,
+            newReferrerCode,
+            newCustomerName,
+            newCustomerPhone,
+            newCustomerEmail,
+            newShowDate,
+          );
 
-    // Convert seat numbers to seat IDs
-    const newSeatIds = await this.convertSeatNumbersToIds(newSeatNumbers);
+        case OrderStatus.PAID:
+          return await this.changePaidSeats(
+            order,
+            newSeatIds,
+            userId,
+            user,
+            currentSeatCount,
+            newSeatCount,
+            newShowDate,
+          );
 
-    // Get current seat count
-    const currentSeatCount = order.seatBookings?.length || 0;
-    const newSeatCount = newSeatIds.length;
-
-    this.logger.log(
-      `Current seats: ${currentSeatCount}, New seats: ${newSeatCount}`,
-    );
-
-    // Handle different order statuses
-    switch (order.status) {
-      case OrderStatus.PENDING:
-      case OrderStatus.BOOKED:
-        return await this.changePendingBookedSeats(
-          order,
-          newSeatIds,
-          userId,
-          user,
-          newReferrerCode,
-          newCustomerName,
-          newCustomerPhone,
-          newCustomerEmail,
-          newShowDate,
-        );
-
-      case OrderStatus.PAID:
-        return await this.changePaidSeats(
-          order,
-          newSeatIds,
-          userId,
-          user,
-          currentSeatCount,
-          newSeatCount,
-          newShowDate,
-        );
-
-      default:
-        throw new BadRequestException('Invalid order status for seat changes');
+        default:
+          return {
+            success: false,
+            message: 'สถานะออเดอร์ไม่ถูกต้อง',
+            updatedOrder: null,
+          };
+      }
+    } catch (err: any) {
+      this.logger.error('Change seats failed:', err);
+      return {
+        success: false,
+        message: `เปลี่ยนที่นั่งล้มเหลว: ${err?.message || 'เกิดข้อผิดพลาด'}`,
+        updatedOrder: null,
+      };
     }
   }
 
@@ -1001,7 +1043,7 @@ export class OrderService {
 
     return {
       success: true,
-      message: `Seats changed successfully. ${oldSeatCount} → ${newSeatCount} seats. Amount: ฿${order.totalAmount} → ฿${newPricing.totalAmount}`,
+      message: `เปลี่ยนที่นั่งสำเร็จ จาก ${oldSeatCount} → ${newSeatCount} ที่นั่ง ยอดเงิน ฿${order.totalAmount} → ฿${newPricing.totalAmount}`,
       updatedOrder,
     };
   }
@@ -1219,7 +1261,7 @@ export class OrderService {
       reason: 'Order removed by admin',
     });
 
-    return { success: true, message: 'Order removed successfully' };
+    return { success: true, message: 'ลบออเดอร์สำเร็จ' };
   }
 
   // ==============================================================

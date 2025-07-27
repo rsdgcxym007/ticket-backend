@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { TicketOrderOCR } from '../common/interfaces';
 import { ThailandTimeHelper } from '../common/utils/thailand-time.helper';
 
@@ -28,7 +28,9 @@ export class OcrService {
       return null;
     } catch (error) {
       this.logger.error('❌ เกิดข้อผิดพลาดในการประมวลผลสลิป:', error);
-      throw new Error('ไม่สามารถประมวลผลรูปภาพได้');
+      throw new BadRequestException(
+        'ไม่สามารถประมวลผลรูปภาพได้ กรุณาตรวจสอบไฟล์หรือรูปภาพอีกครั้ง',
+      );
     }
   }
 

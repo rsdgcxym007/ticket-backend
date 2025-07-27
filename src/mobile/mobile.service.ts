@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between } from 'typeorm';
 import { Order } from '../order/order.entity';
@@ -167,7 +167,7 @@ export class MobileService {
     });
 
     if (!zone) {
-      throw new Error('ไม่พบโซนที่ระบุ');
+      throw new NotFoundException('ไม่พบโซนที่ระบุ กรุณาตรวจสอบข้อมูลอีกครั้ง');
     }
 
     const seats = await this.seatRepo.find({
@@ -281,7 +281,9 @@ export class MobileService {
     });
 
     if (!order || order.status !== OrderStatus.PAID) {
-      throw new Error('ไม่พบออเดอร์หรือยังไม่ได้ชำระเงิน');
+      throw new NotFoundException(
+        'ไม่พบออเดอร์หรือยังไม่ได้ชำระเงิน กรุณาตรวจสอบข้อมูลอีกครั้ง',
+      );
     }
 
     // สร้างข้อมูล QR Code
@@ -321,7 +323,7 @@ export class MobileService {
     });
 
     if (!order) {
-      throw new Error('ไม่พบออเดอร์');
+      throw new NotFoundException('ไม่พบออเดอร์ กรุณาตรวจสอบข้อมูลอีกครั้ง');
     }
 
     const timeLeft = order.expiresAt
@@ -534,7 +536,7 @@ export class MobileService {
     });
 
     if (!zone) {
-      throw new Error('ไม่พบโซนที่ระบุ');
+      throw new NotFoundException('ไม่พบโซนที่ระบุ กรุณาตรวจสอบข้อมูลอีกครั้ง');
     }
 
     const seats = await this.seatRepo.find({
@@ -584,7 +586,7 @@ export class MobileService {
     });
 
     if (!zone) {
-      throw new Error('ไม่พบโซนที่ระบุ');
+      throw new NotFoundException('ไม่พบโซนที่ระบุ กรุณาตรวจสอบข้อมูลอีกครั้ง');
     }
 
     const seats = await this.seatRepo.find({
@@ -719,7 +721,9 @@ export class MobileService {
     });
 
     if (!order) {
-      throw new Error('ไม่พบออเดอร์ที่ระบุ');
+      throw new NotFoundException(
+        'ไม่พบออเดอร์ที่ระบุ กรุณาตรวจสอบข้อมูลอีกครั้ง',
+      );
     }
 
     const statusMapping = {
@@ -784,7 +788,9 @@ export class MobileService {
     });
 
     if (!order) {
-      throw new Error('ไม่พบออเดอร์ที่ชำระเงินแล้ว');
+      throw new NotFoundException(
+        'ไม่พบออเดอร์ที่ชำระเงินแล้ว กรุณาตรวจสอบข้อมูลอีกครั้ง',
+      );
     }
 
     const qrData = {
@@ -946,7 +952,9 @@ export class MobileService {
     });
 
     if (!user) {
-      throw new Error('ไม่พบผู้ใช้ที่ระบุ');
+      throw new NotFoundException(
+        'ไม่พบผู้ใช้ที่ระบุ กรุณาตรวจสอบข้อมูลอีกครั้ง',
+      );
     }
 
     await this.userRepo.update(userId, {
@@ -979,7 +987,9 @@ export class MobileService {
     });
 
     if (!user) {
-      throw new Error('ไม่พบผู้ใช้ที่ระบุ');
+      throw new NotFoundException(
+        'ไม่พบผู้ใช้ที่ระบุ กรุณาตรวจสอบข้อมูลอีกครั้ง',
+      );
     }
 
     // สมมติว่าเราบันทึก settings ใน user.preferences

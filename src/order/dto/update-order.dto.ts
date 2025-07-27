@@ -17,7 +17,7 @@ import {
 export class UpdateOrderDto {
   @IsOptional()
   @IsEnum(OrderStatus, {
-    message: 'status must be valid order status',
+    message: 'สถานะต้องเป็นค่าที่ถูกต้องเท่านั้น',
   })
   status?: OrderStatus;
 

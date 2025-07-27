@@ -96,7 +96,7 @@ export class AnalyticsController {
     const targetMonth = month || currentDate.getMonth() + 1;
 
     if (targetMonth < 1 || targetMonth > 12) {
-      throw new BadRequestException('เดือนต้องอยู่ในช่วง 1-12');
+      throw new BadRequestException('กรุณาระบุเดือนให้ถูกต้อง (1-12)');
     }
 
     try {
@@ -275,7 +275,9 @@ export class AnalyticsController {
     @Query('endDate') endDate: string,
   ) {
     if (!startDate || !endDate) {
-      throw new BadRequestException('กรุณาระบุวันที่เริ่มต้นและวันที่สิ้นสุด');
+      throw new BadRequestException(
+        'กรุณาระบุวันที่เริ่มต้นและวันที่สิ้นสุดให้ครบถ้วน',
+      );
     }
 
     try {
