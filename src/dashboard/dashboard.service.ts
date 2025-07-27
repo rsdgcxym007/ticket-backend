@@ -262,9 +262,10 @@ export class DashboardService {
    * คำนวณสถิติตั๋วในช่วงเวลา
    */
   private async getTicketStatsForPeriod(startDate: Date, endDate: Date) {
+    // เปลี่ยนเป็น filter ด้วย showDate แทน createdAt
     const orders = await this.orderRepo.find({
       where: {
-        createdAt: Between(startDate, endDate),
+        showDate: Between(startDate, endDate),
       },
       relations: ['seatBookings'],
     });
@@ -339,28 +340,32 @@ export class DashboardService {
   async getRevenueSummary() {
     this.logger.log('💰 คำนวณสรุปยอดรายได้');
 
-    const now = ThailandTimeHelper.now();
     const today = ThailandTimeHelper.startOfDay();
     const endOfToday = ThailandTimeHelper.endOfDay();
     const thisWeekStart = ThailandTimeHelper.startOfWeek();
+    const endOfWeek = ThailandTimeHelper.endOfWeek();
     const thisMonthStart = ThailandTimeHelper.startOfMonth();
+    const endOfMonth = ThailandTimeHelper.endOfMonth();
 
     // รายได้วันนี้
     const todayRevenue = await this.getRevenueForPeriod(today, endOfToday);
 
     // รายได้สัปดาห์นี้
-    const thisWeekRevenue = await this.getRevenueForPeriod(thisWeekStart, now);
+    const thisWeekRevenue = await this.getRevenueForPeriod(
+      thisWeekStart,
+      endOfWeek,
+    );
 
     // รายได้เดือนนี้
     const thisMonthRevenue = await this.getRevenueForPeriod(
       thisMonthStart,
-      now,
+      endOfMonth,
     );
 
-    // รายได้ทั้งหมด
+    // รายได้ทั้งหมด (ใช้ endOfToday เพื่อให้แสดงถึงปัจจุบัน)
     const allTimeRevenue = await this.getRevenueForPeriod(
       ThailandTimeHelper.toThailandTime('2020-01-01'),
-      now,
+      endOfToday,
     );
 
     return {
@@ -373,13 +378,13 @@ export class DashboardService {
         ...thisWeekRevenue,
         period: 'สัปดาห์นี้',
         startDate: ThailandTimeHelper.format(thisWeekStart, 'YYYY-MM-DD'),
-        endDate: ThailandTimeHelper.format(now, 'YYYY-MM-DD'),
+        endDate: ThailandTimeHelper.format(endOfWeek, 'YYYY-MM-DD'),
       },
       thisMonth: {
         ...thisMonthRevenue,
         period: 'เดือนนี้',
         startDate: ThailandTimeHelper.format(thisMonthStart, 'YYYY-MM-DD'),
-        endDate: ThailandTimeHelper.format(now, 'YYYY-MM-DD'),
+        endDate: ThailandTimeHelper.format(endOfMonth, 'YYYY-MM-DD'),
       },
       allTime: {
         ...allTimeRevenue,
@@ -392,12 +397,40 @@ export class DashboardService {
    * คำนวณรายได้ในช่วงเวลา
    */
   private async getRevenueForPeriod(startDate: Date, endDate: Date) {
-    const paidOrders = await this.orderRepo.find({
-      where: {
-        createdAt: Between(startDate, endDate),
-        status: OrderStatus.PAID,
-      },
-    });
+    this.logger.debug(
+      `getRevenueForPeriod: showDate BETWEEN ${startDate.toISOString()} AND ${endDate.toISOString()}`,
+    );
+    // รองรับทั้ง Date และ string (เช่น allTime)
+    let start = startDate;
+    let end = endDate;
+    if (typeof startDate === 'string') {
+      start = new Date(startDate);
+    }
+    if (typeof endDate === 'string') {
+      end = new Date(endDate);
+    }
+    let paidOrders;
+    // ถ้าเป็น allTime (start = 2020-01-01) ให้ดึงทุก showDate ที่ไม่ null
+    if (
+      start instanceof Date &&
+      start.getFullYear() === 2020 &&
+      start.getMonth() === 0 &&
+      start.getDate() === 1
+    ) {
+      paidOrders = await this.orderRepo.find({
+        where: {
+          showDate: Not(IsNull()),
+          status: OrderStatus.PAID,
+        },
+      });
+    } else {
+      paidOrders = await this.orderRepo.find({
+        where: {
+          showDate: Between(start, end),
+          status: OrderStatus.PAID,
+        },
+      });
+    }
 
     // เฉพาะออเดอร์ที่ชำระด้วยบัตรเครดิต
     const orderCountpaymentCertificate = paidOrders.filter(
@@ -425,13 +458,16 @@ export class DashboardService {
         0,
       ),
     );
+    // คำนวณค่าคอมมิชชั่นเฉพาะ order ที่มี referrerId เท่านั้น
     const totalCommission = Number(
-      paidOrders.reduce(
-        (sum, order) =>
-          sum +
-          Number(order.referrerCommission + order.standingCommission || 0),
-        0,
-      ),
+      paidOrders
+        .filter((order) => order.referrerId)
+        .reduce(
+          (sum, order) =>
+            sum +
+            Number(order.referrerCommission + order.standingCommission || 0),
+          0,
+        ),
     );
     const netRevenue = Number(grossRevenue - totalCommission);
 
