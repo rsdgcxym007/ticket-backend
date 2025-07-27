@@ -472,13 +472,22 @@ export class EnhancedOrderService {
         throw new BadRequestException('Cannot cancel confirmed orders');
       }
 
-      // 2. Cancel order
-      await queryRunner.query(
-        `UPDATE "order" 
-         SET status = $1, "updatedAt" = $2 
-         WHERE id = $3`,
-        [OrderStatus.CANCELLED, ThailandTimeHelper.now(), orderId],
-      );
+      // 2. Cancel order + ลบค่าคอมมิชชั่นถ้ามี referrer
+      if (currentOrder.referrerId || currentOrder.referrerCode) {
+        await queryRunner.query(
+          `UPDATE "order" 
+           SET status = $1, "updatedAt" = $2, "referrerCommission" = 0, "standingCommission" = 0 
+           WHERE id = $3`,
+          [OrderStatus.CANCELLED, ThailandTimeHelper.now(), orderId],
+        );
+      } else {
+        await queryRunner.query(
+          `UPDATE "order" 
+           SET status = $1, "updatedAt" = $2 
+           WHERE id = $3`,
+          [OrderStatus.CANCELLED, ThailandTimeHelper.now(), orderId],
+        );
+      }
 
       // 3. Cancel seat bookings
       await queryRunner.query(

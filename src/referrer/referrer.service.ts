@@ -561,7 +561,7 @@ export class ReferrerService {
     });
 
     const docDefinition = {
-      pageSize: { width: 144, height: 288 }, // 2x4 inch
+      pageSize: { width: 162, height: 288 }, // 57mm x 101.6mm (1mm = 2.83465pt)
       pageMargins: [0, 0, 0, 0],
       content: pages,
       defaultStyle: {
