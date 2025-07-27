@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, Repository } from 'typeorm';
 import { Referrer } from './referrer.entity';
@@ -421,7 +421,8 @@ export class ReferrerService {
    * @param tickets array of ticket objects
    */
   async generateThermalReceiptPdf(tickets: any[]) {
-    if (!tickets || tickets.length === 0) throw new Error('No tickets data');
+    if (!tickets || tickets.length === 0)
+      throw new BadRequestException('ไม่พบข้อมูลบัตรสำหรับออกใบเสร็จ');
 
     const logoPath = path.join(process.cwd(), 'images/LOGOST.png');
     let logoBase64 = '';

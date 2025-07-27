@@ -130,7 +130,7 @@ export class ValidationHelper {
   ): BadRequestException {
     const messages = this.formatErrors(errors);
     return new BadRequestException({
-      message: 'Validation failed',
+      message: 'ข้อมูลไม่ถูกต้อง กรุณาตรวจสอบข้อมูลอีกครั้ง',
       errors: messages,
     });
   }
@@ -230,20 +230,20 @@ export class BusinessValidation {
 
     const userLimits = limits[userRole as keyof typeof limits];
     if (!userLimits) {
-      return { isValid: false, message: 'Invalid user role' };
+      return { isValid: false, message: 'สิทธิ์ผู้ใช้ไม่ถูกต้อง' };
     }
 
     if (requestedQuantity > userLimits.maxPerOrder) {
       return {
         isValid: false,
-        message: `Cannot book more than ${userLimits.maxPerOrder} tickets per order`,
+        message: `ไม่สามารถจองบัตรเกิน ${userLimits.maxPerOrder} ใบต่อครั้งได้`,
       };
     }
 
     if (existingOrders + requestedQuantity > userLimits.maxTotal) {
       return {
         isValid: false,
-        message: `Cannot exceed total limit of ${userLimits.maxTotal} tickets`,
+        message: `ไม่สามารถจองบัตรรวมเกิน ${userLimits.maxTotal} ใบได้`,
       };
     }
 
@@ -259,22 +259,22 @@ export class BusinessValidation {
     transactionId?: string,
   ): { isValid: boolean; message?: string } {
     if (amount <= 0) {
-      return { isValid: false, message: 'Amount must be greater than 0' };
+      return { isValid: false, message: 'จำนวนเงินต้องมากกว่า 0 บาท' };
     }
 
     if (amount > 1000000) {
-      return { isValid: false, message: 'Amount cannot exceed 1,000,000' };
+      return { isValid: false, message: 'จำนวนเงินต้องไม่เกิน 1,000,000 บาท' };
     }
 
     const validMethods = ['BANK_TRANSFER', 'CREDIT_CARD', 'CASH'];
     if (!validMethods.includes(method)) {
-      return { isValid: false, message: 'Invalid payment method' };
+      return { isValid: false, message: 'วิธีการชำระเงินไม่ถูกต้อง' };
     }
 
     if (method !== 'CASH' && !transactionId) {
       return {
         isValid: false,
-        message: 'Transaction ID is required for non-cash payments',
+        message: 'กรุณาระบุเลขที่ธุรกรรมสำหรับการชำระเงินที่ไม่ใช่เงินสด',
       };
     }
 
@@ -291,17 +291,17 @@ export class BusinessValidation {
     const timeDiff = showDate.getTime() - bookingDate.getTime();
     const hoursDiff = timeDiff / (1000 * 60 * 60);
 
-    if (hoursDiff < 2) {
-      return {
-        isValid: false,
-        message: 'Cannot book tickets less than 2 hours before show time',
-      };
-    }
+    // if (hoursDiff < 2) {
+    //   return {
+    //     isValid: false,
+    //     message: 'ไม่สามารถจองตั๋วน้อยกว่า 2 ชั่วโมงก่อนเวลาแสดงได้',
+    //   };
+    // }
 
     if (hoursDiff > 24 * 30) {
       return {
         isValid: false,
-        message: 'Cannot book tickets more than 30 days in advance',
+        message: 'ไม่สามารถจองตั๋วล่วงหน้าเกิน 30 วันได้',
       };
     }
 

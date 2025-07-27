@@ -142,7 +142,7 @@ export class BusinessService {
     if (!data.ticketType) {
       errors.push({
         field: 'ticketType',
-        message: 'Ticket type is required',
+        message: 'กรุณาเลือกประเภทบัตร',
         code: 'REQUIRED',
       });
     }
@@ -150,7 +150,7 @@ export class BusinessService {
     if (!data.quantity || data.quantity < 1) {
       errors.push({
         field: 'quantity',
-        message: 'Quantity must be at least 1',
+        message: 'จำนวนบัตรต้องอย่างน้อย 1 ใบ',
         code: 'INVALID_QUANTITY',
       });
     }
@@ -158,7 +158,7 @@ export class BusinessService {
     if (!data.showDate) {
       errors.push({
         field: 'showDate',
-        message: 'Show date is required',
+        message: 'กรุณาระบุวันที่แสดง',
         code: 'REQUIRED',
       });
     }
@@ -166,7 +166,7 @@ export class BusinessService {
     if (!data.customerName) {
       errors.push({
         field: 'customerName',
-        message: 'Customer name is required',
+        message: 'กรุณาระบุชื่อผู้จอง',
         code: 'REQUIRED',
       });
     }
@@ -178,7 +178,7 @@ export class BusinessService {
     ) {
       errors.push({
         field: 'customerEmail',
-        message: 'Invalid email format',
+        message: 'รูปแบบอีเมลไม่ถูกต้อง',
         code: 'INVALID_EMAIL',
       });
     }
@@ -190,7 +190,7 @@ export class BusinessService {
     ) {
       errors.push({
         field: 'customerPhone',
-        message: 'Invalid phone number format',
+        message: 'รูปแบบเบอร์โทรศัพท์ไม่ถูกต้อง',
         code: 'INVALID_PHONE',
       });
     }
@@ -199,7 +199,7 @@ export class BusinessService {
     if (data.showDate && !ValidationHelper.isDateInFuture(data.showDate)) {
       errors.push({
         field: 'showDate',
-        message: 'Show date must be in the future',
+        message: 'วันที่แสดงต้องเป็นวันในอนาคต',
         code: 'INVALID_DATE',
       });
     }
@@ -223,7 +223,7 @@ export class BusinessService {
     if (!validation.isValid) {
       errors.push({
         field: 'quantity',
-        message: validation.message || 'Booking limit exceeded',
+        message: validation.message || 'จำนวนบัตรที่จองเกินขีดจำกัด',
         code: 'BOOKING_LIMIT_EXCEEDED',
       });
     }
@@ -247,7 +247,7 @@ export class BusinessService {
     if (!validation.isValid) {
       errors.push({
         field: 'payment',
-        message: validation.message || 'Invalid payment data',
+        message: validation.message || 'ข้อมูลการชำระเงินไม่ถูกต้อง',
         code: 'INVALID_PAYMENT',
       });
     }
@@ -332,7 +332,7 @@ export class BusinessService {
 
   createSuccessResponse<T>(
     data: T,
-    message: string = 'Operation successful',
+    message: string = 'ดำเนินการสำเร็จ',
     path?: string,
   ): ApiResponse<T> {
     return {
@@ -351,7 +351,7 @@ export class BusinessService {
   ): ApiResponse {
     return {
       success: false,
-      message,
+      message: message || 'เกิดข้อผิดพลาดในการดำเนินการ',
       errors,
       timestamp: new Date(),
       path,

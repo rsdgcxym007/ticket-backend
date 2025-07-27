@@ -151,10 +151,13 @@ export class ReferrerController {
     // ใช้ public method ใน OrderService เพื่อดึง order
     const order = await this.orderService.getOrderById(orderId);
     const userId = order ? order.userId : null;
-    if (!userId) throw new NotFoundException('Order or user not found');
+    if (!userId)
+      throw new NotFoundException(
+        'ไม่พบข้อมูลออเดอร์หรือผู้ใช้ กรุณาตรวจสอบอีกครั้ง',
+      );
     const result = await this.orderService.generateTickets(orderId, userId);
     if (!result || !result.tickets)
-      throw new NotFoundException('Order not found');
+      throw new NotFoundException('ไม่พบข้อมูลออเดอร์ กรุณาตรวจสอบอีกครั้ง');
 
     const buffer = await this.service.generateThermalReceiptPdf(result.tickets);
     res.setHeader('Content-Type', 'application/pdf');

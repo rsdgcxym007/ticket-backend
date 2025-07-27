@@ -62,7 +62,9 @@ export class DatabaseHelper {
     } = options;
 
     if (page < 1 || limit < 1 || limit > 100) {
-      throw new BadRequestException('Invalid pagination parameters');
+      throw new BadRequestException(
+        'พารามิเตอร์การแบ่งหน้าไม่ถูกต้อง กรุณาระบุหน้าและจำนวนข้อมูลต่อหน้าให้ถูกต้อง',
+      );
     }
 
     try {
@@ -98,7 +100,9 @@ export class DatabaseHelper {
       };
     } catch (error) {
       this.logger.error('Pagination error:', error);
-      throw new InternalServerErrorException('Failed to paginate data');
+      throw new InternalServerErrorException(
+        'เกิดข้อผิดพลาด ไม่สามารถดึงข้อมูล กรุณาลองใหม่หรือติดต่อผู้ดูแลระบบ',
+      );
     }
   }
 
@@ -174,7 +178,7 @@ export class DatabaseHelper {
             });
             if (existing) {
               throw new BadRequestException(
-                `${field} already exists: ${fieldValue}`,
+                `ข้อมูลซ้ำ: ${field} (${fieldValue}) มีอยู่ในระบบแล้ว กรุณาตรวจสอบข้อมูลอีกครั้ง`,
               );
             }
           }
@@ -188,7 +192,9 @@ export class DatabaseHelper {
       if (error instanceof BadRequestException) {
         throw error;
       }
-      throw new InternalServerErrorException('Failed to create entity');
+      throw new InternalServerErrorException(
+        'เกิดข้อผิดพลาด ไม่สามารถสร้างข้อมูล กรุณาลองใหม่หรือติดต่อผู้ดูแลระบบ',
+      );
     }
   }
 

@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, Repository } from 'typeorm';
 import { AuditLog } from './audit-log.entity';
@@ -573,7 +573,7 @@ export class AuditService {
     const auditLog = await this.auditRepo.findOne({ where: { id } });
 
     if (!auditLog) {
-      throw new Error(`Audit log with ID ${id} not found`);
+      throw new NotFoundException(`ไม่พบข้อมูลบันทึก Audit log รหัส ${id}`);
     }
 
     return auditLog;

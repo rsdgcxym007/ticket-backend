@@ -5,6 +5,7 @@ import {
   ForbiddenException,
   NotFoundException,
   InternalServerErrorException,
+  ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, In } from 'typeorm';
@@ -144,7 +145,9 @@ export class OrderService {
     });
 
     if (!user) {
-      throw new BadRequestException('User not found');
+      throw new BadRequestException(
+        'ไม่พบข้อมูลผู้ใช้ที่ระบุ กรุณาตรวจสอบอีกครั้ง',
+      );
     }
 
     request.userId = user.id;
@@ -168,7 +171,9 @@ export class OrderService {
 
       if (!referrer) {
         this.logger.warn(`Invalid referrer code: ${request.referrerCode}`);
-        throw new BadRequestException('Invalid referrer code');
+        throw new BadRequestException(
+          'รหัสผู้แนะนำไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง',
+        );
       }
     }
 
@@ -238,7 +243,7 @@ export class OrderService {
           `Invalid constants: TICKET_PRICES.STANDING_ADULT=${TICKET_PRICES.STANDING_ADULT}, TICKET_PRICES.STANDING_CHILD=${TICKET_PRICES.STANDING_CHILD}, COMMISSION_RATES.STANDING_ADULT=${COMMISSION_RATES.STANDING_ADULT}, COMMISSION_RATES.STANDING_CHILD=${COMMISSION_RATES.STANDING_CHILD}`,
         );
         throw new InternalServerErrorException(
-          'Invalid ticket pricing or commission rates. Please contact support.',
+          'ข้อมูลราคาบัตรหรือค่าคอมมิชชั่นไม่ถูกต้อง กรุณาติดต่อเจ้าหน้าที่',
         );
       }
 
@@ -249,7 +254,7 @@ export class OrderService {
       // Validate calculations
       if (isNaN(adultTotal) || isNaN(childTotal) || isNaN(standingTotal)) {
         throw new BadRequestException(
-          'Invalid standing ticket calculations. Please check ticket quantities and pricing.',
+          'ไม่สามารถคำนวณบัตรยืนได้ กรุณาตรวจสอบจำนวนบัตรและราคาอีกครั้ง',
         );
       }
 
@@ -313,7 +318,9 @@ export class OrderService {
       : savedOrderResult;
 
     if (!savedOrder) {
-      throw new Error('Order not found after saving');
+      throw new InternalServerErrorException(
+        'ไม่พบข้อมูลออเดอร์หลังบันทึก กรุณาติดต่อเจ้าหน้าที่',
+      );
     }
 
     // Create seat bookings
@@ -336,7 +343,9 @@ export class OrderService {
     });
 
     if (!reloadedOrder) {
-      throw new Error('Order not found after reloading');
+      throw new NotFoundException(
+        'ไม่พบข้อมูลออเดอร์หลังโหลดใหม่ กรุณาตรวจสอบอีกครั้ง',
+      );
     }
 
     return {
@@ -373,9 +382,7 @@ export class OrderService {
         operation: 'findAll',
         userId: userId ? 'provided' : 'none',
       });
-
       contextLogger.logWithContext('info', 'Finding orders', { options });
-
       const query = this.orderRepo
         .createQueryBuilder('order')
         .leftJoinAndSelect('order.user', 'user')
@@ -385,7 +392,6 @@ export class OrderService {
         .leftJoinAndSelect('seatBookings.seat', 'seat')
         .leftJoinAndSelect('seat.zone', 'zone')
         .orderBy('order.createdAt', 'DESC');
-
       // User can only see their own orders
       if (userId) {
         const user = await this.userRepo.findOne({ where: { id: userId } });
@@ -393,28 +399,23 @@ export class OrderService {
           query.andWhere('order.userId = :userId', { userId });
         }
       }
-
       if (status) {
         query.andWhere('order.status = :status', { status });
       }
-
       if (search) {
         query.andWhere(
           '(order.orderNumber LIKE :search OR order.customerName LIKE :search OR order.customerPhone LIKE :search)',
           { search: `%${search}%` },
         );
       }
-
       // Manual pagination since we're using query builder
       query.skip((page - 1) * limit).take(limit);
       const [items, total] = await query.getManyAndCount();
-
       contextLogger.logWithContext('info', 'Orders found successfully', {
         total,
         page,
         totalPages: Math.ceil(total / limit),
       });
-
       return {
         items: items.map((order) => this.mapToOrderData(order)),
         total,
@@ -423,6 +424,16 @@ export class OrderService {
         totalPages: Math.ceil(total / limit),
       };
     } catch (error) {
+      // ถ้าเกิด error จาก database (filter cancelled แล้วไม่มี order) ให้คืน array ว่าง
+      if (error && error.name && error.name.includes('QueryFailedError')) {
+        return {
+          items: [],
+          total: 0,
+          page: options.page || 1,
+          limit: options.limit || 10,
+          totalPages: 0,
+        };
+      }
       LoggingHelper.logError(
         this.logger,
         error as Error,
@@ -455,7 +466,7 @@ export class OrderService {
     });
 
     if (!order) {
-      return null;
+      throw new NotFoundException('Order not found');
     }
 
     console.log('order', order);
@@ -558,7 +569,7 @@ export class OrderService {
     }
 
     if (order.status === OrderStatus.CANCELLED) {
-      throw new BadRequestException('Order is already cancelled');
+      throw new ConflictException('Order is already cancelled');
     }
 
     // Cancel order
@@ -584,7 +595,7 @@ export class OrderService {
       reason: 'Order cancelled by user',
     });
 
-    return { success: true, message: 'Order cancelled successfully' };
+    return { success: true, message: 'ยกเลิกออเดอร์สำเร็จ' };
   }
 
   // ===============================================================
@@ -644,7 +655,7 @@ export class OrderService {
       reason: 'Payment confirmed by staff',
     });
 
-    return { success: true, message: 'Payment confirmed successfully' };
+    return { success: true, message: 'ยืนยันการชำระเงินสำเร็จ' };
   }
 
   // ============================================================
@@ -1001,7 +1012,7 @@ export class OrderService {
 
     return {
       success: true,
-      message: `Seats changed successfully. ${oldSeatCount} → ${newSeatCount} seats. Amount: ฿${order.totalAmount} → ฿${newPricing.totalAmount}`,
+      message: `เปลี่ยนที่นั่งสำเร็จ จาก ${oldSeatCount} → ${newSeatCount} ที่นั่ง ยอดเงิน ฿${order.totalAmount} → ฿${newPricing.totalAmount}`,
       updatedOrder,
     };
   }
@@ -1219,7 +1230,7 @@ export class OrderService {
       reason: 'Order removed by admin',
     });
 
-    return { success: true, message: 'Order removed successfully' };
+    return { success: true, message: 'ลบออเดอร์สำเร็จ' };
   }
 
   // ==============================================================

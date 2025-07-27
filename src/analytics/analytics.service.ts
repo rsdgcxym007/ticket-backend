@@ -179,6 +179,7 @@ export class AnalyticsService {
       {} as Record<string, number>,
     );
 
+    // สำเร็จ: คืนข้อมูลสรุปยอดขายรายวัน
     return {
       date,
       totalOrders,
@@ -242,6 +243,7 @@ export class AnalyticsService {
       )
       .getMany();
 
+    // สำเร็จ: คืนข้อมูลรายงานผู้แนะนำ
     return referrers.map((referrer) => {
       const orders = referrer.orders || [];
       const totalRevenue = orders.reduce(
@@ -252,7 +254,6 @@ export class AnalyticsService {
         (sum, order) => sum + Number(order.referrerCommission || 0),
         0,
       );
-
       return {
         referrerId: referrer.id,
         referrerCode: referrer.code,
@@ -297,6 +298,7 @@ export class AnalyticsService {
 
     const revenuePerSeat = paidSeats > 0 ? totalRevenue / paidSeats : 0;
 
+    // สำเร็จ: คืนข้อมูลการใช้งานที่นั่ง
     return {
       date,
       totalSeats,
@@ -332,6 +334,7 @@ export class AnalyticsService {
     // ที่นั่งที่ว่างวันนี้
     const seatUtilization = await this.getSeatUtilizationReport(today);
 
+    // สำเร็จ: คืนข้อมูลสรุปสถิติแบบ Real-time
     return {
       today: todayReport,
       pendingOrders,
@@ -382,6 +385,7 @@ export class AnalyticsService {
         ? ((thisWeekRevenue - lastWeekRevenue) / lastWeekRevenue) * 100
         : 0;
 
+    // สำเร็จ: คืนข้อมูลเปรียบเทียบยอดขายรายสัปดาห์
     return {
       thisWeek: {
         orders: thisWeekOrders.length,
@@ -482,6 +486,7 @@ export class AnalyticsService {
       });
     }
 
+    // สำเร็จ: คืนข้อมูลรายงานยอดขายช่วงวันที่
     return {
       startDate,
       endDate,
@@ -726,6 +731,7 @@ export class AnalyticsService {
     const customerRetentionRate =
       totalCustomers > 0 ? (returningCustomers / totalCustomers) * 100 : 0;
 
+    // สำเร็จ: คืนค่าเมตริกการประสิทธิภาพสำหรับ dev/user
     return {
       conversionRate,
       averageOrderValue,
@@ -766,6 +772,7 @@ export class AnalyticsService {
       where: { status: BookingStatus.AVAILABLE },
     });
 
+    // สำเร็จ: คืนค่าสถิติเรียลไทม์สำหรับ dev/user
     return {
       todayOrders,
       todayRevenue: Number(todayRevenue?.total || 0),
@@ -808,6 +815,7 @@ export class AnalyticsService {
 
     const orders = await query.getMany();
 
+    // สำเร็จ: คืนข้อมูลรายงานแบบกำหนดเอง
     return {
       reportName: dto.reportName,
       totalRecords: orders.length,

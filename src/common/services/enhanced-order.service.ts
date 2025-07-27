@@ -3,6 +3,8 @@ import {
   Logger,
   BadRequestException,
   InternalServerErrorException,
+  ConflictException,
+  NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, Between, In } from 'typeorm';
@@ -77,7 +79,7 @@ export class EnhancedOrderService {
       // 1. Validate user exists - เหมือน createOrder
       const user = await this.userRepo.findOne({ where: { id: userId } });
       if (!user) {
-        throw new BadRequestException('User not found');
+        throw new BadRequestException('ไม่พบข้อมูลผู้ใช้');
       }
 
       // 2. Validate booking limits - เพิ่มจาก createOrder
@@ -118,7 +120,9 @@ export class EnhancedOrderService {
 
         if (!referrer) {
           this.logger.warn(`Invalid referrer code: ${orderData.referrerCode}`);
-          throw new BadRequestException('Invalid referrer code');
+          throw new BadRequestException(
+            'ไม่พบผู้แนะนำที่มีรหัส: ' + orderData.referrerCode,
+          );
         }
       }
 
@@ -189,7 +193,7 @@ export class EnhancedOrderService {
             `Invalid constants: TICKET_PRICES.STANDING_ADULT=${TICKET_PRICES.STANDING_ADULT}, TICKET_PRICES.STANDING_CHILD=${TICKET_PRICES.STANDING_CHILD}`,
           );
           throw new InternalServerErrorException(
-            'Invalid ticket pricing or commission rates. Please contact support.',
+            'ข้อมูลราคาตั๋วหรือค่าคอมมิชชั่นไม่ถูกต้อง กรุณาติดต่อเจ้าหน้าที่',
           );
         }
 
@@ -200,7 +204,7 @@ export class EnhancedOrderService {
         // Validate calculations
         if (isNaN(adultTotal) || isNaN(childTotal) || isNaN(standingTotal)) {
           throw new BadRequestException(
-            'Invalid standing ticket calculations. Please check ticket quantities and pricing.',
+            'คำนวณราคาตั๋วยืนผิดพลาด กรุณาตรวจสอบจำนวนตั๋วและราคา',
           );
         }
 
@@ -277,7 +281,9 @@ export class EnhancedOrderService {
       });
 
       if (!reloadedOrder) {
-        throw new Error('Order not found after reloading');
+        throw new NotFoundException(
+          'ไม่พบข้อมูลออเดอร์หลังโหลดใหม่ กรุณาตรวจสอบอีกครั้ง',
+        );
       }
 
       // 15. Send real-time notifications
@@ -347,7 +353,9 @@ export class EnhancedOrderService {
     const seats = await this.seatRepo.findByIds(seatIds);
 
     if (!seats || seats.length !== seatIds.length) {
-      throw new BadRequestException('ไม่พบที่นั่งบางที่');
+      throw new BadRequestException(
+        'ไม่พบข้อมูลที่นั่งบางที่ กรุณาตรวจสอบอีกครั้ง',
+      );
     }
 
     const bookedSeats = await this.seatBookingRepo.find({
@@ -359,7 +367,7 @@ export class EnhancedOrderService {
     });
 
     if (bookedSeats.length > 0) {
-      throw new BadRequestException('Some seats are already booked');
+      throw new BadRequestException('ที่นั่งบางที่ถูกจองไปแล้ว กรุณาเลือกใหม่');
     }
   }
   /**
@@ -385,17 +393,17 @@ export class EnhancedOrderService {
       );
 
       if (!order || order.length === 0) {
-        throw new BadRequestException('Order not found');
+        throw new BadRequestException('ไม่พบข้อมูลออเดอร์ที่ต้องการแก้ไข');
       }
 
       // 2. Validate update permissions
       const currentOrder = order[0];
       if (currentOrder.userId !== userId) {
-        throw new BadRequestException('You can only update your own orders');
+        throw new BadRequestException('คุณสามารถแก้ไขออเดอร์ของตนเองเท่านั้น');
       }
 
       if (currentOrder.status === OrderStatus.CONFIRMED) {
-        throw new BadRequestException('Cannot update confirmed orders');
+        throw new BadRequestException('ไม่สามารถแก้ไขออเดอร์ที่ยืนยันแล้ว');
       }
 
       // 3. Handle seat changes if needed
@@ -443,7 +451,12 @@ export class EnhancedOrderService {
   async cancelOrderWithConcurrencyControl(
     orderId: string,
     userId: string,
-  ): Promise<{ success: boolean; message: string }> {
+  ): Promise<{
+    success: boolean;
+    id: string;
+    status: string;
+    message: string;
+  }> {
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
@@ -460,16 +473,14 @@ export class EnhancedOrderService {
       );
 
       if (!order || order.length === 0) {
-        throw new BadRequestException('Order not found');
+        throw new BadRequestException('ไม่พบข้อมูลออเดอร์ที่ต้องการยกเลิก');
       }
 
       const currentOrder = order[0];
-      if (currentOrder.userId !== userId) {
-        throw new BadRequestException('You can only cancel your own orders');
-      }
 
-      if (currentOrder.status === OrderStatus.CONFIRMED) {
-        throw new BadRequestException('Cannot cancel confirmed orders');
+      // ถ้า userId ไม่ได้ส่งมา (undefined) ให้ข้ามการตรวจสอบนี้ (เช่น admin หรือระบบ)
+      if (userId && currentOrder.userId !== userId) {
+        throw new BadRequestException('คุณสามารถยกเลิกออเดอร์ของตนเองเท่านั้น');
       }
 
       // 2. Cancel order + ลบค่าคอมมิชชั่นถ้ามี referrer (คืนค่าคอมมิชชั่นเฉพาะออเดอร์ที่ยังไม่ถูกยกเลิก)
@@ -501,6 +512,8 @@ export class EnhancedOrderService {
         }
       } else {
         this.logger.warn(`Order already cancelled, skip subtract commission.`);
+        // Throw 409 Conflict
+        throw new ConflictException('ออเดอร์นี้ถูกยกเลิกไปแล้ว');
       }
 
       // 2.1 อัปเดต payment ที่เกี่ยวข้องกับ order นี้ให้เป็น CANCELLED ด้วย
@@ -557,7 +570,12 @@ export class EnhancedOrderService {
 
       this.logger.log(`✅ Successfully cancelled order: ${orderId}`);
 
-      return { success: true, message: 'Order cancelled successfully' };
+      return {
+        success: true,
+        id: orderId,
+        status: OrderStatus.CANCELLED,
+        message: 'Order cancelled successfully',
+      };
     } catch (error) {
       await queryRunner.rollbackTransaction();
       this.logger.error(`❌ Failed to cancel order: ${error.message}`);
@@ -601,7 +619,9 @@ export class EnhancedOrderService {
       );
 
       if (lockedSeats.length !== seatsToAdd.length) {
-        throw new BadRequestException('Some seats are not available');
+        throw new BadRequestException(
+          'ที่นั่งใหม่บางที่ไม่สามารถจองได้ กรุณาเลือกใหม่',
+        );
       }
 
       // Check for conflicting bookings
@@ -618,7 +638,9 @@ export class EnhancedOrderService {
       );
 
       if (conflicts.length > 0) {
-        throw new BadRequestException('Some seats are already booked');
+        throw new BadRequestException(
+          'ที่นั่งใหม่บางที่ถูกจองไปแล้ว กรุณาเลือกใหม่',
+        );
       }
     }
 
@@ -679,7 +701,7 @@ export class EnhancedOrderService {
         `User ${user.id} exceeded max seats per order: ${totalSeats} > ${limits.maxSeatsPerOrder}`,
       );
       throw new BadRequestException(
-        `${user.role} สามารถจองได้สูงสุด ${limits.maxSeatsPerOrder} ที่นั่งต่อคำสั่ง`,
+        `สิทธิ์ของ${user.role} สามารถจองได้สูงสุด ${limits.maxSeatsPerOrder} ที่นั่งต่อคำสั่ง`,
       );
     }
 
@@ -700,7 +722,7 @@ export class EnhancedOrderService {
         `User ${user.id} exceeded max orders per day: ${todayOrders} >= ${limits.maxOrdersPerDay}`,
       );
       throw new BadRequestException(
-        `${user.role} สามารถทำรายการได้สูงสุด ${limits.maxOrdersPerDay} ครั้งต่อวัน`,
+        `สิทธิ์ของ${user.role} สามารถทำรายการได้สูงสุด ${limits.maxOrdersPerDay} ครั้งต่อวัน`,
       );
     }
   }
