@@ -83,7 +83,11 @@ export class EnhancedOrderService {
       }
 
       // 2. Validate booking limits - เพิ่มจาก createOrder
-      await this.validateBookingLimits(user, orderData);
+      try {
+        await this.validateBookingLimits(user, orderData);
+      } catch (e) {
+        throw new BadRequestException(e?.message || 'Booking limit error');
+      }
       this.logger.log(`Booking limits validated for user: ${user.id}`);
 
       // 3. Prevent duplicate orders
@@ -343,6 +347,14 @@ export class EnhancedOrderService {
         await this.concurrencyService.releaseSeatLocks(seatLocks);
       }
 
+      // ถ้าเป็น HttpException อยู่แล้ว ให้ throw ทิ้งไปเลย (NestJS จะจัดการ message ให้เอง)
+      if (
+        error instanceof BadRequestException ||
+        error instanceof NotFoundException ||
+        error instanceof ConflictException
+      ) {
+        throw error;
+      }
       throw error;
     }
   }
@@ -500,14 +512,24 @@ export class EnhancedOrderService {
           [OrderStatus.CANCELLED, ThailandTimeHelper.now(), orderId],
         );
 
-        // อัปเดต totalCommission ของ referrer (ถ้ามี referrerId จริง)
-        if (currentOrder.referrerId && totalToSubtract > 0) {
+        // ตรวจสอบสถานะการจ่ายเงินก่อนลบค่าคอมมิชชั่น
+        // ถ้าออเดอร์นี้จ่ายเงินแล้ว (เช่น status เป็น PAID หรือ CONFIRMED) ให้ลบค่าคอมมิชชั่น
+        const paidStatuses = [OrderStatus.PAID, OrderStatus.CONFIRMED];
+        if (
+          currentOrder.referrerId &&
+          totalToSubtract > 0 &&
+          paidStatuses.includes(currentOrder.status)
+        ) {
           this.logger.log(
             `Updating referrer totalCommission: referrerId=${currentOrder.referrerId}, subtract=${totalToSubtract}`,
           );
           await queryRunner.query(
             `UPDATE referrer SET "totalCommission" = COALESCE("totalCommission",0) - $1 WHERE id = $2`,
             [totalToSubtract, currentOrder.referrerId],
+          );
+        } else if (currentOrder.referrerId && totalToSubtract > 0) {
+          this.logger.log(
+            `Skip subtract commission for referrerId=${currentOrder.referrerId} because order is not paid (status=${currentOrder.status})`,
           );
         }
       } else {

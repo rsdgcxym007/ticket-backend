@@ -36,6 +36,9 @@ export class ReferrerService {
     return this.repo.find();
   }
 
+  async findAllActive() {
+    return this.repo.find({ where: { isActive: true } });
+  }
   async findOne(id: string) {
     return this.repo.findOneByOrFail({ id });
   }
@@ -45,34 +48,51 @@ export class ReferrerService {
     limit = 10,
     status,
     search,
+    sortBy = 'latest',
   }: {
     page?: number;
     limit?: number;
     status?: string;
     search?: string;
+    sortBy?: string;
   }) {
     const skip = (page - 1) * limit;
 
     const qb = this.repo.createQueryBuilder('referrer');
 
     if (status !== undefined) {
-      qb.andWhere('referrer.active = :status', {
-        status: status === 'true' || status === '1',
+      qb.andWhere('referrer.isActive = :isActive', {
+        isActive: status === 'true' || status === '1',
       });
     }
 
     if (search) {
+      const searchValue = `%${search.toLowerCase()}%`;
       qb.andWhere(
-        '(referrer.name ILIKE :search OR referrer.code ILIKE :search)',
-        { search: `%${search}%` },
+        '(LOWER(referrer.name) LIKE :search OR LOWER(referrer.code) LIKE :search)',
+        { search: searchValue },
       );
     }
 
-    const [items, total] = await qb
-      .orderBy('referrer.createdAt', 'DESC')
-      .skip(skip)
-      .take(limit)
-      .getManyAndCount();
+    // Sorting
+    switch (sortBy) {
+      case 'latest':
+        qb.orderBy('referrer.createdAt', 'DESC');
+        break;
+      case 'oldest':
+        qb.orderBy('referrer.createdAt', 'ASC');
+        break;
+      case 'name_asc':
+        qb.orderBy('referrer.name', 'ASC');
+        break;
+      case 'name_desc':
+        qb.orderBy('referrer.name', 'DESC');
+        break;
+      default:
+        qb.orderBy('referrer.createdAt', 'DESC');
+    }
+
+    const [items, total] = await qb.skip(skip).take(limit).getManyAndCount();
 
     return {
       items,
@@ -105,7 +125,12 @@ export class ReferrerService {
 
   async getReferrerOrders(
     referrerId: string,
-    query: { startDate?: string; endDate?: string },
+    filters: {
+      startDate?: string;
+      endDate?: string;
+      status?: string;
+      paymentMethod?: string;
+    },
   ) {
     const qb = this.orderRepo
       .createQueryBuilder('order')
@@ -119,18 +144,27 @@ export class ReferrerService {
       .where('referrer.id = :referrerId', { referrerId })
       .orderBy('order.createdAt', 'DESC');
 
-    if (query.startDate && query.endDate) {
-      const startDate = dayjs(query.startDate)
+    if (filters.startDate && filters.endDate) {
+      const startDate = dayjs(filters.startDate)
         .tz('Asia/Bangkok')
         .startOf('day')
         .toDate();
-      const endDate = dayjs(query.endDate)
+      const endDate = dayjs(filters.endDate)
         .tz('Asia/Bangkok')
         .endOf('day')
         .toDate();
       qb.andWhere('order.createdAt BETWEEN :startDate AND :endDate', {
         startDate,
         endDate,
+      });
+    }
+
+    if (filters.status) {
+      qb.andWhere('order.status = :status', { status: filters.status });
+    }
+    if (filters.paymentMethod) {
+      qb.andWhere('payment.method = :paymentMethod', {
+        paymentMethod: filters.paymentMethod,
       });
     }
 

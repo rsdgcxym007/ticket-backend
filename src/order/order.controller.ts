@@ -96,19 +96,19 @@ export class OrderController {
 
       // Handle specific concurrency errors
       if (
-        err.message.includes('duplicate') ||
-        err.message.includes('DUPLICATE')
+        err.message &&
+        (err.message.includes('duplicate') || err.message.includes('DUPLICATE'))
       ) {
-        return error(err.message, '409', req);
+        throw new ConflictException(err.message);
       }
       if (
-        err.message.includes('rate limit') ||
-        err.message.includes('RATE_LIMIT')
+        err.message &&
+        (err.message.includes('rate limit') ||
+          err.message.includes('RATE_LIMIT'))
       ) {
-        return error(err.message, '429', req);
+        throw new BadRequestException(err.message);
       }
-
-      return error(err.message, '400', req);
+      throw new BadRequestException(err.message);
     }
   }
 
@@ -379,33 +379,42 @@ export class OrderController {
           result && result.message ? result.message : 'Change seats failed',
         );
       }
-      // robust: ถ้า success === true แต่ไม่มี id หรือ seatIds ไม่ใช่ array/ว่าง ให้ throw 400
+      // robust: ถ้า success === true แต่ไม่มี id หรือไม่มี seatBookings/seats ที่เป็น array ไม่ว่าง ให้ throw 400
       if (result.success === true) {
         // Helper: get nested order object
         const getOrderObj = (res: any) => {
           if (res && typeof res === 'object') {
-            if (res.updatedOrder && typeof res.updatedOrder === 'object')
+            if (res.updatedOrder && typeof res.updatedOrder === 'object') {
               return res.updatedOrder;
-            if (res.data && typeof res.data === 'object') return res.data;
+            }
+            if (res.data && typeof res.data === 'object') {
+              return res.data;
+            }
           }
           return res;
         };
         const orderObj = getOrderObj(result);
-        if (
-          !orderObj?.id ||
-          !Array.isArray(orderObj?.seatIds) ||
-          orderObj?.seatIds.length === 0
-        ) {
+        // ตรวจสอบ id และ array ที่เกี่ยวกับที่นั่ง (seatIds, seatBookings, seats)
+        const hasValidSeats =
+          (Array.isArray(orderObj?.seatIds) && orderObj.seatIds.length > 0) ||
+          (Array.isArray(orderObj?.seatBookings) &&
+            orderObj.seatBookings.length > 0) ||
+          (Array.isArray(orderObj?.seats) && orderObj.seats.length > 0);
+        if (!orderObj?.id || !hasValidSeats) {
           throw new BadRequestException('Change seats failed: invalid result');
         }
       }
       return success(result, 'เปลี่ยนที่นั่งสำเร็จ', req);
     } catch (err) {
       // ถ้าเป็น HttpException ให้ throw ออกไปเลย เพื่อให้ NestJS ตอบ status code ที่ถูกต้อง
-      if (err instanceof BadRequestException) throw err;
-      if (err.status === 400 || err.name === 'BadRequestException')
+      if (err instanceof BadRequestException) {
+        throw err;
+      }
+      if (err.status === 400 || err.name === 'BadRequestException') {
         throw new BadRequestException(err.message);
-      return error(err.message, '400', req);
+      }
+      // ถ้าไม่ใช่ BadRequestException ให้ throw 500
+      throw err;
     }
   }
 

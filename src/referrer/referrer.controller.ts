@@ -40,14 +40,31 @@ export class ReferrerController {
     @Query('limit') limit = 10,
     @Query('status') status: string,
     @Query('search') search: string,
+    @Query('sortBy') sortBy: string = 'createdAt',
   ) {
     const data = await this.service.findAllWithPagination({
       page: +page,
       limit: +limit,
       status,
       search,
+      sortBy,
     });
     return ApiResponseHelper.success(data, 'Referrers fetched with pagination');
+  }
+
+  @Get('master-data')
+  async getReferrerMasterData() {
+    const referrers = (await this.service.findAllActive)
+      ? await this.service.findAllActive()
+      : (await this.service.findAll()).filter((r: any) => r.isActive);
+    if (Array.isArray(referrers) && referrers.length > 0) {
+      const options = [
+        { value: undefined, label: 'ทั้งหมด' },
+        ...referrers.map((r: any) => ({ value: r.code, label: r.name })),
+      ];
+      return ApiResponseHelper.success(options, 'Referrer master data');
+    }
+    return ApiResponseHelper.success([], 'Referrer master data');
   }
 
   @Get(':id/orders')
@@ -55,10 +72,14 @@ export class ReferrerController {
     @Param('id') id: string,
     @Query('startDate') startDate: string,
     @Query('endDate') endDate: string,
+    @Query('status') status?: string,
+    @Query('paymentMethod') paymentMethod?: string,
   ) {
     const data = await this.service.getReferrerOrders(id, {
       startDate,
       endDate,
+      status,
+      paymentMethod,
     });
     return ApiResponseHelper.success(data, 'Orders fetched');
   }

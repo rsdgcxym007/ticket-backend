@@ -403,9 +403,10 @@ export class OrderService {
         query.andWhere('order.status = :status', { status });
       }
       if (search) {
+        const searchValue = `%${search.toLowerCase()}%`;
         query.andWhere(
-          '(order.orderNumber LIKE :search OR order.customerName LIKE :search OR order.customerPhone LIKE :search)',
-          { search: `%${search}%` },
+          '(LOWER(order.orderNumber) LIKE :search OR LOWER(order.customerName) LIKE :search OR LOWER(order.customerPhone) LIKE :search)',
+          { search: searchValue },
         );
       }
       // Manual pagination since we're using query builder
@@ -790,82 +791,112 @@ export class OrderService {
     newShowDate?: string,
   ): Promise<{ success: boolean; message: string; updatedOrder?: any }> {
     this.logger.log(`🔄 Changing seats for order ${id} by user ${userId}`);
+    try {
+      const user = await this.userRepo.findOne({ where: { id: userId } });
+      if (!user) {
+        return {
+          success: false,
+          message: 'ไม่พบผู้ใช้',
+          updatedOrder: null,
+        };
+      }
 
-    const user = await this.userRepo.findOne({ where: { id: userId } });
-    if (!user) {
-      throw new BadRequestException('User not found');
-    }
+      const order = await this.orderRepo.findOne({
+        where: { id },
+        relations: ['seatBookings', 'seatBookings.seat', 'referrer', 'payment'],
+      });
 
-    const order = await this.orderRepo.findOne({
-      where: { id },
-      relations: ['seatBookings', 'seatBookings.seat', 'referrer', 'payment'],
-    });
+      if (!order) {
+        return {
+          success: false,
+          message: 'ไม่พบออเดอร์',
+          updatedOrder: null,
+        };
+      }
 
-    if (!order) {
-      throw new NotFoundException('Order not found');
-    }
+      // Only staff and admin can change seats
+      if (user.role !== UserRole.STAFF && user.role !== UserRole.ADMIN) {
+        return {
+          success: false,
+          message: 'เฉพาะแอดมินหรือสตาฟเท่านั้นที่เปลี่ยนที่นั่งได้',
+          updatedOrder: null,
+        };
+      }
 
-    // Only staff and admin can change seats
-    if (user.role !== UserRole.STAFF && user.role !== UserRole.ADMIN) {
-      throw new ForbiddenException('Only staff and admin can change seats');
-    }
+      // Validate order status
+      if (
+        ![OrderStatus.PENDING, OrderStatus.BOOKED, OrderStatus.PAID].includes(
+          order.status,
+        )
+      ) {
+        return {
+          success: false,
+          message: `ไม่สามารถเปลี่ยนที่นั่งสำหรับสถานะ: ${order.status}`,
+          updatedOrder: null,
+        };
+      }
 
-    // Validate order status
-    if (
-      ![OrderStatus.PENDING, OrderStatus.BOOKED, OrderStatus.PAID].includes(
-        order.status,
-      )
-    ) {
-      throw new BadRequestException(
-        'Cannot change seats for orders with status: ' + order.status,
+      // Validate ticket type
+      if (order.ticketType === TicketType.STANDING) {
+        return {
+          success: false,
+          message: 'ไม่สามารถเปลี่ยนที่นั่งสำหรับบัตรยืน',
+          updatedOrder: null,
+        };
+      }
+
+      // Convert seat numbers to seat IDs
+      const newSeatIds = await this.convertSeatNumbersToIds(newSeatNumbers);
+
+      // Get current seat count
+      const currentSeatCount = order.seatBookings?.length || 0;
+      const newSeatCount = newSeatIds.length;
+
+      this.logger.log(
+        `Current seats: ${currentSeatCount}, New seats: ${newSeatCount}`,
       );
-    }
 
-    // Validate ticket type
-    if (order.ticketType === TicketType.STANDING) {
-      throw new BadRequestException('Cannot change seats for standing tickets');
-    }
+      // Handle different order statuses
+      switch (order.status) {
+        case OrderStatus.PENDING:
+        case OrderStatus.BOOKED:
+          return await this.changePendingBookedSeats(
+            order,
+            newSeatIds,
+            userId,
+            user,
+            newReferrerCode,
+            newCustomerName,
+            newCustomerPhone,
+            newCustomerEmail,
+            newShowDate,
+          );
 
-    // Convert seat numbers to seat IDs
-    const newSeatIds = await this.convertSeatNumbersToIds(newSeatNumbers);
+        case OrderStatus.PAID:
+          return await this.changePaidSeats(
+            order,
+            newSeatIds,
+            userId,
+            user,
+            currentSeatCount,
+            newSeatCount,
+            newShowDate,
+          );
 
-    // Get current seat count
-    const currentSeatCount = order.seatBookings?.length || 0;
-    const newSeatCount = newSeatIds.length;
-
-    this.logger.log(
-      `Current seats: ${currentSeatCount}, New seats: ${newSeatCount}`,
-    );
-
-    // Handle different order statuses
-    switch (order.status) {
-      case OrderStatus.PENDING:
-      case OrderStatus.BOOKED:
-        return await this.changePendingBookedSeats(
-          order,
-          newSeatIds,
-          userId,
-          user,
-          newReferrerCode,
-          newCustomerName,
-          newCustomerPhone,
-          newCustomerEmail,
-          newShowDate,
-        );
-
-      case OrderStatus.PAID:
-        return await this.changePaidSeats(
-          order,
-          newSeatIds,
-          userId,
-          user,
-          currentSeatCount,
-          newSeatCount,
-          newShowDate,
-        );
-
-      default:
-        throw new BadRequestException('Invalid order status for seat changes');
+        default:
+          return {
+            success: false,
+            message: 'สถานะออเดอร์ไม่ถูกต้อง',
+            updatedOrder: null,
+          };
+      }
+    } catch (err: any) {
+      this.logger.error('Change seats failed:', err);
+      return {
+        success: false,
+        message: `เปลี่ยนที่นั่งล้มเหลว: ${err?.message || 'เกิดข้อผิดพลาด'}`,
+        updatedOrder: null,
+      };
     }
   }
 
