@@ -437,34 +437,18 @@ export class ReferrerService {
 
     const pages = tickets.map((ticket, idx) => {
       const seat = ticket.seatNumber || '-';
-      const zone = ticket.zone?.name || '-';
-      const type =
-        ticket.type === 'STANDING' ? 'Standing' : ticket.ticketCategory || '-';
+      // const zone = ticket.zone?.name || '-';
+      const type = ticket.type === 'STANDING' ? 'STANDING' : ticket.type || '-';
 
       return {
         stack: [
-          // 🟦 Debug line (optional): ลบได้ถ้าไม่ต้องการ
-          {
-            canvas: [
-              {
-                type: 'line',
-                x1: 0,
-                y1: 0,
-                x2: 144, // ความกว้างหน้ากระดาษ
-                y2: 0,
-                lineWidth: 0.5,
-                lineColor: 'red',
-              },
-            ],
-          },
-
           ...(logoBase64
             ? [
                 {
                   image: logoBase64,
-                  width: 36,
+                  width: 50,
                   alignment: 'center',
-                  margin: [0, 0, 0, 6],
+                  margin: [0, 0, 0, 10],
                   ...(idx > 0 ? { pageBreak: 'before' } : {}),
                 },
               ]
@@ -474,97 +458,111 @@ export class ReferrerService {
             text: 'PATONG BOXING STADIUM',
             alignment: 'center',
             bold: true,
-            fontSize: 10,
+            fontSize: 11,
+            margin: [0, 0, 0, 2],
           },
           {
-            text:
-              '2/59 Soi Keb Sub 2, Sai Nam Yen RD\n' +
-              'Patong Beach, Phuket 83150\n' +
-              'Tel. 076-345578, 086-4761724, 080-5354042',
+            text: '2/59 Soi Keb Sub 2 Sai Nam Yen RD.\nPatong Beach , Phuket 83150',
+            alignment: 'center',
+            fontSize: 8,
+            margin: [0, 0, 0, 2],
+          },
+          {
+            text: 'Tel. 076-345578,086-4761724,080-5354042',
             alignment: 'center',
             fontSize: 7,
-            margin: [0, 2, 0, 6],
-          },
-
-          {
-            canvas: [
-              {
-                type: 'line',
-                x1: 0,
-                y1: 0,
-                x2: 132,
-                y2: 0,
-                lineWidth: 0.5,
-                lineColor: '#000',
-              },
-            ],
-            margin: [0, 2, 0, 6],
+            margin: [0, 0, 0, 3],
           },
 
           {
             table: {
-              widths: ['28%', '*'],
+              widths: ['auto', '*'],
               body: [
                 ['Order', ticket.orderNumber || '-'],
                 ['Date', ticket.showDate || '-'],
                 ['Name', ticket.customerName || '-'],
-                ['Seat', seat],
-                ['Zone', zone],
-                ['Type', type],
               ].map(([label, value]) => [
-                { text: `${label} :`, bold: true, fontSize: 8 },
-                { text: value, fontSize: 8 },
+                {
+                  text: `${label} :`,
+                  bold: true,
+                  fontSize: 12,
+                  alignment: 'center',
+                },
+                { text: value, fontSize: 12, alignment: 'center' },
               ]),
             },
             layout: 'noBorders',
+            margin: [10, 0, 3, -3],
           },
 
-          {
-            canvas: [
-              {
-                type: 'line',
-                x1: 0,
-                y1: 0,
-                x2: 132,
-                y2: 0,
-                lineWidth: 0.5,
-                lineColor: '#ccc',
-              },
-            ],
-            margin: [0, 6, 0, 2],
-          },
+          ...(type === 'STANDING'
+            ? [
+                {
+                  text: 'STADIUM',
+                  alignment: 'center',
+                  fontSize: 22,
+                  bold: true,
+                  margin: [0, 0, 0, -10],
+                },
+                {
+                  text: 'SEAT',
+                  alignment: 'center',
+                  fontSize: 18,
+                  bold: true,
+                  margin: [0, 0, 0, 0],
+                },
+              ]
+            : [
+                {
+                  text: type?.toUpperCase() || 'ZONE',
+                  alignment: 'center',
+                  fontSize: 16,
+                  bold: true,
+                  margin: [0, 0, 0, -4],
+                },
+                {
+                  text: 'SEAT NO :',
+                  alignment: 'center',
+                  fontSize: 10,
+                  margin: [0, 0, 0, -4],
+                },
+                {
+                  text: seat,
+                  alignment: 'center',
+                  fontSize: 24,
+                  bold: true,
+                  margin: [0, 0, 0, -4],
+                },
+              ]),
 
           {
-            stack: [
-              {
-                text: `Printed: ${printedDate} ${printedTime}`,
-                alignment: 'center',
-                fontSize: 6.5,
-                color: 'gray',
-                margin: [0, 0, 0, 2],
-              },
-              {
-                text: 'Non-refundable',
-                alignment: 'center',
-                fontSize: 6,
-                bold: true,
-                color: 'red',
-              },
-              {
-                text: 'Valid on show date only',
-                alignment: 'center',
-                fontSize: 6,
-                color: 'gray',
-              },
-            ],
+            text: 'NON REFUNDABLE',
+            alignment: 'center',
+            fontSize: 10,
+            bold: true,
+            margin: [0, 0, 0, 2],
+          },
+          {
+            text: 'VALID ON SHOW DATE ONLY',
+            alignment: 'center',
+            fontSize: 8,
+            margin: [0, 0, 0, 2],
+          },
+          {
+            text: `Printed ${printedDate} ${printedTime}`,
+            alignment: 'center',
+            fontSize: 7,
+            color: 'gray',
+            margin: [0, 0, 0, 0],
           },
         ],
+        margin: [2, 2, 2, 2], // ✅ เพิ่ม margin ด้านนอก
       };
     });
 
     const docDefinition = {
       pageSize: { width: 144, height: 288 }, // 2x4 inch
-      pageMargins: [0, 0, 0, 0], // 🔥 เริ่มพิมพ์ชิดขอบ
+      pageMargins: [0, 0, 0, 0],
       content: pages,
       defaultStyle: {
         font: 'Roboto',
