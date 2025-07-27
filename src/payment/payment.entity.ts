@@ -7,6 +7,7 @@ import {
   JoinColumn,
   OneToOne,
   Index,
+  UpdateDateColumn,
 } from 'typeorm';
 import { Order } from '../order/order.entity';
 import { User } from '../user/user.entity';
@@ -60,4 +61,7 @@ export class Payment {
   })
   @JoinColumn({ name: 'userId' })
   user?: User;
+
+  @UpdateDateColumn({ name: 'updatedAt', type: 'timestamp', nullable: true })
+  updatedAt?: Date;
 }
