@@ -203,4 +203,8 @@ export class Order {
 
   @Column({ type: 'int', default: 0 })
   standingCommission: number;
+
+  // ผู้สร้างออเดอร์ (staff/admin หรือ null=ลูกค้า)
+  @Column({ nullable: true })
+  createdBy?: string;
 }

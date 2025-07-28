@@ -167,6 +167,8 @@ export class EnhancedOrderService {
         ),
         createdAt: ThailandTimeHelper.now(),
         updatedAt: ThailandTimeHelper.now(),
+        // Always set createdBy for all roles
+        createdBy: orderData.createdBy || user.id,
       };
 
       // 9. Handle BOOKED status expiry - เหมือน createOrder
