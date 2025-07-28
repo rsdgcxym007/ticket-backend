@@ -158,10 +158,11 @@ export class OrderController {
     @Query('search') search?: string,
     @Query('createdBy') createdBy?: string,
     @Query('showDate') showDate?: string,
+    @Query('paymentMethod') paymentMethod?: string,
   ) {
     try {
       const result = await this.orderService.findAll(
-        { page, limit, status, search, createdBy, showDate },
+        { page, limit, status, search, createdBy, showDate, paymentMethod },
         req.user.id,
       );
 

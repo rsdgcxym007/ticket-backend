@@ -87,6 +87,7 @@ export interface FindAllOptions {
   dateFrom?: string;
   dateTo?: string;
   createdBy?: string;
+  paymentMethod?: string;
 }
 
 @Injectable()
@@ -386,6 +387,7 @@ export class OrderService {
       search,
       createdBy,
       showDate,
+      paymentMethod,
     } = options;
 
     try {
@@ -409,6 +411,12 @@ export class OrderService {
         if (user && user.role === UserRole.USER) {
           query.andWhere('order.userId = :userId', { userId });
         }
+      }
+
+      if (paymentMethod) {
+        query.andWhere('order.paymentMethod = :paymentMethod', {
+          paymentMethod,
+        });
       }
       if (status) {
         query.andWhere('order.status = :status', { status });
