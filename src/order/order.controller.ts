@@ -166,7 +166,6 @@ export class OrderController {
         req.user.id,
       );
 
-      // คืน data.data เป็น array เสมอ (แม้จะว่าง) และใช้รูปแบบ data.data
       return success(
         {
           data: Array.isArray(result.items) ? result.items : [],
