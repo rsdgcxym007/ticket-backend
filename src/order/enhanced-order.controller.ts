@@ -67,10 +67,13 @@ export class EnhancedOrderController {
         `🎫 Enhanced order creation request from user: ${orderData.userId}`,
       );
 
+      // เก็บ createdBy ทุกกรณี ไม่ว่า role ไหน
+      const orderWithCreatedBy = { ...orderData, createdBy: orderData.userId };
+
       const order =
         await this.enhancedOrderService.createOrderWithConcurrencyControl(
           orderData.userId,
-          orderData,
+          orderWithCreatedBy,
         );
 
       // Log audit event for order creation

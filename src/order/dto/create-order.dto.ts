@@ -18,6 +18,9 @@ import {
 export class CreateOrderDto {
   @IsOptional()
   @IsUUID()
+  createdBy?: string;
+  @IsOptional()
+  @IsUUID()
   userId?: string;
 
   @IsString()

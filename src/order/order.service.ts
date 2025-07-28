@@ -86,24 +86,11 @@ export interface FindAllOptions {
   showDate?: string;
   dateFrom?: string;
   dateTo?: string;
+  createdBy?: string;
 }
 
 @Injectable()
 export class OrderService {
-  /**
-   * ดึง order ด้วย id (public method สำหรับ controller)
-   */
-  async getOrderById(id: string): Promise<Order | null> {
-    return await this.orderRepo.findOne({
-      where: { id },
-      relations: [
-        'user',
-        'seatBookings',
-        'seatBookings.seat',
-        'seatBookings.seat.zone',
-      ],
-    });
-  }
   private readonly logger = new Logger(OrderService.name);
 
   constructor(
@@ -214,6 +201,8 @@ export class OrderService {
           TIME_LIMITS.RESERVATION_MINUTES,
         ),
       ),
+      // เก็บ createdBy ทุกกรณี ไม่ว่า role ไหน
+      createdBy: user.id,
     };
 
     // ถ้าสถานะเป็น BOOKED ให้ตั้งเวลาหมดอายุเป็น 21:00 ของวันที่แสดง
@@ -371,11 +360,33 @@ export class OrderService {
     };
   }
 
+  /**
+   * ดึง order ด้วย id (public method สำหรับ controller)
+   */
+  async getOrderById(id: string): Promise<Order | null> {
+    return await this.orderRepo.findOne({
+      where: { id },
+      relations: [
+        'user',
+        'seatBookings',
+        'seatBookings.seat',
+        'seatBookings.seat.zone',
+      ],
+    });
+  }
+
   // ==============================================================
   // 🔍 FIND ALL ORDERS
   // ========================================
   async findAll(options: FindAllOptions, userId?: string): Promise<any> {
-    const { page = 1, limit = 10, status, search } = options;
+    const {
+      page = 1,
+      limit = 10,
+      status,
+      search,
+      createdBy,
+      showDate,
+    } = options;
 
     try {
       const contextLogger = LoggingHelper.createContextLogger('OrderService', {
@@ -408,6 +419,16 @@ export class OrderService {
           '(LOWER(order.orderNumber) LIKE :search OR LOWER(order.customerName) LIKE :search OR LOWER(order.customerPhone) LIKE :search)',
           { search: searchValue },
         );
+      }
+      if (createdBy !== undefined) {
+        if (createdBy === null || createdBy === 'null' || createdBy === '') {
+          query.andWhere('order.createdBy IS NULL');
+        } else {
+          query.andWhere('order.createdBy = :createdBy', { createdBy });
+        }
+      }
+      if (showDate !== undefined && showDate !== null && showDate !== '') {
+        query.andWhere('DATE(order.showDate) = DATE(:showDate)', { showDate });
       }
       // Manual pagination since we're using query builder
       query.skip((page - 1) * limit).take(limit);
@@ -1468,6 +1489,10 @@ export class OrderService {
   private mapToOrderData(order: Order): OrderData {
     console.log('order', order);
 
+    // createdById: id ของ staff/admin/master ที่สร้าง (หรือ userId ถ้าไม่มี createdBy)
+    // createdByName: ชื่อของ staff/admin/master ที่สร้าง (หรือ null ถ้าไม่มี)
+    const createdById = order.createdBy || order.userId;
+    const createdByName = order.user?.name || null;
     return {
       id: order.id,
       orderNumber: order.orderNumber,
@@ -1488,11 +1513,10 @@ export class OrderService {
       expiresAt: order.expiresAt,
       source: order.source,
       note: order.note,
-      createdBy: order.userId,
+      createdBy: createdById,
+      createdById,
+      createdByName,
       updatedBy: order.updatedBy,
-      // เพิ่มชื่อผู้สร้างออเดอร์
-      createdByName: order.user?.name || null,
-      // เพิ่มชื่อผู้กดจ่ายเงิน (ถ้ามี)
       paidByName:
         order.payment?.user?.name ||
         (order.payment?.userId
@@ -1504,7 +1528,6 @@ export class OrderService {
               ? order.user.name
               : order.payment.createdById
             : null),
-      // เพิ่มชื่อผู้แก้ไขล่าสุด (ถ้ามี)
       lastUpdatedByName:
         order.updatedBy === order.userId ? order.user?.name || null : null,
       standingAdultQty: order.standingAdultQty,

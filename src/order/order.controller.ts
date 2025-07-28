@@ -73,27 +73,14 @@ export class OrderController {
     @Req() req: AuthenticatedRequest,
   ) {
     try {
-      this.logger.log(
-        `🛡️ Enhanced order creation request from user: ${req.user.id}`,
-      );
-
-      // ✅ ใช้ Enhanced Order Service แทน Legacy Service
+      dto.createdBy = req.user.id;
       const data =
         await this.enhancedOrderService.createOrderWithConcurrencyControl(
           req.user.id,
           dto,
         );
-
-      this.logger.log(
-        `✅ Enhanced order created successfully for user: ${req.user.id}`,
-      );
       return success(data, 'สร้างออเดอร์สำเร็จ (ป้องกัน race condition)', req);
     } catch (err) {
-      this.logger.error(
-        `❌ Error creating enhanced order for user: ${req.user.id}`,
-        err.stack,
-      );
-
       // Handle specific concurrency errors
       if (
         err.message &&
@@ -113,6 +100,37 @@ export class OrderController {
   }
 
   /**
+   * 🧑‍💼 รายชื่อ staff/admin/master ที่สร้างออเดอร์ (option dropdown)
+   */
+  @Get('master/staff-admin')
+  @Roles(UserRole.STAFF, UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'รายชื่อ staff/admin/master ที่สร้างออเดอร์ (option dropdown)',
+  })
+  @ApiResponse({ status: 200, description: 'ดึงรายชื่อสำเร็จ' })
+  async getOrderCreators(@Req() req: AuthenticatedRequest) {
+    const orders = await this.orderService.findAll({ limit: 10000 }, undefined);
+    const creatorMap = new Map();
+    if (orders && Array.isArray(orders.items)) {
+      for (const order of orders.items) {
+        if (order.createdById && order.createdByName) {
+          creatorMap.set(order.createdById, order.createdByName);
+        }
+      }
+    }
+    const creators = [
+      { value: '', label: 'ทั้งหมด' },
+      ...Array.from(creatorMap.entries()).map(([id, name]) => {
+        return {
+          value: id,
+          label: name,
+        };
+      }),
+    ];
+    return success(creators, 'ดึงรายชื่อ staff/admin/master สำเร็จ', req);
+  }
+
+  /**
    * 📋 ดูรายการออเดอร์ทั้งหมด
    */
   @Get()
@@ -126,16 +144,24 @@ export class OrderController {
     enum: ['PENDING', 'CONFIRMED', 'CANCELLED'],
   })
   @ApiQuery({ name: 'search', required: false, type: String })
+  @ApiQuery({
+    name: 'createdBy',
+    required: false,
+    type: String,
+    description: 'กรองตามผู้สร้างออเดอร์ (userId staff/admin)',
+  })
   async findAll(
     @Req() req: AuthenticatedRequest,
     @Query('page') page: number = 1,
     @Query('limit') limit: number = 10,
     @Query('status') status?: string,
     @Query('search') search?: string,
+    @Query('createdBy') createdBy?: string,
+    @Query('showDate') showDate?: string,
   ) {
     try {
       const result = await this.orderService.findAll(
-        { page, limit, status, search },
+        { page, limit, status, search, createdBy, showDate },
         req.user.id,
       );
 

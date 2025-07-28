@@ -71,6 +71,7 @@ export interface OrderData {
   note?: string;
   slipUrl?: string;
   createdBy?: string;
+  createdById?: string;
   updatedBy?: string;
   // เพิ่มชื่อผู้สร้างออเดอร์
   createdByName?: string | null;
