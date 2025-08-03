@@ -11,6 +11,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, In } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { createPdfBuffer } from '../utils/createPdfBuffer';
 
 // ========================================
 // 📊 ENTITIES
@@ -34,6 +35,7 @@ import {
   PaymentMethod,
   UserRole,
   OrderSource,
+  OrderPurchaseType,
   AuditAction,
 } from '../common/enums';
 
@@ -71,9 +73,11 @@ export interface CreateOrderRequest {
   paymentMethod?: PaymentMethod;
   note?: string;
   source?: string;
+  purchaseType?: OrderPurchaseType;
   status?: OrderStatus; // เพิ่มฟิลด์ status
   standingAdultQty?: number; // จำนวนตั๋วผู้ใหญ่
   standingChildQty?: number; // จำนวนตั๋วเด็ก
+  attendanceStatus?: string;
 }
 
 export interface FindAllOptions {
@@ -88,6 +92,9 @@ export interface FindAllOptions {
   dateTo?: string;
   createdBy?: string;
   paymentMethod?: string;
+  purchaseType?: string; // เพิ่มฟิลด์สำหรับกรองตาม purchaseType
+  attendanceStatus?: string; // เพิ่มฟิลด์สำหรับกรองตาม attendanceStatus
+  referrerName?: string; // กรองตามชื่อผู้แนะนำ
 }
 
 @Injectable()
@@ -165,6 +172,24 @@ export class OrderService {
       }
     }
 
+    // Validation: If purchaseType is ONSITE, skip customer info requirements
+    // const isOnsite = request.purchaseType === OrderPurchaseType.ONSITE;
+    // if (!isOnsite) {
+    //   if (
+    //     !request.customerName ||
+    //     !request.customerPhone ||
+    //     !request.customerEmail
+    //   ) {
+    //     throw new BadRequestException(
+    //       'กรุณากรอกชื่อ เบอร์โทร และอีเมลสำหรับการสร้างออเดอร์',
+    //     );
+    //   }
+    // } else {
+    //   if (!request.customerName) delete request.customerName;
+    //   if (!request.customerPhone) delete request.customerPhone;
+    //   if (!request.customerEmail) delete request.customerEmail;
+    // }
+
     // Calculate pricing
     const pricing = this.calculateOrderPricing(request);
     this.logger.log('Order pricing calculated:', pricing);
@@ -195,6 +220,13 @@ export class OrderService {
       referrerCommission: pricing.commission,
       note: request.note,
       source: (request.source as OrderSource) || OrderSource.DIRECT,
+      purchaseType: request.purchaseType || OrderPurchaseType.ONSITE,
+      attendanceStatus:
+        request.attendanceStatus ||
+        ((request.purchaseType || OrderPurchaseType.ONSITE) ===
+        OrderPurchaseType.ONSITE
+          ? 'CHECKED_IN'
+          : 'PENDING'),
       expiresAt: BusinessLogicHelper.calculateExpiryTime(
         ThailandTimeHelper.now(),
         this.configService.get(
@@ -388,6 +420,8 @@ export class OrderService {
       createdBy,
       showDate,
       paymentMethod,
+      purchaseType,
+      referrerName,
     } = options;
 
     try {
@@ -421,6 +455,14 @@ export class OrderService {
       if (status) {
         query.andWhere('order.status = :status', { status });
       }
+      if (purchaseType) {
+        query.andWhere('order.purchaseType = :purchaseType', { purchaseType });
+      }
+      if (options.attendanceStatus) {
+        query.andWhere('order.attendanceStatus = :attendanceStatus', {
+          attendanceStatus: options.attendanceStatus,
+        });
+      }
       if (search) {
         const searchValue = `%${search.toLowerCase()}%`;
         query.andWhere(
@@ -437,6 +479,11 @@ export class OrderService {
       }
       if (showDate !== undefined && showDate !== null && showDate !== '') {
         query.andWhere('DATE(order.showDate) = DATE(:showDate)', { showDate });
+      }
+      if (referrerName && referrerName.trim() !== '') {
+        query.andWhere('referrer.code LIKE :referrerName', {
+          referrerName: `%${referrerName.trim()}%`,
+        });
       }
       // Manual pagination since we're using query builder
       query.skip((page - 1) * limit).take(limit);
@@ -548,6 +595,25 @@ export class OrderService {
     ) {
       throw new BadRequestException('Cannot update confirmed orders');
     }
+
+    // Validation: If purchaseType is ONSITE, skip customer info requirements
+    // const isOnsite = updates.purchaseType === OrderPurchaseType.ONSITE;
+    // if (!isOnsite) {
+    //   if (
+    //     !updates.customerName ||
+    //     !updates.customerPhone ||
+    //     !(updates as any).customerEmail
+    //   ) {
+    //     throw new BadRequestException(
+    //       'กรุณากรอกชื่อ เบอร์โทร และอีเมลสำหรับการอัปเดตออเดอร์',
+    //     );
+    //   }
+    // } else {
+    //   if (!updates.customerName) delete updates.customerName;
+    //   if (!updates.customerPhone) delete updates.customerPhone;
+    //   if (!(updates as any).customerEmail)
+    //     delete (updates as any).customerEmail;
+    // }
 
     // Update order
     await this.orderRepo.update(id, {
@@ -1520,6 +1586,8 @@ export class OrderService {
       updatedAt: order.updatedAt,
       expiresAt: order.expiresAt,
       source: order.source,
+      purchaseType: order.purchaseType,
+      attendanceStatus: order.attendanceStatus,
       note: order.note,
       createdBy: createdById,
       createdById,
@@ -1698,5 +1766,573 @@ export class OrderService {
     }
 
     this.logger.log(`✅ All seats are available for the show date`);
+  }
+
+  /**
+   * 📄 Export ข้อมูลออเดอร์สำหรับ Excel/CSV
+   */
+  async exportOrdersData(filters: {
+    status?: string;
+    search?: string;
+    createdBy?: string;
+    showDate?: string;
+    paymentMethod?: string;
+    purchaseType?: string;
+    attendanceStatus?: string;
+    includeAllPages?: boolean;
+    referrerName?: string;
+  }): Promise<{
+    orders: any[];
+    summary: {
+      totalOrders: number;
+      totalAmount: number;
+      totalCommission: number;
+      statusBreakdown: Record<string, number>;
+      purchaseTypeBreakdown: Record<string, number>;
+      attendanceStatusBreakdown: Record<string, number>;
+      ticketTypeBreakdown: Record<string, number>;
+    };
+    metadata: {
+      exportDate: string;
+      filters: any;
+    };
+  }> {
+    try {
+      this.logger.log('🔄 Starting export orders data process', filters);
+
+      // ดึงข้อมูลทั้งหมดตาม filter (ไม่จำกัดจำนวน)
+      const result = await this.findAll(
+        {
+          page: 1,
+          limit: filters.includeAllPages ? 999999 : 1000, // จำกัดสูงสุด
+          status: filters.status,
+          search: filters.search,
+          createdBy: filters.createdBy,
+          showDate: filters.showDate,
+          paymentMethod: filters.paymentMethod,
+          purchaseType: filters.purchaseType,
+          attendanceStatus: filters.attendanceStatus,
+          referrerName: filters.referrerName,
+        },
+        undefined, // userId - ไม่จำกัดตาม user
+      );
+
+      const orders = Array.isArray(result.items) ? result.items : [];
+
+      // คำนวณสรุปข้อมูล
+      const summary = this.calculateOrdersSummary(orders);
+
+      // เตรียมข้อมูลสำหรับ export
+      const exportOrders = orders.map((order) => ({
+        orderNumber: order.orderNumber,
+        customerName: order.customerName || '-',
+        customerPhone: order.customerPhone || '-',
+        customerEmail: order.customerEmail || '-',
+        ticketType: order.ticketType || '-',
+        referrerName: order.referrer?.name || '-',
+        quantity: order.quantity || 0,
+        standingAdultQty: order.standingAdultQty || 0,
+        standingChildQty: order.standingChildQty || 0,
+        totalAmount: order.totalAmount || 0,
+        status: order.status,
+        purchaseType: order.purchaseType || OrderPurchaseType.ONSITE,
+        attendanceStatus: order.attendanceStatus || 'PENDING',
+        paymentMethod: order.paymentMethod || PaymentMethod.CASH,
+        showDate: order.showDate
+          ? new Date(order.showDate).toISOString().split('T')[0]
+          : '-',
+        createdAt: order.createdAt
+          ? new Date(order.createdAt).toISOString()
+          : '-',
+        createdByName: order.createdByName || '-',
+        referrerCode: order.referrerCode || '-',
+        referrerCommission: order.referrerCommission || 0,
+        standingCommission: order.standingCommission || 0,
+        note: order.note || '-',
+        seats: order.seats
+          ? order.seats.map((s: any) => s.seatNumber).join(', ')
+          : '-',
+      }));
+
+      this.logger.log(
+        `✅ Export data prepared: ${exportOrders.length} orders`,
+        summary,
+      );
+
+      return {
+        orders: exportOrders,
+        summary,
+        metadata: {
+          exportDate: new Date().toISOString(),
+          filters,
+        },
+      };
+    } catch (error) {
+      this.logger.error('❌ Failed to export orders data', error.stack);
+      throw new InternalServerErrorException(
+        `เกิดข้อผิดพลาดในการ export ข้อมูล: ${error.message}`,
+      );
+    }
+  }
+
+  /**
+   * 📊 คำนวณสรุปข้อมูลออเดอร์
+   */
+  private calculateOrdersSummary(orders: any[]): {
+    totalOrders: number;
+    totalAmount: number;
+    totalCommission: number;
+    statusBreakdown: Record<string, number>;
+    purchaseTypeBreakdown: Record<string, number>;
+    attendanceStatusBreakdown: Record<string, number>;
+    ticketTypeBreakdown: Record<string, number>;
+  } {
+    const summary = {
+      totalOrders: orders.length,
+      totalAmount: 0,
+      totalCommission: 0,
+      statusBreakdown: {} as Record<string, number>,
+      purchaseTypeBreakdown: {} as Record<string, number>,
+      attendanceStatusBreakdown: {} as Record<string, number>,
+      ticketTypeBreakdown: {} as Record<string, number>,
+    };
+
+    orders.forEach((order) => {
+      // รวมยอดเงิน
+      summary.totalAmount += Number(order.totalAmount) || 0;
+      summary.totalCommission +=
+        (Number(order.referrerCommission) || 0) +
+        (Number(order.standingCommission) || 0);
+
+      // นับตาม status
+      const status = order.status || 'UNKNOWN';
+      summary.statusBreakdown[status] =
+        (summary.statusBreakdown[status] || 0) + 1;
+
+      // นับตาม purchaseType
+      const purchaseType = order.purchaseType || OrderPurchaseType.ONSITE;
+      summary.purchaseTypeBreakdown[purchaseType] =
+        (summary.purchaseTypeBreakdown[purchaseType] || 0) + 1;
+
+      // นับตาม attendanceStatus
+      const attendanceStatus = order.attendanceStatus || 'PENDING';
+      summary.attendanceStatusBreakdown[attendanceStatus] =
+        (summary.attendanceStatusBreakdown[attendanceStatus] || 0) + 1;
+
+      // นับตาม ticketType
+      const ticketType = order.ticketType || 'UNKNOWN';
+      summary.ticketTypeBreakdown[ticketType] =
+        (summary.ticketTypeBreakdown[ticketType] || 0) + 1;
+    });
+
+    return summary;
+  }
+
+  /**
+   * 📄 สร้าง PDF ตามรูปแบบตารางใบเสร็จ (A4 แนวนอน)
+   * ตรงตามภาพที่ส่งมา Boxing Stadium Patong Beach
+   */
+  async generateOrdersPDF(exportData: {
+    orders: any[];
+    summary: any;
+    metadata: any;
+  }): Promise<Buffer> {
+    try {
+      this.logger.log('🔄 Starting PDF generation for orders (Landscape A4)');
+
+      // 📊 กำหนด PaymentMethod Header
+      let paymentMethodHeader = 'ทุกช่องทาง'; // ค่าเริ่มต้น
+      if (exportData.metadata?.filters?.paymentMethod) {
+        const method = exportData.metadata.filters.paymentMethod;
+        switch (method.toUpperCase()) {
+          case 'CASH':
+            paymentMethodHeader = 'เงินสด';
+            break;
+          case 'CREDIT_CARD':
+            paymentMethodHeader = 'บัตรเครดิต';
+            break;
+          case 'BANK_TRANSFER':
+            paymentMethodHeader = 'โอนเงิน';
+            break;
+          case 'QR_CODE':
+            paymentMethodHeader = 'QR Code';
+            break;
+          default:
+            paymentMethodHeader = method;
+        }
+      }
+
+      // 📋 TABLE HEADERS - ปรับ rowSpan/colSpan ตามภาพตัวอย่าง
+      const headers = [
+        {
+          text: 'NO.',
+          rowSpan: 2,
+          style: 'tableHeaderMiddle',
+          alignment: 'center',
+          valign: 'middle',
+        },
+        {
+          text: 'ชื่อเอเย่นต์',
+          rowSpan: 2,
+          style: 'tableHeaderMiddle',
+          alignment: 'center',
+          valign: 'middle',
+        },
+        {
+          text: 'จำนวนแขก',
+          colSpan: 2,
+          style: 'tableHeader',
+          alignment: 'center',
+        },
+        {},
+        {
+          text: 'ราคามวย',
+          colSpan: 2,
+          style: 'tableHeader',
+          alignment: 'center',
+        },
+        {},
+        {
+          text: 'เสื้อ',
+          rowSpan: 2,
+          style: 'tableHeaderMiddle',
+          alignment: 'center',
+          valign: 'middle',
+        },
+        {
+          text: 'เสื้อ F',
+          rowSpan: 2,
+          style: 'tableHeaderMiddle',
+          alignment: 'center',
+          valign: 'middle',
+        },
+        {
+          text: 'เงินทัวร์',
+          rowSpan: 2,
+          style: 'tableHeaderMiddle',
+          alignment: 'center',
+          valign: 'middle',
+        },
+        {
+          text: 'เสื้อ',
+          rowSpan: 2,
+          style: 'tableHeaderMiddle',
+          alignment: 'center',
+          valign: 'middle',
+        },
+        {
+          text: 'รวม',
+          rowSpan: 2,
+          style: 'tableHeaderMiddle',
+          alignment: 'center',
+          valign: 'middle',
+        },
+        {
+          text: 'ฟรี',
+          rowSpan: 2,
+          style: 'tableHeaderMiddle',
+          alignment: 'center',
+          valign: 'middle',
+        },
+        {
+          text: paymentMethodHeader,
+          rowSpan: 2,
+          style: 'tableHeaderMiddle',
+          alignment: 'center',
+          valign: 'middle',
+        },
+        {
+          text: 'No. V/C',
+          rowSpan: 2,
+          style: 'tableHeaderMiddle',
+          alignment: 'center',
+          valign: 'middle',
+        },
+      ];
+
+      // Sub-headers สำหรับแถวที่ 2 (เฉพาะคอลัมน์ที่มี colSpan)
+      const subHeaders = [
+        '', // NO.
+        '', // รายละเอียด
+        'RS', // จำนวนแขก RS
+        'STD', // จำนวนแขก STD
+        'RS', // ราคามวย RS
+        'STD', // ราคามวย STD
+        '', // เสื้อ 300
+        '', // เสื้อ F
+        '', // เงินทัวร์
+        '', // รวม
+        '', // ฟรี
+        '', // PaymentMethod
+        '', // No./C
+      ];
+
+      // � เตรียมข้อมูลแถวสำหรับตาราง
+      const tableRows = exportData.orders.map((order, index) => {
+        // 📊 คำนวณจำนวนตั๋วแยกตามประเภท
+        const standingQty =
+          (order.standingAdultQty || 0) + (order.standingChildQty || 0);
+        const ringsideQty =
+          order.ticketType === 'RINGSIDE' ? order.quantity || 0 : 0;
+        const stadiumQty =
+          order.ticketType === 'STADIUM' ? order.quantity || 0 : 0;
+        const rsQty = ringsideQty + stadiumQty;
+        const stdQty = standingQty;
+        const totalGuests = rsQty + stdQty;
+
+        // 💰 คำนวณราคาตามประเภทตั๋ว
+        const rsPrice = 1400;
+        const stdPrice = 1200;
+        const shirtPrice = 300;
+
+        // ราคามวยแยกตามประเภท
+        const rsBoxingPrice = rsPrice;
+        const stdBoxingPrice = stdPrice;
+        const totalBoxingPrice =
+          totalGuests *
+          (order.ticketType === 'RINGSIDE' ? rsBoxingPrice : stdBoxingPrice);
+
+        // ค่าเสื้อรวม
+        const ShirtPrice = shirtPrice;
+        const totalShirtPrice = totalGuests * shirtPrice;
+
+        // เงินทัวร์ = ราคามวย - ค่าเสื้อ
+        const tourMoney = totalBoxingPrice - totalShirtPrice;
+
+        // รวม = เงินทัวร์ + เสื้อ
+        const totalAmount = tourMoney + totalShirtPrice;
+
+        // Logic: ช่องที่เป็น 0 ไม่ต้องโชว์ 0 ให้เป็นว่าง
+        function showValue(val: number | string) {
+          if (typeof val === 'string') val = Number(val.replace(/,/g, ''));
+          return val === 0 ? '' : val.toLocaleString();
+        }
+
+        // Logic: ชื่อเอเย่นต์ ถ้าไม่มีให้ว่าง, ถ้าซ้ำกับออเดอร์ก่อนหน้าให้ว่าง
+        let refName = order.referrerName || '';
+        if (
+          index > 0 &&
+          exportData.orders[index - 1]?.referrerName === refName
+        ) {
+          refName = '';
+        }
+
+        return [
+          (index + 1).toString(), // NO.
+          refName, // ชื่อเอเย่นต์
+          rsQty === 0 ? '' : rsQty.toString(), // จำนวนแขก RS
+          stdQty === 0 ? '' : stdQty.toString(), // จำนวนแขก STD
+          showValue(rsBoxingPrice), // ราคามวย RS
+          showValue(stdBoxingPrice), // ราคามวย STD
+          showValue(ShirtPrice), // เสื้อ 300
+          '', // เสื้อ F (ว่าง)
+          tourMoney === 0
+            ? ''
+            : tourMoney.toLocaleString('en-US', { minimumFractionDigits: 2 }), // เงินทัวร์
+          totalShirtPrice === 0
+            ? ''
+            : totalShirtPrice.toLocaleString('en-US', {
+                minimumFractionDigits: 2,
+              }), // จำนวนรวมเสื้อ
+          totalAmount === 0
+            ? ''
+            : totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2 }), // รวม
+          '', // ฟรี (ว่าง)
+          totalAmount === 0
+            ? ''
+            : totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2 }), // PaymentMethod column
+          '', // No./C (ชื่อลูกค้า)
+        ];
+      });
+
+      // � คำนวณสรุปสำหรับแถวท้าย
+      let totalRS = 0;
+      let totalSTD = 0;
+      let totalRSBoxingPrice = 0; // ราคามวย RS แยก
+      let totalSTDBoxingPrice = 0; // ราคามวย STD แยก
+      let totalShirtPrice = 0;
+      let totalTourMoney = 0;
+      let grandTotal = 0;
+      let shirtPriceTotals = 0;
+
+      // วนลูปคำนวณผลรวมจาก tableRows
+      exportData.orders.forEach((order) => {
+        const standingQty =
+          (order.standingAdultQty || 0) + (order.standingChildQty || 0);
+        const ringsideQty =
+          order.ticketType === 'RINGSIDE' ? order.quantity || 0 : 0;
+        const stadiumQty =
+          order.ticketType === 'STADIUM' ? order.quantity || 0 : 0;
+        const rsQty = ringsideQty + stadiumQty;
+        const stdQty = standingQty;
+        const guests = rsQty + stdQty;
+
+        const rsPrice = 1400;
+        const stdPrice = 1200;
+        const shirtPrice = 300;
+
+        const rsBoxingPrice = rsQty * rsPrice; // ราคามวย RS
+        const stdBoxingPrice = stdQty * stdPrice; // ราคามวย STD
+        const totalBoxingPrice = rsBoxingPrice + stdBoxingPrice;
+        const shirtPriceTotal = guests * shirtPrice;
+        const tourMoney = totalBoxingPrice - shirtPriceTotal;
+        const total = tourMoney + shirtPriceTotal;
+
+        totalRS += rsQty;
+        totalSTD += stdQty;
+        // totalRSBoxingPrice += rsBoxingPrice;
+        // totalSTDBoxingPrice += stdBoxingPrice;
+        totalRSBoxingPrice += 0;
+        totalSTDBoxingPrice += 0;
+        totalShirtPrice += shirtPriceTotal;
+        shirtPriceTotals += 0;
+        totalTourMoney += tourMoney;
+        grandTotal += total;
+      });
+
+      // เพิ่มแถวสรุปท้ายตาราง (ปรับให้ตรงกับโครงสร้างใหม่)
+      const summaryRow = [
+        'รวม', // NO.
+        'สรุปทั้งหมด', // รายละเอียด
+        totalRS.toString(), // จำนวนแขก RS
+        totalSTD.toString(), // จำนวนแขก STD
+        totalRSBoxingPrice.toLocaleString(), // ราคามวย RS
+        totalSTDBoxingPrice.toLocaleString(), // ราคามวย STD
+        shirtPriceTotals.toLocaleString(), // เสื้อ 300
+        '', // เสื้อ F
+        totalTourMoney.toLocaleString('en-US', { minimumFractionDigits: 2 }), // เงินทัวร์
+        totalShirtPrice.toLocaleString('en-US', { minimumFractionDigits: 2 }), // จำนวนรวมเสื้อ
+        grandTotal.toLocaleString('en-US', { minimumFractionDigits: 2 }), // รวม
+        '', // ฟรี
+        grandTotal.toLocaleString('en-US', { minimumFractionDigits: 2 }), // PaymentMethod column
+        `${exportData.summary.totalOrders} รายการ`, // No./C
+      ];
+
+      // เพิ่ม summaryRow เข้าไปใน tableRows
+      tableRows.push(summaryRow);
+      const today = new Date();
+
+      const weekday = today.toLocaleDateString('th-TH', { weekday: 'long' }); // เช่น "วันอาทิตย์"
+      const datePart = today.toLocaleDateString('th-TH', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      });
+
+      // ลบคำว่า "วัน" ออก แล้วประกอบใหม่
+      const thaiDate = `วัน ${weekday.replace('วัน', '')}${datePart}`;
+
+      // 🏗️ สร้าง PDF Document Definition สำหรับ pdfmake
+      const docDefinition = {
+        pageSize: 'A4',
+        pageOrientation: 'landscape', // ⭐ A4 แนวนอน
+        pageMargins: [30, 60, 20, 60],
+        defaultStyle: {
+          font: 'THSarabunNew', // ใช้ฟอนต์ไทย
+          fontSize: 10,
+        },
+        content: [
+          // 🏢 หัวเอกสาร
+          {
+            text: 'Boxing Stadium Patong Beach 2/59 Soi Keh Sub2, Sai Nam Yen RD, Patong Beach Phuket 83150 Thailand',
+            style: 'header',
+            alignment: 'center',
+            fontSize: 22,
+
+            margin: [0, 0, 0, 10],
+          },
+          {
+            text: `${thaiDate}`,
+            alignment: 'center',
+            fontSize: 25,
+            margin: [0, 0, 0, 20],
+          },
+          // 📊 ตารางข้อมูล (ปรับ layout ใหม่ตามภาพตัวอย่าง - 2 แถว header)
+          {
+            table: {
+              headerRows: 2, // 2 แถว header (main + sub)
+              widths: [25, 150, 25, 25, 35, 35, 35, 35, 60, 60, 60, 15, 60, 50], // ความกว้างคอลัมน์ใหม่
+              body: [
+                // แถวที่ 1: Main headers (ใช้ style จาก header object)
+                headers,
+                // แถวที่ 2: Sub headers (ใช้ style tableSubHeader ปกติ)
+                subHeaders.map((subHeader) => ({
+                  text: subHeader,
+                  style: 'tableSubHeader',
+                  alignment: 'center',
+                })),
+                // ข้อมูลแถว
+                ...tableRows.map((row) =>
+                  row.map((cell, index) => ({
+                    text: cell,
+                    style: 'tableCell',
+                    alignment: [2, 3, 8, 9, 10, 12].includes(index)
+                      ? 'right' // RS, STD, เงินทัวร์, เสื้อ, รวม, paymentMethodHeader
+                      : index === 0 || index === 1 // NO. และ ชื่อเอเย่นต์
+                        ? 'left' // รายละเอียดและชื่อลูกค้าชิดซ้าย
+                        : index === 13
+                          ? 'center' // PaymentMethod column
+                          : 'center',
+                  })),
+                ),
+              ],
+            },
+            layout: {
+              hLineWidth: () => 0.1,
+              vLineWidth: () => 0.1,
+              hLineColor: () => '#000000',
+              vLineColor: () => '#000000',
+            },
+          },
+        ],
+        styles: {
+          header: {
+            fontSize: 16,
+            bold: true,
+          },
+          tableHeader: {
+            bold: true,
+            fontSize: 16,
+            color: 'black',
+            fillColor: '#ffffff',
+          },
+          tableHeaderMiddle: {
+            bold: true,
+            fontSize: 16,
+            color: 'black',
+            fillColor: '#ffffff',
+            alignment: 'center',
+            valign: 'middle',
+            margin: [0, 6, 0, 0],
+          },
+          tableSubHeader: {
+            bold: true,
+            fontSize: 14,
+            color: 'black',
+            fillColor: '#f8f8f8',
+          },
+          tableCell: {
+            fontSize: 14,
+          },
+          summaryHeader: {
+            fontSize: 16,
+            bold: true,
+          },
+        },
+      };
+
+      // 🎯 สร้าง PDF Buffer
+      const pdfBuffer = await createPdfBuffer(docDefinition);
+
+      this.logger.log(
+        `✅ PDF generated successfully: ${pdfBuffer.length} bytes (Landscape A4)`,
+      );
+      return pdfBuffer;
+    } catch (error) {
+      this.logger.error('❌ Failed to generate PDF', error.stack);
+      throw new InternalServerErrorException(
+        `เกิดข้อผิดพลาดในการสร้าง PDF: ${error.message}`,
+      );
+    }
   }
 }

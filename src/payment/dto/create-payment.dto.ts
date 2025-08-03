@@ -5,7 +5,7 @@ import {
   IsString,
   IsEnum,
 } from 'class-validator';
-import { PaymentMethod } from '../../common/enums';
+import { PaymentMethod, OrderPurchaseType } from '../../common/enums';
 
 export class CreatePaymentDto {
   @IsUUID()
@@ -36,4 +36,8 @@ export class CreatePaymentDto {
   @IsOptional()
   @IsString()
   referrerCode?: string;
+
+  @IsOptional()
+  @IsEnum(OrderPurchaseType)
+  purchaseType?: OrderPurchaseType;
 }

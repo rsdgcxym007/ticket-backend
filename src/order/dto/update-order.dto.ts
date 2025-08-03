@@ -12,6 +12,8 @@ import {
   PaymentMethod,
   TicketType,
   OrderSource,
+  OrderPurchaseType,
+  AttendanceStatus,
 } from '../../common/enums';
 
 export class UpdateOrderDto {
@@ -20,6 +22,10 @@ export class UpdateOrderDto {
     message: 'สถานะต้องเป็นค่าที่ถูกต้องเท่านั้น',
   })
   status?: OrderStatus;
+
+  @IsOptional()
+  @IsEnum(AttendanceStatus)
+  attendanceStatus?: AttendanceStatus;
 
   @IsOptional()
   @IsString()
@@ -88,6 +94,10 @@ export class UpdateOrderDto {
   @IsOptional()
   @IsEnum(OrderSource)
   source?: OrderSource;
+
+  @IsOptional()
+  @IsEnum(OrderPurchaseType)
+  purchaseType?: OrderPurchaseType;
 
   @IsOptional()
   @IsArray()

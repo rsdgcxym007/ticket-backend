@@ -35,6 +35,12 @@ export enum OrderSource {
   OTHER = 'OTHER',
 }
 
+export enum OrderPurchaseType {
+  WEBSITE = 'WEBSITE', // ซื้อจากหน้าเว็บ
+  BOOKING = 'BOOKING', // ซื้อจากการจอง
+  ONSITE = 'ONSITE', // ซื้อหน้างาน (default)
+}
+
 export enum UserRole {
   USER = 'user',
   STAFF = 'staff',
@@ -120,4 +126,10 @@ export enum DiscountType {
   FIXED_AMOUNT = 'FIXED_AMOUNT',
   EARLY_BIRD = 'EARLY_BIRD',
   GROUP = 'GROUP',
+}
+
+export enum AttendanceStatus {
+  PENDING = 'PENDING', // ยังไม่เช็คอิน
+  CHECKED_IN = 'CHECKED_IN', // เช็คอินแล้ว
+  NO_SHOW = 'NO_SHOW', // ไม่มาร่วมงาน
 }

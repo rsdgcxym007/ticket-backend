@@ -189,6 +189,9 @@ export class ReferrerController {
     const allowedOrigins = [
       'http://43.229.133.51:3000',
       'http://localhost:3000',
+      'http://localhost:3000/#/',
+      'http://localhost:3000/#/th',
+      'http://localhost:3000/#/en',
     ];
     const reqOrigin = (res.req as any)?.headers?.origin;
     if (allowedOrigins.includes(reqOrigin)) {

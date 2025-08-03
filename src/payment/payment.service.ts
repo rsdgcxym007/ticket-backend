@@ -19,6 +19,7 @@ import {
   BookingStatus,
   PaymentMethod,
   PaymentStatus,
+  OrderPurchaseType,
 } from '../common/enums';
 import {
   LoggingHelper,
@@ -220,31 +221,14 @@ export class PaymentService {
         );
       }
 
+      // ตรวจสอบ purchaseType ถ้าไม่ใช่ ONSITE ต้องกรอกข้อมูลลูกค้า
+      if (dto.purchaseType !== OrderPurchaseType.ONSITE && !dto.customerName) {
+        throw new BadRequestException(
+          'กรุณากรอกข้อมูลลูกค้า (ชื่อ, เบอร์โทร, email) สำหรับการซื้อที่ไม่ใช่ ONSITE',
+        );
+      }
+
       // อัปเดตข้อมูลลูกค้าและผู้แนะนำ
-      if (!order.customerName && dto.customerName) {
-        order.customerName = dto.customerName;
-        LoggingHelper.logBusinessEvent(logger, 'Customer name updated', {
-          orderId: dto.orderId,
-          customerName: dto.customerName,
-        });
-      }
-
-      if (!order.customerPhone && dto.customerPhone) {
-        order.customerPhone = dto.customerPhone;
-        LoggingHelper.logBusinessEvent(logger, 'Customer phone updated', {
-          orderId: dto.orderId,
-          customerPhone: dto.customerPhone,
-        });
-      }
-
-      if (!order.customerEmail && dto.customerEmail) {
-        order.customerEmail = dto.customerEmail;
-        LoggingHelper.logBusinessEvent(logger, 'Customer email updated', {
-          orderId: dto.orderId,
-          customerEmail: dto.customerEmail,
-        });
-      }
-
       await this.updateOrderInfo(order, dto);
 
       // อัปเดตสถานะการจอง
@@ -349,6 +333,13 @@ export class PaymentService {
         (order.standingChildQty || 0) === 0
       ) {
         throw new BadRequestException('ไม่พบจำนวนตั๋วยืนในคำสั่งซื้อนี้');
+      }
+
+      // ตรวจสอบ purchaseType ถ้าไม่ใช่ ONSITE ต้องกรอกข้อมูลลูกค้า
+      if (dto.purchaseType !== OrderPurchaseType.ONSITE && !dto.customerName) {
+        throw new BadRequestException(
+          'กรุณากรอกข้อมูลลูกค้า (ชื่อ, เบอร์โทร, email) สำหรับการซื้อที่ไม่ใช่ ONSITE',
+        );
       }
 
       // อัปเดตข้อมูลลูกค้าและผู้แนะนำ

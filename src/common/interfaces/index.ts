@@ -11,7 +11,6 @@ import {
   StandingTicketType,
   UserRole,
   SeatStatus,
-  BookingStatus,
 } from '../enums';
 
 // 🗺️ ข้อมูลโซนที่นั่ง (ZoneData)
@@ -66,6 +65,8 @@ export interface OrderData {
   expiresAt?: Date;
   referrerCode?: string;
   source?: OrderSource | string;
+  purchaseType?: string; // WEBSITE, BOOKING, ONSITE
+  attendanceStatus?: string;
   seatNumbers?: string[];
   standingTickets?: StandingTicketData[];
   note?: string;

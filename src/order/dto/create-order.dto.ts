@@ -13,6 +13,8 @@ import {
   PaymentMethod,
   OrderSource,
   OrderStatus,
+  OrderPurchaseType,
+  AttendanceStatus,
 } from '../../common/enums';
 
 export class CreateOrderDto {
@@ -58,12 +60,20 @@ export class CreateOrderDto {
   paymentMethod?: PaymentMethod;
 
   @IsOptional()
+  @IsEnum(AttendanceStatus)
+  attendanceStatus?: AttendanceStatus;
+
+  @IsOptional()
   @IsString()
   note?: string;
 
   @IsOptional()
   @IsEnum(OrderSource)
   source?: OrderSource;
+
+  @IsOptional()
+  @IsEnum(OrderPurchaseType)
+  purchaseType?: OrderPurchaseType;
 
   @IsOptional()
   @IsEnum(OrderStatus)

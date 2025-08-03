@@ -20,6 +20,8 @@ import {
   PaymentMethod,
   TicketType,
   OrderSource,
+  OrderPurchaseType,
+  AttendanceStatus,
 } from '../common/enums';
 
 @Entity()
@@ -181,10 +183,24 @@ export class Order {
 
   @Column({
     type: 'enum',
+    enum: OrderPurchaseType,
+    default: OrderPurchaseType.ONSITE,
+  })
+  purchaseType: OrderPurchaseType;
+
+  @Column({
+    type: 'enum',
     enum: TicketType,
     nullable: true,
   })
   ticketType?: TicketType;
+
+  @Column({
+    type: 'enum',
+    enum: AttendanceStatus,
+    default: AttendanceStatus.PENDING,
+  })
+  attendanceStatus: AttendanceStatus;
 
   @Column({ type: 'text', nullable: true })
   note?: string;
