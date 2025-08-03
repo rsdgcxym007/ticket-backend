@@ -7,6 +7,7 @@ import {
   Delete,
   Body,
   Req,
+  Res,
   UseGuards,
   Query,
   ParseUUIDPipe,
@@ -15,6 +16,7 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
+
 import { OrderService } from './order.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
@@ -73,6 +75,29 @@ export class OrderController {
     @Req() req: AuthenticatedRequest,
   ) {
     try {
+      // ถ้าเป็น ONSITE ให้ validate เฉพาะ quantity, ticketType, showDate
+      // if (dto.purchaseType === OrderPurchaseType.ONSITE) {
+      //   if (!dto.quantity || !dto.ticketType || !dto.showDate) {
+      //     throw new BadRequestException(
+      //       'ONSITE ต้องระบุจำนวนตั๋ว, ประเภท, และวันที่แสดง',
+      //     );
+      //   }
+      //   // ลบข้อมูลที่ไม่จำเป็นสำหรับ ONSITE
+      //   dto.customerName = undefined;
+      //   dto.customerPhone = undefined;
+      //   dto.customerEmail = undefined;
+      // } else {
+      //   // สำหรับประเภทอื่นๆ ให้ validate ตามปกติ
+      //   if (
+      //     !dto.customerName ||
+      //     !dto.customerPhone ||
+      //     !dto.showDate ||
+      //     !dto.ticketType ||
+      //     !dto.quantity
+      //   ) {
+      //     throw new BadRequestException('กรุณาระบุข้อมูลให้ครบถ้วน');
+      //   }
+      // }
       dto.createdBy = req.user.id;
       const data =
         await this.enhancedOrderService.createOrderWithConcurrencyControl(
@@ -144,12 +169,26 @@ export class OrderController {
     enum: ['PENDING', 'CONFIRMED', 'CANCELLED'],
   })
   @ApiQuery({ name: 'search', required: false, type: String })
+  @ApiQuery({ name: 'referrerName', required: false, type: String })
   @ApiQuery({
     name: 'createdBy',
     required: false,
     type: String,
     description: 'กรองตามผู้สร้างออเดอร์ (userId staff/admin)',
   })
+  @ApiQuery({
+    name: 'purchaseType',
+    required: false,
+    enum: ['WEBSITE', 'BOOKING', 'ONSITE'],
+    description: 'กรองตามประเภทการซื้อ',
+  })
+  @ApiQuery({
+    name: 'attendanceStatus',
+    required: false,
+    enum: ['PENDING', 'CHECKED_IN', 'NO_SHOW'],
+    description: 'กรองตามสถานะการเข้าร่วมงาน',
+  })
+  @ApiQuery({ name: 'referrerName', required: false, type: String })
   async findAll(
     @Req() req: AuthenticatedRequest,
     @Query('page') page: number = 1,
@@ -159,10 +198,24 @@ export class OrderController {
     @Query('createdBy') createdBy?: string,
     @Query('showDate') showDate?: string,
     @Query('paymentMethod') paymentMethod?: string,
+    @Query('purchaseType') purchaseType?: string,
+    @Query('attendanceStatus') attendanceStatus?: string,
+    @Query('referrerName') referrerName?: string,
   ) {
     try {
       const result = await this.orderService.findAll(
-        { page, limit, status, search, createdBy, showDate, paymentMethod },
+        {
+          page,
+          limit,
+          status,
+          search,
+          createdBy,
+          showDate,
+          paymentMethod,
+          purchaseType,
+          attendanceStatus,
+          referrerName,
+        },
         req.user.id,
       );
 
@@ -668,6 +721,148 @@ export class OrderController {
 
       return success(basicStats, 'ข้อมูลสถิติระบบ Enhanced', req);
     } catch (err) {
+      return error(err.message, '400', req);
+    }
+  }
+
+  /**
+   * 📄 Export ข้อมูลออเดอร์เป็น Excel/CSV
+   */
+  @Get('export/excel')
+  @Roles(UserRole.STAFF, UserRole.ADMIN)
+  @ApiOperation({ summary: 'Export ข้อมูลออเดอร์เป็นไฟล์ Excel' })
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    enum: ['PENDING', 'CONFIRMED', 'CANCELLED'],
+  })
+  @ApiQuery({ name: 'search', required: false, type: String })
+  @ApiQuery({ name: 'referrerName', required: false, type: String })
+  @ApiQuery({ name: 'createdBy', required: false, type: String })
+  @ApiQuery({ name: 'showDate', required: false, type: String })
+  @ApiQuery({ name: 'paymentMethod', required: false, type: String })
+  @ApiQuery({
+    name: 'purchaseType',
+    required: false,
+    enum: ['WEBSITE', 'BOOKING', 'ONSITE'],
+  })
+  @ApiQuery({
+    name: 'attendanceStatus',
+    required: false,
+    enum: ['PENDING', 'CHECKED_IN', 'NO_SHOW'],
+  })
+  @ApiQuery({
+    name: 'includeAllPages',
+    required: false,
+    type: Boolean,
+    description: 'รวมข้อมูลทุกหน้า',
+  })
+  @ApiResponse({ status: 200, description: 'Export สำเร็จ' })
+  async exportOrders(
+    @Req() req: AuthenticatedRequest,
+    @Query('status') status?: string,
+    @Query('search') search?: string,
+    @Query('createdBy') createdBy?: string,
+    @Query('showDate') showDate?: string,
+    @Query('paymentMethod') paymentMethod?: string,
+    @Query('purchaseType') purchaseType?: string,
+    @Query('attendanceStatus') attendanceStatus?: string,
+    @Query('includeAllPages') includeAllPages: boolean = true,
+    @Query('referrerName') referrerName?: string,
+  ) {
+    try {
+      // ดึงข้อมูลทั้งหมดที่ตรงตาม filter (ไม่จำกัดจำนวนหน้า)
+      const exportData = await this.orderService.exportOrdersData({
+        status,
+        search,
+        createdBy,
+        showDate,
+        paymentMethod,
+        purchaseType,
+        attendanceStatus,
+        includeAllPages,
+        referrerName,
+      });
+
+      return success(exportData, 'Export ข้อมูลออเดอร์สำเร็จ', req);
+    } catch (err) {
+      return error(err.message, '400', req);
+    }
+  }
+
+  /**
+   * 📄 Export ข้อมูลออเดอร์เป็น PDF Preview ตามรูปแบบตารางใบเสร็จ
+   */
+  @Get('export/pdf')
+  @Roles(UserRole.STAFF, UserRole.ADMIN)
+  @ApiOperation({ summary: 'Export ข้อมูลออเดอร์เป็นไฟล์ PDF Preview' })
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    enum: ['PENDING', 'CONFIRMED', 'CANCELLED'],
+  })
+  @ApiQuery({ name: 'search', required: false, type: String })
+  @ApiQuery({ name: 'referrerName', required: false, type: String })
+  @ApiQuery({ name: 'createdBy', required: false, type: String })
+  @ApiQuery({ name: 'showDate', required: false, type: String })
+  @ApiQuery({ name: 'paymentMethod', required: false, type: String })
+  @ApiQuery({
+    name: 'purchaseType',
+    required: false,
+    enum: ['WEBSITE', 'BOOKING', 'ONSITE'],
+  })
+  @ApiQuery({
+    name: 'attendanceStatus',
+    required: false,
+    enum: ['PENDING', 'CHECKED_IN', 'NO_SHOW'],
+  })
+  @ApiQuery({
+    name: 'includeAllPages',
+    required: false,
+    type: Boolean,
+    description: 'รวมข้อมูลทุกหน้า',
+  })
+  @ApiResponse({ status: 200, description: 'Export PDF สำเร็จ' })
+  async exportOrdersPdf(
+    @Req() req: AuthenticatedRequest,
+    @Res() res: any,
+    @Query('status') status?: string,
+    @Query('search') search?: string,
+    @Query('createdBy') createdBy?: string,
+    @Query('showDate') showDate?: string,
+    @Query('paymentMethod') paymentMethod?: string,
+    @Query('purchaseType') purchaseType?: string,
+    @Query('attendanceStatus') attendanceStatus?: string,
+    @Query('includeAllPages') includeAllPages: boolean = true,
+    @Query('referrerName') referrerName?: string,
+  ) {
+    try {
+      // ดึงข้อมูลทั้งหมดที่ตรงตาม filter
+      const exportData = await this.orderService.exportOrdersData({
+        status,
+        search,
+        createdBy,
+        showDate,
+        paymentMethod,
+        purchaseType,
+        attendanceStatus,
+        includeAllPages,
+        referrerName,
+      });
+
+      // สร้าง PDF ตามรูปแบบตารางใบเสร็จ
+      const pdfBuffer = await this.orderService.generateOrdersPDF(exportData);
+
+      // ส่ง PDF กลับให้ front-end
+      res.set({
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': 'inline; filename="orders-export.pdf"',
+        'Content-Length': pdfBuffer.length,
+      });
+
+      res.send(pdfBuffer);
+    } catch (err) {
+      this.logger.error('❌ Error exporting PDF:', err.stack);
       return error(err.message, '400', req);
     }
   }

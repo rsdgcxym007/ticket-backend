@@ -67,6 +67,28 @@ export class EnhancedOrderController {
         `🎫 Enhanced order creation request from user: ${orderData.userId}`,
       );
 
+      // Validation: If purchaseType is ONSITE, skip customer info requirements (use imported enum)
+      // const isOnsite = orderData.purchaseType === OrderPurchaseType.ONSITE;
+
+      // if (isOnsite) {
+      //   // Remove customer info fields if present and empty
+      //   if (!orderData.customerName) delete orderData.customerName;
+      //   if (!orderData.customerPhone) delete orderData.customerPhone;
+      //   if (!orderData.customerEmail) delete orderData.customerEmail;
+      // } else {
+      //   // For other purchaseType, require customer info
+      //   if (
+      //     !orderData.customerName ||
+      //     !orderData.customerPhone ||
+      //     !orderData.customerEmail
+      //   ) {
+      //     return ApiResponseHelper.error(
+      //       'กรุณากรอกชื่อ เบอร์โทร และอีเมลสำหรับการสร้างออเดอร์',
+      //       400,
+      //     );
+      //   }
+      // }
+
       // เก็บ createdBy ทุกกรณี ไม่ว่า role ไหน
       const orderWithCreatedBy = { ...orderData, createdBy: orderData.userId };
 
@@ -146,6 +168,30 @@ export class EnhancedOrderController {
       );
 
       this.logger.log(`🔄 Enhanced order update request: ${id}`);
+
+      // Validation: If purchaseType is ONSITE, skip customer info requirements (use imported enum)
+      // const isOnsite =
+      //   updateData.purchaseType === OrderPurchaseType.ONSITE ||
+      //   updateData.purchaseType === 'OrderPurchaseType.ONSITE';
+
+      // if (isOnsite) {
+      //   // Remove customer info fields if present and empty
+      //   if (!updateData.customerName) delete updateData.customerName;
+      //   if (!updateData.customerPhone) delete updateData.customerPhone;
+      //   if (!updateData.customerEmail) delete updateData.customerEmail;
+      // } else {
+      //   // For other purchaseType, require customer info
+      //   if (
+      //     !updateData.customerName ||
+      //     !updateData.customerPhone ||
+      //     !updateData.customerEmail
+      //   ) {
+      //     return ApiResponseHelper.error(
+      //       'กรุณากรอกชื่อ เบอร์โทร และอีเมลสำหรับการอัปเดตออเดอร์',
+      //       400,
+      //     );
+      //   }
+      // }
 
       const order =
         await this.enhancedOrderService.updateOrderWithConcurrencyControl(

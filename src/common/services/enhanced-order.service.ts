@@ -24,6 +24,7 @@ import {
   TicketType,
   PaymentMethod,
   OrderSource,
+  OrderPurchaseType,
 } from '../enums';
 import { OrderUpdatesGateway } from '../gateways/order-updates.gateway';
 import {
@@ -138,6 +139,16 @@ export class EnhancedOrderService {
       const orderNumber = ReferenceGenerator.generateOrderNumber();
       this.logger.log('Generated order number:', orderNumber);
 
+      // 8. Validate customer info by purchaseType
+      const purchaseType = orderData.purchaseType || OrderPurchaseType.ONSITE;
+      // if (purchaseType === OrderPurchaseType.ONSITE) {
+      //   // ไม่บังคับกรอกข้อมูลลูกค้า
+      // } else {
+      //   // ถ้าไม่ใช่ ONSITE ต้องกรอก customerName
+      //   if (!orderData.customerName) {
+      //     throw new BadRequestException('กรุณากรอกชื่อผู้สั่งซื้อ');
+      //   }
+      // }
       // 8. Prepare order data - ใช้ logic เดียวกับ createOrder
       const finalOrderData: any = {
         orderNumber,
@@ -158,6 +169,12 @@ export class EnhancedOrderService {
         referrerCommission: referrer ? pricing.commission : 0, // ✅ คำนวณเฉพาะเมื่อมี referrer
         note: orderData.note,
         source: (orderData.source as OrderSource) || OrderSource.DIRECT,
+        purchaseType,
+        attendanceStatus:
+          orderData.attendanceStatus ||
+          (purchaseType === OrderPurchaseType.ONSITE
+            ? 'CHECKED_IN'
+            : 'PENDING'),
         expiresAt: BusinessLogicHelper.calculateExpiryTime(
           ThailandTimeHelper.now(),
           this.configService.get(
@@ -218,9 +235,11 @@ export class EnhancedOrderService {
         finalOrderData.standingAdultQty = adultQty;
         finalOrderData.standingChildQty = childQty;
         finalOrderData.standingTotal = standingTotal;
-        finalOrderData.standingCommission =
-          adultQty * COMMISSION_RATES.STANDING_ADULT +
-          childQty * COMMISSION_RATES.STANDING_CHILD;
+        if (finalOrderData.referrerCode) {
+          finalOrderData.referrerCommission =
+            adultQty * COMMISSION_RATES.STANDING_ADULT +
+            childQty * COMMISSION_RATES.STANDING_CHILD;
+        }
         finalOrderData.quantity = adultQty + childQty;
         finalOrderData.total = standingTotal;
         finalOrderData.totalAmount = standingTotal;

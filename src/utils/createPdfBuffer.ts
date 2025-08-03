@@ -3,10 +3,10 @@ import * as path from 'path';
 
 const fonts = {
   THSarabunNew: {
-    normal: path.resolve(__dirname, '../../fonts/THSarabunNew.ttf'),
-    bold: path.resolve(__dirname, '../../fonts/THSarabunNew-Bold.ttf'),
-    italics: path.resolve(__dirname, '../../fonts/THSarabunNew-Italic.ttf'),
-    bolditalics: path.resolve(__dirname, '../../fonts/THSarabunNew-Italic.ttf'),
+    normal: path.resolve(process.cwd(), 'fonts/THSarabunNew.ttf'),
+    bold: path.resolve(process.cwd(), 'fonts/THSarabunNew-Bold.ttf'),
+    italics: path.resolve(process.cwd(), 'fonts/THSarabunNew-Italic.ttf'),
+    bolditalics: path.resolve(process.cwd(), 'fonts/THSarabunNew-Italic.ttf'),
   },
   Helvetica: {
     normal: 'Helvetica',
@@ -15,10 +15,10 @@ const fonts = {
     bolditalics: 'Helvetica-BoldOblique',
   },
   Roboto: {
-    normal: path.resolve(__dirname, '../../fonts/Roboto-Regular.ttf'),
-    bold: path.resolve(__dirname, '../../fonts/Roboto-Bold.ttf'),
-    italics: path.resolve(__dirname, '../../fonts/Roboto-Italic.ttf'),
-    bolditalics: path.resolve(__dirname, '../../fonts/Roboto-BoldItalic.ttf'),
+    normal: path.resolve(process.cwd(), 'fonts/Roboto-Regular.ttf'),
+    bold: path.resolve(process.cwd(), 'fonts/Roboto-Bold.ttf'),
+    italics: path.resolve(process.cwd(), 'fonts/Roboto-Italic.ttf'),
+    bolditalics: path.resolve(process.cwd(), 'fonts/Roboto-BoldItalic.ttf'),
   },
 };
 
