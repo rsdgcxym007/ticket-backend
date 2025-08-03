@@ -12,6 +12,8 @@ import { SeatBooking } from '../seats/seat-booking.entity';
 import { BusinessService } from '../common/services/business.service';
 import { AuditModule } from '../audit/audit.module';
 import { ConcurrencyModule } from '../common/services/concurrency.module';
+import { SeatBookingService } from '../common/services/seat-booking.service';
+import { AuditHelperService } from '../common/services/audit-helper.service';
 
 @Module({
   imports: [
@@ -24,7 +26,12 @@ import { ConcurrencyModule } from '../common/services/concurrency.module';
     ConcurrencyModule, // ✅ เพิ่ม ConcurrencyModule
   ],
   controllers: [OrderController],
-  providers: [OrderService, BusinessService],
+  providers: [
+    OrderService,
+    BusinessService,
+    SeatBookingService, // ✅ เพิ่ม SeatBookingService
+    AuditHelperService, // ✅ เพิ่ม AuditHelperService
+  ],
   exports: [OrderService, TypeOrmModule],
 })
 export class OrderModule {}

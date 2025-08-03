@@ -5,7 +5,6 @@ import {
   ForbiddenException,
   NotFoundException,
   InternalServerErrorException,
-  ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, In } from 'typeorm';
@@ -28,34 +27,41 @@ import { AuditLog } from '../audit/audit-log.entity';
 // 🔧 ENUMS & INTERFACES
 // ========================================
 import {
-  OrderStatus,
-  BookingStatus,
-  PaymentStatus,
-  TicketType,
-  PaymentMethod,
   UserRole,
+  OrderStatus,
+  PaymentMethod,
+  TicketType,
+  BookingStatus,
+  AuditAction,
   OrderSource,
   OrderPurchaseType,
-  AuditAction,
 } from '../common/enums';
+import { OrderData } from '../common/interfaces';
 
+// ========================================
+// 🛠️ UTILITIES & HELPERS
+// ========================================
 import {
-  BOOKING_LIMITS,
-  TIME_LIMITS,
-  TICKET_PRICES,
-  COMMISSION_RATES,
-} from '../common/constants';
-
-import {
-  DateTimeHelper,
-  ReferenceGenerator,
+  ThailandTimeHelper,
   BusinessLogicHelper,
+  ReferenceGenerator,
   LoggingHelper,
   ErrorHandlingHelper,
+  OrderValidationHelper,
+  OrderPricingHelper,
+  OrderDataMapper,
 } from '../common/utils';
+import {
+  TICKET_PRICES,
+  COMMISSION_RATES,
+  TIME_LIMITS,
+} from '../common/constants';
 
-import { OrderData } from '../common/interfaces';
-import { ThailandTimeHelper } from '../common/utils/thailand-time.helper';
+// ========================================
+// 🔧 SERVICES
+// ========================================
+import { SeatBookingService } from '../common/services/seat-booking.service';
+import { AuditHelperService } from '../common/services/audit-helper.service';
 
 // ========================================
 // 📝 DTOs
@@ -117,6 +123,8 @@ export class OrderService {
     @InjectRepository(AuditLog)
     private auditRepo: Repository<AuditLog>,
     private configService: ConfigService,
+    private seatBookingService: SeatBookingService,
+    private auditHelperService: AuditHelperService,
   ) {
     // Add console.log to verify logger initialization
   }
@@ -147,51 +155,32 @@ export class OrderService {
 
     request.userId = user.id;
 
-    await this.validateBookingLimits(user, request);
+    // ใช้ OrderValidationHelper แทนฟังก์ชันเดิม
+    await OrderValidationHelper.validateBookingLimits(
+      user,
+      (request.quantity || 0) + (request.seatIds?.length || 0),
+      this.orderRepo,
+    );
     this.logger.log(`Booking limits validated for user: ${user.id}`);
 
     // Validate seat availability
     if (request.seatIds && request.seatIds.length > 0) {
-      await this.validateSeatAvailability(request.seatIds, request.showDate);
+      await OrderValidationHelper.validateSeatAvailability(
+        request.seatIds,
+        request.showDate,
+        this.seatRepo,
+        this.seatBookingRepo,
+      );
     }
 
-    // Validate referrer
-    let referrer = null;
-    if (request.referrerCode) {
-      // Add logger for referrer validation
-      this.logger.log(`Validating referrer code: ${request.referrerCode}`);
-      referrer = await this.referrerRepo.findOne({
-        where: { code: request.referrerCode, isActive: true },
-      });
+    // Validate referrer ใช้ OrderValidationHelper
+    const referrer = await OrderValidationHelper.validateReferrer(
+      request.referrerCode,
+      this.referrerRepo,
+    );
 
-      if (!referrer) {
-        this.logger.warn(`Invalid referrer code: ${request.referrerCode}`);
-        throw new BadRequestException(
-          'รหัสผู้แนะนำไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง',
-        );
-      }
-    }
-
-    // Validation: If purchaseType is ONSITE, skip customer info requirements
-    // const isOnsite = request.purchaseType === OrderPurchaseType.ONSITE;
-    // if (!isOnsite) {
-    //   if (
-    //     !request.customerName ||
-    //     !request.customerPhone ||
-    //     !request.customerEmail
-    //   ) {
-    //     throw new BadRequestException(
-    //       'กรุณากรอกชื่อ เบอร์โทร และอีเมลสำหรับการสร้างออเดอร์',
-    //     );
-    //   }
-    // } else {
-    //   if (!request.customerName) delete request.customerName;
-    //   if (!request.customerPhone) delete request.customerPhone;
-    //   if (!request.customerEmail) delete request.customerEmail;
-    // }
-
-    // Calculate pricing
-    const pricing = this.calculateOrderPricing(request);
+    // Calculate pricing ใช้ OrderPricingHelper
+    const pricing = OrderPricingHelper.calculateOrderPricing(request);
     this.logger.log('Order pricing calculated:', pricing);
 
     // Create orderlog
@@ -345,9 +334,9 @@ export class OrderService {
       );
     }
 
-    // Create seat bookings
+    // Create seat bookings ใช้ SeatBookingService
     if (request.seatIds && request.seatIds.length > 0) {
-      await this.createSeatBookings(
+      await this.seatBookingService.createSeatBookings(
         savedOrder,
         request.seatIds,
         request.showDate,
@@ -370,27 +359,8 @@ export class OrderService {
       );
     }
 
-    return {
-      ...reloadedOrder,
-      customerName: reloadedOrder.customerName,
-      ticketType: reloadedOrder.ticketType,
-      price: reloadedOrder.totalAmount,
-      paymentStatus: PaymentStatus.PENDING,
-      showDate: ThailandTimeHelper.toISOString(reloadedOrder.showDate),
-      seats:
-        reloadedOrder.seatBookings?.map((booking) => {
-          return {
-            id: booking.seat.id,
-            seatNumber: booking.seat.seatNumber,
-            zone: booking.seat.zone
-              ? {
-                  id: booking.seat.zone.id,
-                  name: booking.seat.zone.name,
-                }
-              : null,
-          };
-        }) || [],
-    };
+    // ใช้ OrderDataMapper แทนการแปลงข้อมูลแบบเดิม
+    return OrderDataMapper.mapToOrderData(reloadedOrder) as OrderData;
   }
 
   /**
@@ -494,7 +464,7 @@ export class OrderService {
         totalPages: Math.ceil(total / limit),
       });
       return {
-        items: items.map((order) => this.mapToOrderData(order)),
+        items: OrderDataMapper.mapOrdersToData(items) as OrderData[],
         total,
         page,
         limit,
@@ -551,12 +521,12 @@ export class OrderService {
     // Permission check for users
     if (userId) {
       const user = await this.userRepo.findOne({ where: { id: userId } });
-      if (user && user.role === UserRole.USER && order.userId !== userId) {
-        throw new ForbiddenException('You can only view your own orders');
+      if (user) {
+        OrderValidationHelper.validateOrderAccess(user, order, 'VIEW');
       }
     }
 
-    return this.mapToOrderData(order);
+    return OrderDataMapper.mapToOrderData(order) as OrderData;
   }
 
   // =================================================================
@@ -583,37 +553,8 @@ export class OrderService {
       throw new NotFoundException('Order not found');
     }
 
-    // Permission check
-    if (user.role === UserRole.USER && order.userId !== userId) {
-      throw new ForbiddenException('You can only update your own orders');
-    }
-
-    // Status validation
-    if (
-      order.status === OrderStatus.CONFIRMED &&
-      user.role !== UserRole.ADMIN
-    ) {
-      throw new BadRequestException('Cannot update confirmed orders');
-    }
-
-    // Validation: If purchaseType is ONSITE, skip customer info requirements
-    // const isOnsite = updates.purchaseType === OrderPurchaseType.ONSITE;
-    // if (!isOnsite) {
-    //   if (
-    //     !updates.customerName ||
-    //     !updates.customerPhone ||
-    //     !(updates as any).customerEmail
-    //   ) {
-    //     throw new BadRequestException(
-    //       'กรุณากรอกชื่อ เบอร์โทร และอีเมลสำหรับการอัปเดตออเดอร์',
-    //     );
-    //   }
-    // } else {
-    //   if (!updates.customerName) delete updates.customerName;
-    //   if (!updates.customerPhone) delete updates.customerPhone;
-    //   if (!(updates as any).customerEmail)
-    //     delete (updates as any).customerEmail;
-    // }
+    // Permission check ใช้ OrderValidationHelper
+    OrderValidationHelper.validateOrderAccess(user, order, 'UPDATE');
 
     // Update order
     await this.orderRepo.update(id, {
@@ -622,8 +563,13 @@ export class OrderService {
       updatedBy: userId,
     } as any);
 
-    // Create audit log
-    await this.createAuditLog(AuditAction.UPDATE, 'Order', id, userId, updates);
+    // Create audit log ใช้ AuditHelperService
+    await this.auditHelperService.auditOrderAction(
+      AuditAction.UPDATE,
+      id,
+      userId,
+      this.auditHelperService.createOrderUpdateMetadata(order, updates),
+    );
 
     return this.findById(id);
   }
@@ -651,22 +597,8 @@ export class OrderService {
       throw new NotFoundException('Order not found');
     }
 
-    // Permission check
-    if (user.role === UserRole.USER && order.userId !== userId) {
-      throw new ForbiddenException('You can only cancel your own orders');
-    }
-
-    // Status validation
-    if (
-      order.status === OrderStatus.CONFIRMED &&
-      user.role !== UserRole.ADMIN
-    ) {
-      throw new BadRequestException('Cannot cancel confirmed orders');
-    }
-
-    if (order.status === OrderStatus.CANCELLED) {
-      throw new ConflictException('Order is already cancelled');
-    }
+    // Permission check ใช้ OrderValidationHelper
+    OrderValidationHelper.validateOrderAccess(user, order, 'CANCEL');
 
     // Cancel order
     await this.orderRepo.update(id, {
@@ -675,21 +607,24 @@ export class OrderService {
       updatedBy: userId,
     });
 
-    // Release seat bookings
+    // Release seat bookings ใช้ SeatBookingService
     if (order.seatBookings) {
-      await this.seatBookingRepo.update(
-        { orderId: id },
-        {
-          status: BookingStatus.CANCELLED,
-          updatedAt: ThailandTimeHelper.now(),
-        },
+      await this.seatBookingService.updateOrderSeatBookingsStatus(
+        id,
+        BookingStatus.CANCELLED,
       );
     }
 
-    // Create audit log
-    await this.createAuditLog(AuditAction.CANCEL, 'Order', id, userId, {
-      reason: 'Order cancelled by user',
-    });
+    // Create audit log ใช้ AuditHelperService
+    await this.auditHelperService.auditOrderAction(
+      AuditAction.CANCEL,
+      id,
+      userId,
+      this.auditHelperService.createOrderCancellationMetadata(
+        id,
+        'Order cancelled by user',
+      ),
+    );
 
     return { success: true, message: 'ยกเลิกออเดอร์สำเร็จ' };
   }
@@ -717,16 +652,8 @@ export class OrderService {
       throw new NotFoundException('Order not found');
     }
 
-    // Only staff and admin can confirm payment
-    if (user.role !== UserRole.STAFF && user.role !== UserRole.ADMIN) {
-      throw new ForbiddenException('Only staff and admin can confirm payments');
-    }
-
-    if (order.status !== OrderStatus.PENDING) {
-      throw new BadRequestException(
-        'Can only confirm payment for pending orders',
-      );
-    }
+    // Permission and status validation ใช้ OrderValidationHelper
+    OrderValidationHelper.validatePaymentConfirmation(user, order);
 
     // Update order status
     await this.orderRepo.update(id, {
@@ -735,21 +662,25 @@ export class OrderService {
       updatedBy: userId,
     });
 
-    // Update seat bookings
+    // Update seat bookings ใช้ SeatBookingService
     if (order.seatBookings) {
-      await this.seatBookingRepo.update(
-        { orderId: id },
-        {
-          status: BookingStatus.CONFIRMED,
-          updatedAt: ThailandTimeHelper.now(),
-        },
+      await this.seatBookingService.updateOrderSeatBookingsStatus(
+        id,
+        BookingStatus.CONFIRMED,
       );
     }
 
-    // Create audit log
-    await this.createAuditLog(AuditAction.CONFIRM, 'Order', id, userId, {
-      reason: 'Payment confirmed by staff',
-    });
+    // Create audit log ใช้ AuditHelperService
+    await this.auditHelperService.auditOrderAction(
+      AuditAction.CONFIRM,
+      id,
+      userId,
+      this.auditHelperService.createPaymentConfirmationMetadata(
+        id,
+        order.totalAmount,
+        order.paymentMethod,
+      ),
+    );
 
     return { success: true, message: 'ยืนยันการชำระเงินสำเร็จ' };
   }
@@ -779,97 +710,36 @@ export class OrderService {
       throw new NotFoundException('Order not found');
     }
 
-    // Permission check
-    if (user.role === UserRole.USER && order.userId !== userId) {
-      throw new ForbiddenException(
-        'You can only generate tickets for your own orders',
-      );
-    }
+    // Permission check ใช้ OrderValidationHelper
+    OrderValidationHelper.validateTicketGeneration(user, order);
 
-    if (![OrderStatus.CONFIRMED, OrderStatus.PAID].includes(order.status)) {
-      throw new BadRequestException(
-        'Can only generate tickets for confirmed orders',
-      );
-    }
     console.log('order', order);
 
-    let tickets = [];
+    // Generate tickets ใช้ OrderDataMapper
+    const ticketData = OrderDataMapper.mapToTicketData(order);
 
-    // Generate tickets based on ticket type
-    if (order.ticketType === TicketType.STANDING) {
-      // Generate tickets for standing orders
-      const adultQty = order.standingAdultQty || 0;
-      const childQty = order.standingChildQty || 0;
-
-      // Generate adult tickets
-      for (let i = 1; i <= adultQty; i++) {
-        tickets.push({
-          orderId: order.id,
-          id: `${order.id}_adult_${i}`,
-          orderNumber: order.orderNumber,
-          seatNumber: null,
-          type: order.ticketType,
-          ticketCategory: 'ADULT',
-          zone: null,
-          customerName: order.customerName,
-          showDate: DateTimeHelper.formatDate(order.showDate),
-          qrCode: `QR_${order.orderNumber}_STANDING_ADULT_${i}`,
-        });
-      }
-
-      // Generate child tickets
-      for (let i = 1; i <= childQty; i++) {
-        tickets.push({
-          orderId: order.id,
-          id: `${order.id}_child_${i}`,
-          orderNumber: order.orderNumber,
-          seatNumber: null,
-          type: order.ticketType,
-          ticketCategory: 'CHILD',
-          zone: null,
-          customerName: order.customerName,
-          showDate: DateTimeHelper.formatDate(order.showDate),
-          qrCode: `QR_${order.orderNumber}_STANDING_CHILD_${i}`,
-        });
-      }
-    } else {
-      // Generate tickets for seated orders (existing logic)
-      tickets = order.seatBookings.map((booking) => ({
+    // Create audit log ใช้ AuditHelperService
+    await this.auditHelperService.auditOrderAction(
+      AuditAction.VIEW,
+      id,
+      userId,
+      {
         orderId: order.id,
-        id: booking.id,
-        orderNumber: order.orderNumber,
-        seatNumber: booking.seat.seatNumber,
-        type: order.ticketType,
-        ticketCategory: 'SEAT',
-        zone: booking.seat.zone
-          ? {
-              id: booking.seat.zone.id,
-              name: booking.seat.zone.name,
-            }
-          : null,
-        customerName: order.customerName,
-        showDate: DateTimeHelper.formatDate(order.showDate),
-        qrCode: `QR_${order.orderNumber}_${booking.seat.seatNumber}`,
-      }));
-    }
+        action: 'Tickets generated',
+        ticketCount: ticketData.totalTickets,
+        ticketType: order.ticketType,
+        standingAdultQty:
+          order.ticketType === TicketType.STANDING
+            ? order.standingAdultQty
+            : undefined,
+        standingChildQty:
+          order.ticketType === TicketType.STANDING
+            ? order.standingChildQty
+            : undefined,
+      },
+    );
 
-    // Create audit log
-    await this.createAuditLog(AuditAction.VIEW, 'Order', id, userId, {
-      orderId: order.id,
-      action: 'Tickets generated',
-      ticketCount: tickets.length,
-      ticketType: order.ticketType,
-      standingAdultQty:
-        order.ticketType === TicketType.STANDING
-          ? order.standingAdultQty
-          : undefined,
-      standingChildQty:
-        order.ticketType === TicketType.STANDING
-          ? order.standingChildQty
-          : undefined,
-    });
-
-    return { tickets, totalTickets: tickets.length };
+    return ticketData;
   }
 
   // =================================================================
@@ -1093,46 +963,28 @@ export class OrderService {
       await this.seatBookingRepo.delete({ orderId: order.id });
     }
 
-    // Create new seat bookings
-    await this.createSeatBookings(order, newSeatIds, showDateToUse);
+    // Create new seat bookings ใช้ SeatBookingService
+    await this.seatBookingService.createSeatBookings(
+      order,
+      newSeatIds,
+      showDateToUse,
+    );
 
     // Update order
     await this.orderRepo.update(order.id, orderUpdates);
 
-    // Create audit log
-    await this.createAuditLog(AuditAction.UPDATE, 'Order', order.id, userId, {
-      action: 'Seats changed (PENDING/BOOKED)',
-      oldSeats: oldSeatIds,
-      newSeats: newSeatIds,
-      oldSeatCount,
-      newSeatCount,
-      oldAmount: order.totalAmount,
-      newAmount: newPricing.totalAmount,
-      oldReferrer: order.referrerCode,
-      newReferrer: newReferrer?.code,
-      oldShowDate: ThailandTimeHelper.formatDateTime(
-        order.showDate,
-        'YYYY-MM-DD HH:mm:ss',
+    // Create audit log ใช้ AuditHelperService
+    await this.auditHelperService.auditOrderAction(
+      AuditAction.UPDATE,
+      order.id,
+      userId,
+      this.auditHelperService.createSeatChangeMetadata(
+        order.id,
+        oldSeatIds,
+        newSeatIds,
+        'Seats changed (PENDING/BOOKED)',
       ),
-      newShowDate: newShowDate
-        ? ThailandTimeHelper.formatDateTime(newShowDate, 'YYYY-MM-DD HH:mm:ss')
-        : ThailandTimeHelper.formatDateTime(
-            order.showDate,
-            'YYYY-MM-DD HH:mm:ss',
-          ),
-      customerUpdates: {
-        name:
-          newCustomerName !== order.customerName ? newCustomerName : undefined,
-        phone:
-          newCustomerPhone !== order.customerPhone
-            ? newCustomerPhone
-            : undefined,
-        email:
-          newCustomerEmail !== order.customerEmail
-            ? newCustomerEmail
-            : undefined,
-      },
-    });
+    );
 
     const updatedOrder = await this.findById(order.id);
 
@@ -1225,18 +1077,18 @@ export class OrderService {
       await this.orderRepo.update(order.id, orderUpdates);
     }
 
-    // Create audit log
-    await this.createAuditLog(AuditAction.UPDATE, 'Order', order.id, userId, {
-      action: 'Seats changed (PAID)',
-      oldSeats: oldSeatIds,
-      newSeats: newSeatIds,
-      oldSeatCount: currentSeatCount,
-      newSeatCount,
-      oldShowDate: ThailandTimeHelper.toISOString(order.showDate),
-      newShowDate:
-        newShowDate || ThailandTimeHelper.toISOString(order.showDate),
-      note: 'Paid order - pricing unchanged',
-    });
+    // Create audit log ใช้ AuditHelperService
+    await this.auditHelperService.auditOrderAction(
+      AuditAction.UPDATE,
+      order.id,
+      userId,
+      this.auditHelperService.createSeatChangeMetadata(
+        order.id,
+        oldSeatIds,
+        newSeatIds,
+        'Seats changed (PAID) - pricing unchanged',
+      ),
+    );
 
     const updatedOrder = await this.findById(order.id);
 
@@ -1351,10 +1203,13 @@ export class OrderService {
     // Remove order
     await this.orderRepo.delete(id);
 
-    // Create audit log
-    await this.createAuditLog(AuditAction.DELETE, 'Order', id, userId, {
-      reason: 'Order removed by admin',
-    });
+    // Create audit log ใช้ AuditHelperService
+    await this.auditHelperService.auditOrderAction(
+      AuditAction.DELETE,
+      id,
+      userId,
+      { reason: 'Order removed by admin' },
+    );
 
     return { success: true, message: 'ลบออเดอร์สำเร็จ' };
   }
@@ -1404,234 +1259,8 @@ export class OrderService {
   // =======================================================
   // 🔧 PRIVATE HELPER METHODS
   // ===============================================
-  private async validateBookingLimits(
-    user: User,
-    request: CreateOrderRequest,
-  ): Promise<void> {
-    const limits = BOOKING_LIMITS[user.role];
-    const totalSeats = (request.quantity || 0) + (request.seatIds?.length || 0);
-
-    this.logger.log(
-      `Validating booking limits for user: ${user.id}, role: ${user.role}, totalSeats: ${totalSeats}`,
-    );
-
-    if (totalSeats > limits.maxSeatsPerOrder) {
-      this.logger.warn(
-        `User ${user.id} exceeded max seats per order: ${totalSeats} > ${limits.maxSeatsPerOrder}`,
-      );
-      throw new ForbiddenException(
-        `${user.role} สามารถจองได้สูงสุด ${limits.maxSeatsPerOrder} ที่นั่งต่อคำสั่ง`,
-      );
-    }
-
-    const today = ThailandTimeHelper.startOfDay(ThailandTimeHelper.now());
-    const todayOrders = await this.orderRepo.count({
-      where: {
-        userId: user.id,
-        createdAt: Between(today, ThailandTimeHelper.now()),
-      },
-    });
-
-    this.logger.log(
-      `User ${user.id} has made ${todayOrders} orders today, max allowed: ${limits.maxOrdersPerDay}`,
-    );
-
-    if (todayOrders >= limits.maxOrdersPerDay) {
-      this.logger.warn(
-        `User ${user.id} exceeded max orders per day: ${todayOrders} >= ${limits.maxOrdersPerDay}`,
-      );
-      throw new ForbiddenException(
-        `${user.role} สามารถทำรายการได้สูงสุด ${limits.maxOrdersPerDay} ครั้งต่อวัน`,
-      );
-    }
-  }
-
-  private async validateSeatAvailability(
-    seatIds: string[],
-    showDate: string,
-  ): Promise<void> {
-    const seats = await this.seatRepo.findByIds(seatIds);
-
-    if (!seats || seats.length !== seatIds.length) {
-      throw new BadRequestException('ไม่พบที่นั่งบางที่');
-    }
-
-    const bookedSeats = await this.seatBookingRepo.find({
-      where: {
-        seat: { id: In(seatIds) },
-        showDate: showDate,
-        status: In([BookingStatus.PENDING, BookingStatus.CONFIRMED]),
-      },
-    });
-
-    if (bookedSeats.length > 0) {
-      throw new BadRequestException('Some seats are already booked');
-    }
-  }
-
-  private calculateOrderPricing(request: CreateOrderRequest): {
-    totalAmount: number;
-    commission: number;
-  } {
-    const { ticketType, quantity = 0, seatIds = [] } = request;
-
-    let pricePerSeat;
-    let commissionPerTicket;
-
-    if (ticketType === TicketType.STANDING) {
-      pricePerSeat = TICKET_PRICES.STANDING_ADULT;
-      commissionPerTicket = COMMISSION_RATES.STANDING_ADULT; // 300 บาท/ตั๋ว
-    } else {
-      pricePerSeat = TICKET_PRICES[ticketType];
-      commissionPerTicket = COMMISSION_RATES.SEAT; // 400 บาท/ตั๋ว
-    }
-
-    const totalSeats = quantity + seatIds.length;
-
-    // Validate constants
-    if (
-      typeof pricePerSeat !== 'number' ||
-      typeof commissionPerTicket !== 'number'
-    ) {
-      this.logger.error(
-        `Invalid constants: pricePerSeat=${pricePerSeat}, commissionPerTicket=${commissionPerTicket}`,
-      );
-      throw new InternalServerErrorException(
-        'Invalid ticket pricing or commission rates. Please contact support.',
-      );
-    }
-
-    this.logger.log(`Calculating pricing for ticketType: ${ticketType}`);
-    this.logger.log(`TICKET_PRICES: ${JSON.stringify(TICKET_PRICES)}`);
-    this.logger.log(`COMMISSION_RATES: ${JSON.stringify(COMMISSION_RATES)}`);
-
-    const totalAmount = totalSeats * pricePerSeat;
-    console.log('totalAmount', totalAmount);
-
-    const commission = totalSeats * commissionPerTicket; // ✅ คูณจำนวนตั๋ว × commission ต่อตั๋ว
-    console.log('commission', commission);
-
-    return { totalAmount, commission };
-  }
-
-  private async createSeatBookings(
-    order: Order,
-    seatIds: string[],
-    showDate: string,
-  ): Promise<void> {
-    const seats = await this.seatRepo.findByIds(seatIds);
-
-    const bookings = seats.map((seat) => ({
-      order,
-      orderId: order.id,
-      seat,
-      showDate: showDate,
-      status: BookingStatus.PENDING,
-      createdAt: ThailandTimeHelper.now(),
-      updatedAt: ThailandTimeHelper.now(),
-    }));
-
-    await this.seatBookingRepo.save(bookings);
-  }
-
-  private async createAuditLog(
-    action: AuditAction,
-    entityType: string,
-    entityId: string,
-    userId: string,
-    metadata?: any,
-  ): Promise<void> {
-    const user = await this.userRepo.findOne({ where: { id: userId } });
-
-    if (!user) {
-      throw new BadRequestException('User not found');
-    }
-
-    const auditLog = this.auditRepo.create({
-      action,
-      entityType,
-      entityId,
-      userId,
-      userRole: user.role, // Assign user role
-      metadata,
-      timestamp: ThailandTimeHelper.now(),
-    } as AuditLog);
-
-    await this.auditRepo.save(auditLog);
-  }
-
-  private mapToOrderData(order: Order): OrderData {
-    console.log('order', order);
-
-    // createdById: id ของ staff/admin/master ที่สร้าง (หรือ userId ถ้าไม่มี createdBy)
-    // createdByName: ชื่อของ staff/admin/master ที่สร้าง (หรือ null ถ้าไม่มี)
-    const createdById = order.createdBy || order.userId;
-    const createdByName = order.user?.name || null;
-    return {
-      id: order.id,
-      orderNumber: order.orderNumber,
-      customerName: order.customerName,
-      customerPhone: order.customerPhone,
-      email: order.customerEmail,
-      ticketType: order.ticketType,
-      quantity: order.quantity,
-      price: order.totalAmount,
-      totalAmount: order.totalAmount,
-      status: order.status,
-      referrerCommission: order.referrerCommission,
-      paymentMethod: order.paymentMethod || PaymentMethod.CASH,
-      paymentStatus: order?.payment?.status || PaymentStatus.PENDING,
-      showDate: DateTimeHelper.formatDate(order.showDate),
-      createdAt: order.createdAt,
-      updatedAt: order.updatedAt,
-      expiresAt: order.expiresAt,
-      source: order.source,
-      purchaseType: order.purchaseType,
-      attendanceStatus: order.attendanceStatus,
-      note: order.note,
-      createdBy: createdById,
-      createdById,
-      createdByName,
-      updatedBy: order.updatedBy,
-      paidByName:
-        order.payment?.user?.name ||
-        (order.payment?.userId
-          ? order.user && order.payment.userId === order.user.id
-            ? order.user.name
-            : order.payment.userId
-          : order.payment?.createdById
-            ? order.user && order.payment.createdById === order.user.id
-              ? order.user.name
-              : order.payment.createdById
-            : null),
-      lastUpdatedByName:
-        order.updatedBy === order.userId ? order.user?.name || null : null,
-      standingAdultQty: order.standingAdultQty,
-      standingChildQty: order.standingChildQty,
-      standingTotal: order.standingTotal,
-      standingCommission: order.standingCommission,
-      referrer: order.referrer
-        ? {
-            id: order.referrer.id,
-            code: order.referrer.code,
-            name: order.referrer.name,
-          }
-        : null,
-      seats:
-        order.seatBookings?.map((booking) => {
-          return {
-            id: booking.seat.id,
-            seatNumber: booking.seat.seatNumber,
-            zone: booking.seat.zone
-              ? {
-                  id: booking.seat.zone.id,
-                  name: booking.seat.zone.name,
-                }
-              : null,
-          };
-        }) || [],
-    };
-  }
+  // 🔧 HELPER METHODS ที่เหลือ (ฟังก์ชันเฉพาะที่ไม่ได้ย้ายไป helpers)
+  // ===============================================
 
   // =================================================================
   // ✏️ UPDATE ORDER FOR TICKET TYPE: STANDING
@@ -1677,8 +1306,13 @@ export class OrderService {
       updatedBy: userId,
     } as any);
 
-    // Create audit log
-    await this.createAuditLog(AuditAction.UPDATE, 'Order', id, userId, updates);
+    // Create audit log ใช้ AuditHelperService
+    await this.auditHelperService.auditOrderAction(
+      AuditAction.UPDATE,
+      id,
+      userId,
+      updates,
+    );
 
     return this.findById(id);
   }
@@ -1819,8 +1453,8 @@ export class OrderService {
 
       const orders = Array.isArray(result.items) ? result.items : [];
 
-      // คำนวณสรุปข้อมูล
-      const summary = this.calculateOrdersSummary(orders);
+      // คำนวณสรุปข้อมูล ใช้ OrderPricingHelper
+      const summary = OrderPricingHelper.calculateOrdersSummary(orders);
 
       // เตรียมข้อมูลสำหรับ export
       const exportOrders = orders.map((order) => ({
@@ -1876,60 +1510,7 @@ export class OrderService {
   }
 
   /**
-   * 📊 คำนวณสรุปข้อมูลออเดอร์
-   */
-  private calculateOrdersSummary(orders: any[]): {
-    totalOrders: number;
-    totalAmount: number;
-    totalCommission: number;
-    statusBreakdown: Record<string, number>;
-    purchaseTypeBreakdown: Record<string, number>;
-    attendanceStatusBreakdown: Record<string, number>;
-    ticketTypeBreakdown: Record<string, number>;
-  } {
-    const summary = {
-      totalOrders: orders.length,
-      totalAmount: 0,
-      totalCommission: 0,
-      statusBreakdown: {} as Record<string, number>,
-      purchaseTypeBreakdown: {} as Record<string, number>,
-      attendanceStatusBreakdown: {} as Record<string, number>,
-      ticketTypeBreakdown: {} as Record<string, number>,
-    };
-
-    orders.forEach((order) => {
-      // รวมยอดเงิน
-      summary.totalAmount += Number(order.totalAmount) || 0;
-      summary.totalCommission +=
-        (Number(order.referrerCommission) || 0) +
-        (Number(order.standingCommission) || 0);
-
-      // นับตาม status
-      const status = order.status || 'UNKNOWN';
-      summary.statusBreakdown[status] =
-        (summary.statusBreakdown[status] || 0) + 1;
-
-      // นับตาม purchaseType
-      const purchaseType = order.purchaseType || OrderPurchaseType.ONSITE;
-      summary.purchaseTypeBreakdown[purchaseType] =
-        (summary.purchaseTypeBreakdown[purchaseType] || 0) + 1;
-
-      // นับตาม attendanceStatus
-      const attendanceStatus = order.attendanceStatus || 'PENDING';
-      summary.attendanceStatusBreakdown[attendanceStatus] =
-        (summary.attendanceStatusBreakdown[attendanceStatus] || 0) + 1;
-
-      // นับตาม ticketType
-      const ticketType = order.ticketType || 'UNKNOWN';
-      summary.ticketTypeBreakdown[ticketType] =
-        (summary.ticketTypeBreakdown[ticketType] || 0) + 1;
-    });
-
-    return summary;
-  }
-
-  /**
-   * 📄 สร้าง PDF ตามรูปแบบตารางใบเสร็จ (A4 แนวนอน)
+   *  สร้าง PDF ตามรูปแบบตารางใบเสร็จ (A4 แนวนอน)
    * ตรงตามภาพที่ส่งมา Boxing Stadium Patong Beach
    */
   async generateOrdersPDF(exportData: {

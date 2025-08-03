@@ -9,6 +9,7 @@ import { ConcurrencyService } from './concurrency.service';
 import { DuplicateOrderPreventionService } from './duplicate-order-prevention.service';
 import { ThailandTimeHelper } from '../utils/thailand-time.helper';
 import { OrderStatus, SeatStatus, BookingStatus } from '../enums';
+import { AttendanceStatus } from '../enums';
 
 /**
  * 🧹 Concurrency Cleanup Service
@@ -370,6 +371,38 @@ export class ConcurrencyCleanupService {
     } catch (error) {
       this.logger.error(`❌ Emergency cleanup failed: ${error.message}`);
       throw error;
+    }
+  }
+
+  @Cron('0 0 * * *') // ทุกวันเวลาเที่ยงคืน
+  async markNoShowOrders(): Promise<void> {
+    try {
+      this.logger.log('🕛 Starting NO_SHOW attendanceStatus update');
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      // หาออเดอร์ที่ showDate < วันนี้ และ attendanceStatus = PENDING
+      const orders = await this.orderRepo.find({
+        where: {
+          attendanceStatus: AttendanceStatus.PENDING,
+          showDate: LessThan(today),
+        },
+      });
+
+      let updatedCount = 0;
+      for (const order of orders) {
+        await this.orderRepo.update(order.id, {
+          attendanceStatus: AttendanceStatus.NO_SHOW,
+        });
+        updatedCount++;
+      }
+      if (updatedCount > 0) {
+        this.logger.log(`✅ Marked ${updatedCount} orders as NO_SHOW`);
+      } else {
+        this.logger.log('🔍 No orders to mark as NO_SHOW');
+      }
+    } catch (error) {
+      this.logger.error(`❌ Failed to mark NO_SHOW orders: ${error.message}`);
     }
   }
 }

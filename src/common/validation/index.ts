@@ -224,8 +224,8 @@ export class BusinessValidation {
     // ตรวจสอบตามบทบาทผู้ใช้
     const limits = {
       USER: { maxPerOrder: 10, maxTotal: 50 },
-      STAFF: { maxPerOrder: 100, maxTotal: 500 },
-      ADMIN: { maxPerOrder: 1000, maxTotal: 10000 },
+      STAFF: { maxPerOrder: 99999, maxTotal: 99999 },
+      ADMIN: { maxPerOrder: 99999, maxTotal: 99999 },
     };
 
     const userLimits = limits[userRole as keyof typeof limits];
