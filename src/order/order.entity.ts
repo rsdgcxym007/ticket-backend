@@ -25,8 +25,8 @@ import {
 } from '../common/enums';
 
 @Entity()
-@Index(['userId'])
 @Index(['orderNumber'])
+@Index(['showDate'])
 export class Order {
   @PrimaryGeneratedColumn('uuid')
   id: string;
