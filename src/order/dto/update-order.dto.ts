@@ -195,4 +195,49 @@ export class UpdateOrderDto {
   @IsOptional()
   @IsString()
   dropoffTime?: string;
+
+  // 🏨 Hotel booking fields - สำหรับการจองที่พักร่วม
+  @IsOptional()
+  @IsString()
+  hotelName?: string;
+
+  @IsOptional()
+  @IsString()
+  hotelDistrict?: string;
+
+  @IsOptional()
+  @IsString()
+  roomNumber?: string;
+
+  @IsOptional()
+  @IsNumber()
+  adultCount?: number;
+
+  @IsOptional()
+  @IsNumber()
+  childCount?: number;
+
+  @IsOptional()
+  @IsNumber()
+  infantCount?: number;
+
+  @IsOptional()
+  @IsString()
+  voucherNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  pickupScheduledTime?: string;
+
+  @IsOptional()
+  @IsString()
+  bookerName?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  includesPickup?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  includesDropoff?: boolean;
 }

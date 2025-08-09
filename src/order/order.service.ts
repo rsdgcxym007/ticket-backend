@@ -33,7 +33,6 @@ import {
   TicketType,
   BookingStatus,
   AuditAction,
-  OrderSource,
   OrderPurchaseType,
 } from '../common/enums';
 import { OrderData } from '../common/interfaces';
@@ -43,25 +42,28 @@ import { OrderData } from '../common/interfaces';
 // ========================================
 import {
   ThailandTimeHelper,
-  BusinessLogicHelper,
-  ReferenceGenerator,
   LoggingHelper,
   ErrorHandlingHelper,
-  OrderValidationHelper,
-  OrderPricingHelper,
   OrderDataMapper,
 } from '../common/utils';
-import {
-  TICKET_PRICES,
-  COMMISSION_RATES,
-  TIME_LIMITS,
-} from '../common/constants';
+// Removed unused constants imports - now using helpers
 
 // ========================================
 // 🔧 SERVICES
 // ========================================
 import { SeatBookingService } from '../common/services/seat-booking.service';
 import { AuditHelperService } from '../common/services/audit-helper.service';
+
+// ========================================
+// 📊 HELPERS
+// ========================================
+import {
+  OrderValidationHelper,
+  OrderSeatManagementHelper,
+  OrderPricingHelper,
+  OrderExportImportHelper,
+} from './helpers';
+import type { ImportUpdateResult } from './helpers/order-export-import.helper';
 
 // ========================================
 // 📝 DTOs
@@ -130,238 +132,9 @@ export class OrderService {
   }
 
   // ========================================
-  // 🎫 CREATE ORDER
+  // 🎫 ORDER MANAGEMENT
   // ========================================
-  async createOrder(
-    request: CreateOrderRequest,
-    userId: string,
-  ): Promise<OrderData> {
-    // Add logger usage for debugging
-    this.logger.log(`🎫 Creating new order for user: ${userId}`);
-    this.logger.log('Request received:', request);
-
-    console.log('213213ko1ldjlwkdfjlqwdjlwqdjwlqjdwqldjqwljdlqw');
-
-    // Get user from database
-    const user = await this.userRepo.findOne({
-      where: { id: userId },
-    });
-
-    if (!user) {
-      throw new BadRequestException(
-        'ไม่พบข้อมูลผู้ใช้ที่ระบุ กรุณาตรวจสอบอีกครั้ง',
-      );
-    }
-
-    request.userId = user.id;
-
-    // ใช้ OrderValidationHelper แทนฟังก์ชันเดิม
-    await OrderValidationHelper.validateBookingLimits(
-      user,
-      (request.quantity || 0) + (request.seatIds?.length || 0),
-      this.orderRepo,
-    );
-    this.logger.log(`Booking limits validated for user: ${user.id}`);
-
-    // Validate seat availability
-    if (request.seatIds && request.seatIds.length > 0) {
-      await OrderValidationHelper.validateSeatAvailability(
-        request.seatIds,
-        request.showDate,
-        this.seatRepo,
-        this.seatBookingRepo,
-      );
-    }
-
-    // Validate referrer ใช้ OrderValidationHelper
-    const referrer = await OrderValidationHelper.validateReferrer(
-      request.referrerCode,
-      this.referrerRepo,
-    );
-
-    // Calculate pricing ใช้ OrderPricingHelper
-    const pricing = OrderPricingHelper.calculateOrderPricing(request);
-    this.logger.log('Order pricing calculated:', pricing);
-
-    // Create orderlog
-    const orderNumber = ReferenceGenerator.generateOrderNumber();
-    this.logger.log('Generated order number:', orderNumber);
-
-    console.log('321321m3l123l12');
-
-    // Prepare order data
-    const orderData: any = {
-      orderNumber,
-      userId: user.id,
-      customerName: request.customerName,
-      customerPhone: request.customerPhone,
-      customerEmail: request.customerEmail,
-      ticketType: request.ticketType,
-      quantity: request.quantity || 0,
-      total: pricing.totalAmount,
-      totalAmount: pricing.totalAmount,
-      status: request.status || OrderStatus.PENDING,
-      paymentMethod: request.paymentMethod || PaymentMethod.CASH,
-      method: PaymentMethod.CASH,
-      showDate: ThailandTimeHelper.toThailandTime(request.showDate),
-      referrerCode: request.referrerCode,
-      referrerId: referrer?.id,
-      referrerCommission: pricing.commission,
-      note: request.note,
-      source: (request.source as OrderSource) || OrderSource.DIRECT,
-      purchaseType: request.purchaseType || OrderPurchaseType.ONSITE,
-      attendanceStatus:
-        request.attendanceStatus ||
-        ((request.purchaseType || OrderPurchaseType.ONSITE) ===
-        OrderPurchaseType.ONSITE
-          ? 'CHECKED_IN'
-          : 'PENDING'),
-      expiresAt: BusinessLogicHelper.calculateExpiryTime(
-        ThailandTimeHelper.now(),
-        this.configService.get(
-          'RESERVATION_TIMEOUT_MINUTES',
-          TIME_LIMITS.RESERVATION_MINUTES,
-        ),
-      ),
-      // เก็บ createdBy ทุกกรณี ไม่ว่า role ไหน
-      createdBy: user.id,
-    };
-
-    // ถ้าสถานะเป็น BOOKED ให้ตั้งเวลาหมดอายุเป็น 21:00 ของวันที่แสดง
-    if (request.status === OrderStatus.BOOKED) {
-      const showDate = ThailandTimeHelper.toThailandTime(request.showDate);
-      const expiryDate =
-        ThailandTimeHelper.format(showDate, 'YYYY-MM-DD') + ' 21:00:00';
-      orderData.expiresAt = ThailandTimeHelper.toThailandTime(expiryDate);
-      this.logger.log(
-        `🕘 BOOKED order expiry set to 21:00 on show date: ${ThailandTimeHelper.toISOString(orderData.expiresAt)}`,
-      );
-    }
-
-    // Handle standing tickets BEFORE saving
-    if (request.ticketType === TicketType.STANDING) {
-      const adultQty = request.standingAdultQty || 0;
-      const childQty = request.standingChildQty || 0;
-
-      // Validate constants
-      if (
-        typeof TICKET_PRICES.STANDING_ADULT !== 'number' ||
-        typeof TICKET_PRICES.STANDING_CHILD !== 'number' ||
-        typeof COMMISSION_RATES.STANDING_ADULT !== 'number' ||
-        typeof COMMISSION_RATES.STANDING_CHILD !== 'number'
-      ) {
-        this.logger.error(
-          `Invalid constants: TICKET_PRICES.STANDING_ADULT=${TICKET_PRICES.STANDING_ADULT}, TICKET_PRICES.STANDING_CHILD=${TICKET_PRICES.STANDING_CHILD}, COMMISSION_RATES.STANDING_ADULT=${COMMISSION_RATES.STANDING_ADULT}, COMMISSION_RATES.STANDING_CHILD=${COMMISSION_RATES.STANDING_CHILD}`,
-        );
-        throw new InternalServerErrorException(
-          'ข้อมูลราคาบัตรหรือค่าคอมมิชชั่นไม่ถูกต้อง กรุณาติดต่อเจ้าหน้าที่',
-        );
-      }
-
-      const adultTotal = adultQty * TICKET_PRICES.STANDING_ADULT;
-      const childTotal = childQty * TICKET_PRICES.STANDING_CHILD;
-      const standingTotal = adultTotal + childTotal;
-
-      // Validate calculations
-      if (isNaN(adultTotal) || isNaN(childTotal) || isNaN(standingTotal)) {
-        throw new BadRequestException(
-          'ไม่สามารถคำนวณบัตรยืนได้ กรุณาตรวจสอบจำนวนบัตรและราคาอีกครั้ง',
-        );
-      }
-
-      // Set standing ticket fields in order data
-      orderData.standingAdultQty = adultQty;
-      orderData.standingChildQty = childQty;
-      orderData.standingTotal = standingTotal;
-      orderData.standingCommission =
-        adultQty * COMMISSION_RATES.STANDING_ADULT +
-        childQty * COMMISSION_RATES.STANDING_CHILD;
-      orderData.quantity = adultQty + childQty;
-      orderData.total = standingTotal;
-      orderData.totalAmount = standingTotal;
-
-      // Debugging logs for standing ticket calculations
-      this.logger.log(
-        `Standing Adult Qty: ${adultQty}, Standing Child Qty: ${childQty}`,
-      );
-      this.logger.log(
-        `Adult Total: ${adultTotal}, Child Total: ${childTotal}, Standing Total: ${standingTotal}`,
-      );
-      this.logger.log(`Standing Commission: ${orderData.standingCommission}`);
-    }
-
-    if (request.ticketType === TicketType.STANDING) {
-      // ถ้าไม่ได้ระบุ status มาจากภายนอก ให้ใช้ logic เดิม
-      if (!request.status) {
-        if (
-          ThailandTimeHelper.isSameDay(
-            request.showDate,
-            ThailandTimeHelper.now(),
-          )
-        ) {
-          orderData.status = OrderStatus.PENDING;
-        } else {
-          orderData.status = OrderStatus.BOOKED;
-        }
-      }
-      // ถ้าเป็น standing ticket และยังไม่ได้ตั้งค่า expiresAt จากเงื่อนไข BOOKED ข้างบน
-      if (
-        orderData.status === OrderStatus.BOOKED &&
-        request.status !== OrderStatus.BOOKED
-      ) {
-        const showDate = ThailandTimeHelper.toThailandTime(request.showDate);
-        const expiryDate =
-          ThailandTimeHelper.format(showDate, 'YYYY-MM-DD') + ' 21:00:00';
-        orderData.expiresAt = ThailandTimeHelper.toThailandTime(expiryDate);
-      }
-    }
-
-    if (request.ticketType !== TicketType.STANDING) {
-      request.quantity = request.seatIds?.length || 0;
-    }
-
-    orderData.quantity = request.quantity;
-
-    const order = this.orderRepo.create(orderData);
-    const savedOrderResult = await this.orderRepo.save(order);
-    const savedOrder = Array.isArray(savedOrderResult)
-      ? savedOrderResult[0]
-      : savedOrderResult;
-
-    if (!savedOrder) {
-      throw new InternalServerErrorException(
-        'ไม่พบข้อมูลออเดอร์หลังบันทึก กรุณาติดต่อเจ้าหน้าที่',
-      );
-    }
-
-    // Create seat bookings ใช้ SeatBookingService
-    if (request.seatIds && request.seatIds.length > 0) {
-      await this.seatBookingService.createSeatBookings(
-        savedOrder,
-        request.seatIds,
-        request.showDate,
-      );
-    }
-
-    // Reload savedOrder with seatBookings relation
-    const reloadedOrder = await this.orderRepo.findOne({
-      where: { id: savedOrder.id },
-      relations: [
-        'seatBookings',
-        'seatBookings.seat',
-        'seatBookings.seat.zone',
-      ],
-    });
-
-    if (!reloadedOrder) {
-      throw new NotFoundException(
-        'ไม่พบข้อมูลออเดอร์หลังโหลดใหม่ กรุณาตรวจสอบอีกครั้ง',
-      );
-    }
-
-    // ใช้ OrderDataMapper แทนการแปลงข้อมูลแบบเดิม
-    return OrderDataMapper.mapToOrderData(reloadedOrder) as OrderData;
-  }
+  // Note: Order creation has been moved to EnhancedOrderService for better concurrency control
 
   /**
    * ดึง order ด้วย id (public method สำหรับ controller)
@@ -779,39 +552,22 @@ export class OrderService {
         };
       }
 
-      // Only staff and admin can change seats
-      if (user.role !== UserRole.STAFF && user.role !== UserRole.ADMIN) {
+      // Only staff and admin can change seats - use helper
+      try {
+        OrderSeatManagementHelper.validateSeatChangePermissions(user, order);
+      } catch (error) {
         return {
           success: false,
-          message: 'เฉพาะแอดมินหรือสตาฟเท่านั้นที่เปลี่ยนที่นั่งได้',
+          message: error.message,
           updatedOrder: null,
         };
       }
 
-      // Validate order status
-      if (
-        ![OrderStatus.PENDING, OrderStatus.BOOKED, OrderStatus.PAID].includes(
-          order.status,
-        )
-      ) {
-        return {
-          success: false,
-          message: `ไม่สามารถเปลี่ยนที่นั่งสำหรับสถานะ: ${order.status}`,
-          updatedOrder: null,
-        };
-      }
-
-      // Validate ticket type
-      if (order.ticketType === TicketType.STANDING) {
-        return {
-          success: false,
-          message: 'ไม่สามารถเปลี่ยนที่นั่งสำหรับบัตรยืน',
-          updatedOrder: null,
-        };
-      }
-
-      // Convert seat numbers to seat IDs
-      const newSeatIds = await this.convertSeatNumbersToIds(newSeatNumbers);
+      // Convert seat numbers to seat IDs - use helper
+      const newSeatIds = await OrderValidationHelper.convertSeatNumbersToIds(
+        newSeatNumbers,
+        this.seatRepo,
+      );
 
       // Get current seat count
       const currentSeatCount = order.seatBookings?.length || 0;
@@ -825,11 +581,18 @@ export class OrderService {
       switch (order.status) {
         case OrderStatus.PENDING:
         case OrderStatus.BOOKED:
-          return await this.changePendingBookedSeats(
+          return await OrderSeatManagementHelper.changePendingBookedSeats(
             order,
             newSeatIds,
             userId,
             user,
+            this.orderRepo,
+            this.seatBookingRepo,
+            this.seatRepo,
+            this.referrerRepo,
+            this.seatBookingService,
+            this.auditHelperService,
+            this.findById.bind(this),
             newReferrerCode,
             newCustomerName,
             newCustomerPhone,
@@ -838,13 +601,18 @@ export class OrderService {
           );
 
         case OrderStatus.PAID:
-          return await this.changePaidSeats(
+          return await OrderSeatManagementHelper.changePaidSeats(
             order,
             newSeatIds,
             userId,
             user,
             currentSeatCount,
             newSeatCount,
+            this.orderRepo,
+            this.seatBookingRepo,
+            this.seatRepo,
+            this.auditHelperService,
+            this.findById.bind(this),
             newShowDate,
           );
 
@@ -864,276 +632,6 @@ export class OrderService {
       };
     }
   }
-
-  /**
-   * Handle seat changes for PENDING/BOOKED orders
-   * - Can change seat count
-   * - Can update customer info
-   * - Can change referrer
-   * - Can change show date
-   * - Recalculate pricing
-   */
-  private async changePendingBookedSeats(
-    order: Order,
-    newSeatIds: string[],
-    userId: string,
-    user: User,
-    newReferrerCode?: string,
-    newCustomerName?: string,
-    newCustomerPhone?: string,
-    newCustomerEmail?: string,
-    newShowDate?: string,
-  ): Promise<{ success: boolean; message: string; updatedOrder?: any }> {
-    this.logger.log(`🔄 Changing seats for PENDING/BOOKED order ${order.id}`);
-
-    const oldSeatIds = order.seatBookings?.map((b) => b.seat.id) || [];
-    const oldSeatCount = oldSeatIds.length;
-    const newSeatCount = newSeatIds.length;
-
-    // Determine the show date to use for validation
-    const showDateToUse = newShowDate
-      ? newShowDate
-      : ThailandTimeHelper.formatDateTime(order.showDate, 'YYYY-MM-DDTHH:mm');
-
-    // Validate new seat availability (excluding current order)
-    await this.validateSeatAvailabilityExcludingOrder(
-      newSeatIds,
-      showDateToUse,
-      order.id,
-    );
-
-    // Handle referrer changes
-    let newReferrer = order.referrer;
-    if (newReferrerCode && newReferrerCode !== order.referrerCode) {
-      if (newReferrerCode === 'REMOVE') {
-        newReferrer = null;
-      } else {
-        const referrer = await this.referrerRepo.findOne({
-          where: { code: newReferrerCode, isActive: true },
-        });
-        if (!referrer) {
-          throw new BadRequestException(
-            `Invalid referrer code: ${newReferrerCode}`,
-          );
-        }
-        newReferrer = referrer;
-      }
-    }
-
-    // Calculate new pricing
-    const newPricing = this.calculateSeatPricing(
-      order.ticketType,
-      newSeatCount,
-    );
-    const newCommission = newReferrer ? newPricing.commission : 0; // ✅ ใช้ commission จาก pricing
-
-    // Update order details
-    const orderUpdates: any = {
-      quantity: newSeatCount,
-      totalAmount: newPricing.totalAmount,
-      total: newPricing.totalAmount,
-      referrer: newReferrer,
-      referrerId: newReferrer?.id || null,
-      referrerCode: newReferrer?.code || null,
-      referrerCommission: newCommission,
-      updatedAt: ThailandTimeHelper.now(),
-      updatedBy: userId,
-    };
-
-    // Update customer info if provided
-    if (newCustomerName && newCustomerName !== order.customerName) {
-      orderUpdates.customerName = newCustomerName;
-    }
-    if (newCustomerPhone && newCustomerPhone !== order.customerPhone) {
-      orderUpdates.customerPhone = newCustomerPhone;
-    }
-    if (newCustomerEmail && newCustomerEmail !== order.customerEmail) {
-      orderUpdates.customerEmail = newCustomerEmail;
-    }
-
-    if (
-      newShowDate &&
-      !ThailandTimeHelper.isSameDay(newShowDate, order.showDate)
-    ) {
-      orderUpdates.showDate = ThailandTimeHelper.toThailandTime(newShowDate);
-    }
-
-    // Remove old seat bookings
-    if (order.seatBookings?.length > 0) {
-      await this.seatBookingRepo.delete({ orderId: order.id });
-    }
-
-    // Create new seat bookings ใช้ SeatBookingService
-    await this.seatBookingService.createSeatBookings(
-      order,
-      newSeatIds,
-      showDateToUse,
-    );
-
-    // Update order
-    await this.orderRepo.update(order.id, orderUpdates);
-
-    // Create audit log ใช้ AuditHelperService
-    await this.auditHelperService.auditOrderAction(
-      AuditAction.UPDATE,
-      order.id,
-      userId,
-      this.auditHelperService.createSeatChangeMetadata(
-        order.id,
-        oldSeatIds,
-        newSeatIds,
-        'Seats changed (PENDING/BOOKED)',
-      ),
-    );
-
-    const updatedOrder = await this.findById(order.id);
-
-    return {
-      success: true,
-      message: `เปลี่ยนที่นั่งสำเร็จ จาก ${oldSeatCount} → ${newSeatCount} ที่นั่ง ยอดเงิน ฿${order.totalAmount} → ฿${newPricing.totalAmount}`,
-      updatedOrder,
-    };
-  }
-
-  /**
-   * Handle seat changes for PAID orders
-   * - Can only change to same or fewer seats
-   * - Cannot change pricing or referrer
-   * - Cannot change customer info
-   * - Can change show date
-   */
-  private async changePaidSeats(
-    order: Order,
-    newSeatIds: string[],
-    userId: string,
-    user: User,
-    currentSeatCount: number,
-    newSeatCount: number,
-    newShowDate?: string,
-  ): Promise<{ success: boolean; message: string; updatedOrder?: any }> {
-    this.logger.log(`🔄 Changing seats for PAID order ${order.id}`);
-
-    // Validate seat count (cannot exceed paid seats)
-    if (newSeatCount > currentSeatCount) {
-      throw new BadRequestException(
-        `Cannot increase seat count for paid order. Current: ${currentSeatCount}, Requested: ${newSeatCount}`,
-      );
-    }
-
-    const oldSeatIds = order.seatBookings?.map((b) => b.seat.id) || [];
-
-    // Determine the show date to use for validation
-
-    const showDateToUse = newShowDate
-      ? newShowDate
-      : ThailandTimeHelper.toISOString(order.showDate);
-
-    // Validate new seat availability (excluding current order)
-    await this.validateSeatAvailabilityExcludingOrder(
-      newSeatIds,
-      showDateToUse,
-      order.id,
-    );
-
-    // Remove old seat bookings
-    if (order.seatBookings?.length > 0) {
-      await this.seatBookingRepo.delete({ orderId: order.id });
-    }
-
-    // Create new seat bookings with PAID status
-    const seats = await this.seatRepo.findByIds(newSeatIds);
-    const newBookings = seats.map((seat) => ({
-      order,
-      orderId: order.id,
-      seat,
-      showDate: showDateToUse,
-      status: BookingStatus.PAID, // Keep PAID status
-      createdAt: ThailandTimeHelper.now(),
-      updatedAt: ThailandTimeHelper.now(),
-    }));
-
-    await this.seatBookingRepo.save(newBookings);
-
-    // Update order if seat count or show date changed
-    const orderUpdates: any = {};
-    let hasUpdates = false;
-
-    if (newSeatCount !== currentSeatCount) {
-      orderUpdates.quantity = newSeatCount;
-      hasUpdates = true;
-    }
-
-    if (
-      newShowDate &&
-      !ThailandTimeHelper.isSameDay(newShowDate, order.showDate)
-    ) {
-      orderUpdates.showDate = ThailandTimeHelper.toThailandTime(newShowDate);
-      hasUpdates = true;
-    }
-
-    if (hasUpdates) {
-      orderUpdates.updatedAt = ThailandTimeHelper.now();
-      orderUpdates.updatedBy = userId;
-      await this.orderRepo.update(order.id, orderUpdates);
-    }
-
-    // Create audit log ใช้ AuditHelperService
-    await this.auditHelperService.auditOrderAction(
-      AuditAction.UPDATE,
-      order.id,
-      userId,
-      this.auditHelperService.createSeatChangeMetadata(
-        order.id,
-        oldSeatIds,
-        newSeatIds,
-        'Seats changed (PAID) - pricing unchanged',
-      ),
-    );
-
-    const updatedOrder = await this.findById(order.id);
-
-    let message = `Seats changed successfully for paid order.`;
-    if (newSeatCount < currentSeatCount) {
-      message += ` Reduced from ${currentSeatCount} to ${newSeatCount} seats.`;
-    } else {
-      message += ` ${newSeatCount} seats maintained.`;
-    }
-
-    return {
-      success: true,
-      message,
-      updatedOrder,
-    };
-  }
-
-  /**
-   * Calculate pricing for seated tickets
-   */
-  private calculateSeatPricing(
-    ticketType: TicketType,
-    seatCount: number,
-  ): {
-    totalAmount: number;
-    commission: number;
-  } {
-    const pricePerSeat = TICKET_PRICES[ticketType];
-
-    if (typeof pricePerSeat !== 'number') {
-      throw new InternalServerErrorException(
-        `Invalid ticket price for type: ${ticketType}`,
-      );
-    }
-
-    const totalAmount = seatCount * pricePerSeat;
-    // ✅ ใช้ commission ตามประเภทที่นั่ง
-    const commission = seatCount * COMMISSION_RATES.SEAT; // 400 บาท/ตั๋ว
-
-    return { totalAmount, commission };
-  }
-
-  // =============================================================
-  // 📊 ORDER STATISTICS
-  // ==============================================
   async getOrderStats(): Promise<any> {
     this.logger.log('📊 Getting order statistics');
 
@@ -1286,17 +784,16 @@ export class OrderService {
       throw new NotFoundException('Order not found');
     }
 
-    // Permission check
-    if (user.role === UserRole.USER && order.userId !== userId) {
-      throw new ForbiddenException('You can only update your own orders');
-    }
+    // Use helper for permission check
+    OrderValidationHelper.validateOrderAccess(user, order, 'UPDATE');
 
-    // Status validation
-    if (
-      order.status === OrderStatus.CONFIRMED &&
-      user.role !== UserRole.ADMIN
-    ) {
-      throw new BadRequestException('Cannot update confirmed orders');
+    // Use helper for status validation
+    const allowedStatuses = [OrderStatus.PENDING, OrderStatus.BOOKED];
+    if (user.role !== UserRole.ADMIN) {
+      OrderValidationHelper.validateOrderStatusForChanges(
+        order,
+        allowedStatuses,
+      );
     }
 
     // Update order
@@ -1306,7 +803,7 @@ export class OrderService {
       updatedBy: userId,
     } as any);
 
-    // Create audit log ใช้ AuditHelperService
+    // Create audit log
     await this.auditHelperService.auditOrderAction(
       AuditAction.UPDATE,
       id,
@@ -1315,91 +812,6 @@ export class OrderService {
     );
 
     return this.findById(id);
-  }
-
-  // =================================================================
-  // 🔄 CONVERT SEAT NUMBERS TO IDS
-  // =================================================================
-  private async convertSeatNumbersToIds(
-    seatNumbers: string[],
-  ): Promise<string[]> {
-    this.logger.log(
-      `🔄 Converting seat numbers to IDs: ${seatNumbers.join(', ')}`,
-    );
-
-    const seats = await this.seatRepo.find({
-      where: { seatNumber: In(seatNumbers) },
-      select: ['id', 'seatNumber'],
-    });
-
-    if (seats.length !== seatNumbers.length) {
-      const foundSeatNumbers = seats.map((seat) => seat.seatNumber);
-      const missingSeatNumbers = seatNumbers.filter(
-        (num) => !foundSeatNumbers.includes(num),
-      );
-      throw new BadRequestException(
-        `ไม่พบหมายเลขที่นั่งต่อไปนี้: ${missingSeatNumbers.join(', ')}`,
-      );
-    }
-
-    const seatIds = seats.map((seat) => seat.id);
-    this.logger.log(`✅ Converted seat numbers to IDs: ${seatIds.join(', ')}`);
-
-    return seatIds;
-  }
-
-  // =================================================================
-  // 🔄 VALIDATE SEAT AVAILABILITY EXCLUDING CURRENT ORDER
-  // =================================================================
-  private async validateSeatAvailabilityExcludingOrder(
-    seatIds: string[],
-    showDate: string,
-    currentOrderId: string,
-  ): Promise<void> {
-    this.logger.log(
-      `🔄 Validating seat availability excluding order: ${currentOrderId}`,
-    );
-
-    const seats = await this.seatRepo.findByIds(seatIds);
-
-    if (!seats || seats.length !== seatIds.length) {
-      throw new BadRequestException('ไม่พบที่นั่งบางที่');
-    }
-
-    const bookedSeats = await this.seatBookingRepo.find({
-      where: {
-        seat: { id: In(seatIds) },
-        showDate: showDate,
-        status: In([
-          BookingStatus.PENDING,
-          BookingStatus.CONFIRMED,
-          BookingStatus.PAID,
-        ]),
-      },
-      relations: ['order'],
-    });
-
-    // Filter out bookings from the current order
-    const conflictingBookings = bookedSeats.filter(
-      (booking) => booking.order.id !== currentOrderId,
-    );
-
-    if (conflictingBookings.length > 0) {
-      const conflictingSeatNumbers = await Promise.all(
-        conflictingBookings.map(async (booking) => {
-          const seat = await this.seatRepo.findOne({
-            where: { id: booking.seat.id },
-          });
-          return seat?.seatNumber || booking.seat.id;
-        }),
-      );
-
-      throw new BadRequestException(
-        `ที่นั่งหมายเลข ${conflictingSeatNumbers.join(', ')} ถูกจองไปแล้วในวันที่แสดงนี้`,
-      );
-    }
-
-    this.logger.log(`✅ All seats are available for the show date`);
   }
 
   /**
@@ -1786,7 +1198,7 @@ export class OrderService {
         grandTotal.toLocaleString('en-US', { minimumFractionDigits: 2 }), // รวม
         '', // ฟรี
         grandTotal.toLocaleString('en-US', { minimumFractionDigits: 2 }), // PaymentMethod column
-        `${exportData.summary.totalOrders} รายการ`, // No./C
+        ``, // No./C
       ];
 
       // เพิ่ม summaryRow เข้าไปใน tableRows
@@ -1913,6 +1325,139 @@ export class OrderService {
       this.logger.error('❌ Failed to generate PDF', error.stack);
       throw new InternalServerErrorException(
         `เกิดข้อผิดพลาดในการสร้าง PDF: ${error.message}`,
+      );
+    }
+  }
+
+  // ========================================
+  // 📤 EXPORT/IMPORT METHODS
+  // ========================================
+
+  /**
+   * Export orders to spreadsheet format (CSV or Excel)
+   */
+  async exportOrders(
+    orderIds: string[],
+    format: 'csv' | 'excel' = 'csv',
+    includePayments: boolean = true,
+  ): Promise<{ data: string | Buffer; filename: string; mimeType: string }> {
+    try {
+      this.logger.log(
+        `🔄 Exporting ${orderIds.length} orders to ${format.toUpperCase()} format`,
+      );
+
+      // ถ้า orderIds ว่าง ให้ export ทั้งหมด
+      let whereCondition = {};
+      if (orderIds.length > 0) {
+        whereCondition = { id: In(orderIds) };
+      }
+
+      // Fix: ใช้ In() operator และ relation 'payment' (เอกพจน์) แทน 'payments' (พหูพจน์)
+      const relations = [
+        'user',
+        'referrer',
+        'seatBookings',
+        'seatBookings.seat',
+        'seatBookings.seat.zone',
+      ];
+
+      if (includePayments) {
+        relations.push('payment');
+      }
+
+      const orders = await this.orderRepo.find({
+        where: whereCondition,
+        relations,
+        order: { createdAt: 'DESC' },
+      });
+
+      if (orders.length === 0) {
+        throw new NotFoundException('ไม่พบออเดอร์ที่ต้องการ export');
+      }
+
+      // ใช้ helper สำหรับสร้างไฟล์ตาม format
+      const result = await OrderExportImportHelper.exportToFile(
+        orders,
+        format,
+        includePayments,
+      );
+
+      this.logger.log(
+        `✅ Successfully exported ${orders.length} orders to ${format.toUpperCase()}`,
+      );
+      return result;
+    } catch (error) {
+      this.logger.error('❌ Failed to export orders', error.stack);
+      throw new InternalServerErrorException(
+        `เกิดข้อผิดพลาดในการ export ออเดอร์: ${error.message}`,
+      );
+    }
+  }
+
+  /**
+   * Import and update orders from spreadsheet data
+   */
+  async importAndUpdateOrders(
+    importData: any[],
+    userId: string,
+  ): Promise<ImportUpdateResult> {
+    try {
+      this.logger.log(`🔄 Importing and updating ${importData.length} orders`);
+
+      const result = await OrderExportImportHelper.importAndUpdateOrders(
+        importData,
+        this.orderRepo,
+        this.paymentRepo,
+        this.seatBookingRepo,
+        userId,
+      );
+
+      this.logger.log(
+        `✅ Import completed: ${result.ordersUpdated} orders updated, ${result.paymentsUpdated} payments updated`,
+      );
+
+      return result;
+    } catch (error) {
+      this.logger.error('❌ Failed to import orders', error.stack);
+      throw new InternalServerErrorException(
+        `เกิดข้อผิดพลาดในการ import ออเดอร์: ${error.message}`,
+      );
+    }
+  }
+
+  /**
+   * Import ออเดอร์จาก file buffer (CSV/Excel)
+   */
+  async importOrdersFromFileBuffer(
+    buffer: Buffer,
+    mimeType: string,
+    filename: string,
+    userId: string,
+  ): Promise<ImportUpdateResult> {
+    try {
+      this.logger.log(
+        `📄 Importing orders from file: ${filename} (${mimeType})`,
+      );
+
+      const result = await OrderExportImportHelper.importFromFileBuffer(
+        buffer,
+        mimeType,
+        filename,
+        this.orderRepo,
+        this.paymentRepo,
+        this.seatBookingRepo,
+        userId,
+      );
+
+      this.logger.log(
+        `✅ File import completed: ${result.ordersUpdated} orders updated, ${result.errors?.length || 0} errors`,
+      );
+
+      return result;
+    } catch (error) {
+      this.logger.error('❌ Failed to import from file', error.stack);
+      throw new InternalServerErrorException(
+        `เกิดข้อผิดพลาดในการ import ไฟล์: ${error.message}`,
       );
     }
   }

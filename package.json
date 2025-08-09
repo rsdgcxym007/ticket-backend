@@ -36,6 +36,7 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.2",
     "compression": "^1.8.0",
+    "csv-parser": "^3.2.0",
     "dayjs": "^1.11.13",
     "helmet": "^8.1.0",
     "moment": "^2.30.1",
@@ -58,7 +59,8 @@
     "swagger-ui-express": "^5.0.1",
     "thai-baht-text": "^2.0.5",
     "typeorm": "^0.3.24",
-    "uuid": "^11.1.0"
+    "uuid": "^11.1.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@nestjs/cli": "^10.4.9",

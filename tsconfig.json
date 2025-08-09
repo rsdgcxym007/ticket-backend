@@ -23,5 +23,6 @@
       "src/*": ["src/*"],
       "@/*": ["src/*"]
     }
-  }
+  },
+  "exclude": ["tests-backup/**/*", "**/*.test.ts", "**/*.spec.ts", "tests/**/*"]
 }

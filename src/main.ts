@@ -64,7 +64,7 @@ async function bootstrap() {
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
-      forbidNonWhitelisted: true,
+      forbidNonWhitelisted: false, // อนุญาตให้ส่ง properties เกินมา (จะถูกลบอัตโนมัติ)
       transform: true,
       transformOptions: {
         enableImplicitConversion: true,

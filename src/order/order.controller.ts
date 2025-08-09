@@ -15,12 +15,17 @@ import {
   ConflictException,
   NotFoundException,
   BadRequestException,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 
 import { OrderService } from './order.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
 import { ChangeSeatsDto } from './dto/change-seats.dto';
+import { ExportOrdersDto } from './dto/export-orders.dto';
+import { ImportOrdersDto } from './dto/import-orders.dto';
 import { error, success } from '../common/responses';
 import { ApiResponseHelper } from '../common/utils';
 import {
@@ -29,6 +34,7 @@ import {
   ApiOperation,
   ApiResponse,
   ApiQuery,
+  ApiConsumes,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -38,7 +44,6 @@ import { AuthenticatedRequest } from '../common/interfaces/auth.interface';
 import { OrderData } from '../common/interfaces';
 import { EnhancedOrderService } from '../common/services/enhanced-order.service';
 import { ConcurrencyService } from '../common/services/concurrency.service';
-import { DuplicateOrderPreventionService } from '../common/services/duplicate-order-prevention.service';
 import { OrderUpdatesGateway } from '../common/gateways/order-updates.gateway';
 
 @ApiTags('Orders')
@@ -52,16 +57,16 @@ export class OrderController {
     private readonly orderService: OrderService,
     private readonly enhancedOrderService: EnhancedOrderService,
     private readonly concurrencyService: ConcurrencyService,
-    private readonly duplicatePreventionService: DuplicateOrderPreventionService,
-    private readonly orderUpdatesGateway: OrderUpdatesGateway, // Inject the WebSocket gateway
+    private readonly orderUpdatesGateway: OrderUpdatesGateway,
   ) {}
 
   /**
-   * 🎫 สร้างออเดอร์ใหม่ (Enhanced with Concurrency Protection)
+   * 🎫 สร้างออเดอร์ใหม่
+   * ใช้ EnhancedOrderService พร้อมการป้องกัน race condition และ duplicate orders
    */
   @Post()
   @Roles(UserRole.USER, UserRole.STAFF, UserRole.ADMIN)
-  @ApiOperation({ summary: 'สร้างออเดอร์ใหม่ (ป้องกัน race condition)' })
+  @ApiOperation({ summary: 'สร้างออเดอร์ใหม่' })
   @ApiResponse({ status: 201, description: 'สร้างออเดอร์สำเร็จ' })
   @ApiResponse({ status: 400, description: 'ข้อมูลไม่ถูกต้อง' })
   @ApiResponse({ status: 403, description: 'เกินขั้นจำกัดการจอง' })
@@ -75,38 +80,19 @@ export class OrderController {
     @Req() req: AuthenticatedRequest,
   ) {
     try {
-      // ถ้าเป็น ONSITE ให้ validate เฉพาะ quantity, ticketType, showDate
-      // if (dto.purchaseType === OrderPurchaseType.ONSITE) {
-      //   if (!dto.quantity || !dto.ticketType || !dto.showDate) {
-      //     throw new BadRequestException(
-      //       'ONSITE ต้องระบุจำนวนตั๋ว, ประเภท, และวันที่แสดง',
-      //     );
-      //   }
-      //   // ลบข้อมูลที่ไม่จำเป็นสำหรับ ONSITE
-      //   dto.customerName = undefined;
-      //   dto.customerPhone = undefined;
-      //   dto.customerEmail = undefined;
-      // } else {
-      //   // สำหรับประเภทอื่นๆ ให้ validate ตามปกติ
-      //   if (
-      //     !dto.customerName ||
-      //     !dto.customerPhone ||
-      //     !dto.showDate ||
-      //     !dto.ticketType ||
-      //     !dto.quantity
-      //   ) {
-      //     throw new BadRequestException('กรุณาระบุข้อมูลให้ครบถ้วน');
-      //   }
-      // }
+      // เพิ่ม createdBy เพื่อระบุผู้สร้างออเดอร์
       dto.createdBy = req.user.id;
+
+      // ใช้ EnhancedOrderService ที่มีการจัดการ concurrency และป้องกันออเดอร์ซ้ำ
       const data =
         await this.enhancedOrderService.createOrderWithConcurrencyControl(
           req.user.id,
           dto,
         );
-      return success(data, 'สร้างออเดอร์สำเร็จ (ป้องกัน race condition)', req);
+
+      return success(data, 'สร้างออเดอร์สำเร็จ', req);
     } catch (err) {
-      // Handle specific concurrency errors
+      // จัดการ error types ต่างๆ
       if (
         err.message &&
         (err.message.includes('duplicate') || err.message.includes('DUPLICATE'))
@@ -408,8 +394,6 @@ export class OrderController {
     @Req() req: AuthenticatedRequest,
   ) {
     try {
-      console.log('id', id, req.user.id);
-
       const tickets = await this.orderService.generateTickets(id, req.user.id);
       return success(tickets, 'ออกตั๋วสำเร็จ', req);
     } catch (err) {
@@ -863,6 +847,171 @@ export class OrderController {
       res.send(pdfBuffer);
     } catch (err) {
       this.logger.error('❌ Error exporting PDF:', err.stack);
+      return error(err.message, '400', req);
+    }
+  }
+
+  // ========================================
+  // 📤 EXPORT/IMPORT ENDPOINTS
+  // ========================================
+
+  @Post('export-spreadsheet')
+  @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.STAFF)
+  @ApiOperation({
+    summary: 'Export orders to spreadsheet format',
+    description:
+      'Export selected orders to CSV or Excel format for external editing',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Orders exported successfully',
+    schema: {
+      type: 'string',
+      format: 'binary',
+    },
+  })
+  async exportOrdersToSpreadsheet(
+    @Body() exportOrdersDto: ExportOrdersDto,
+    @Req() req: AuthenticatedRequest,
+    @Res() res: any,
+  ) {
+    console.log('exportOrdersDto', exportOrdersDto);
+
+    try {
+      const result = await this.orderService.exportOrders(
+        exportOrdersDto.orderIds,
+        exportOrdersDto.format || 'csv',
+        exportOrdersDto.includePayments ?? true,
+      );
+
+      this.logger.log(
+        `✅ Orders exported to ${exportOrdersDto.format || 'CSV'} successfully`,
+      );
+
+      // Set appropriate headers for file download
+      res.setHeader('Content-Type', result.mimeType);
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="${result.filename}"`,
+      );
+
+      if (result.mimeType === 'text/csv') {
+        // For CSV, send as text
+        res.send(result.data);
+      } else {
+        // For Excel, send as buffer
+        res.send(result.data);
+      }
+    } catch (err) {
+      this.logger.error('❌ Error exporting orders to spreadsheet:', err.stack);
+      return error(err.message, '400', req);
+    }
+  }
+
+  @Post('import-spreadsheet')
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  @ApiOperation({
+    summary: 'Import and update orders from spreadsheet data',
+    description:
+      'Import spreadsheet data and update orders with payment information and other changes',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Orders imported and updated successfully',
+  })
+  async importOrdersFromSpreadsheet(
+    @Body() importOrdersDto: ImportOrdersDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    try {
+      this.logger.log(
+        `🔄 User ${req.user.id} importing ${importOrdersDto.importData.length} orders from spreadsheet`,
+      );
+
+      const result = await this.orderService.importAndUpdateOrders(
+        importOrdersDto.importData,
+        req.user.id,
+      );
+
+      this.logger.log(
+        `✅ Orders imported successfully: ${result.ordersUpdated} orders updated`,
+      );
+      return success(result, 'นำเข้าและอัปเดตข้อมูลออเดอร์เรียบร้อยแล้ว', req);
+    } catch (err) {
+      this.logger.error(
+        '❌ Error importing orders from spreadsheet:',
+        err.stack,
+      );
+      return error(err.message, '400', req);
+    }
+  }
+
+  /**
+   * 📤 Import ออเดอร์จากไฟล์ CSV/Excel
+   */
+  @Post('import-file')
+  @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.STAFF)
+  @ApiOperation({
+    summary: 'Import orders from CSV/Excel file',
+    description: 'Upload and import orders from CSV or Excel file',
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiResponse({ status: 200, description: 'Import ไฟล์สำเร็จ' })
+  @ApiResponse({ status: 400, description: 'ไฟล์ไม่ถูกต้องหรือข้อมูลผิดพลาด' })
+  @UseInterceptors(FileInterceptor('file'))
+  async importOrdersFromFile(
+    @UploadedFile() file: Express.Multer.File,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    try {
+      // ตรวจสอบไฟล์
+      if (!file) {
+        throw new BadRequestException('กรุณาเลือกไฟล์สำหรับ import');
+      }
+
+      // ตรวจสอบ MIME type
+      const allowedTypes = [
+        'text/csv',
+        'application/vnd.ms-excel',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/csv',
+      ];
+
+      if (!allowedTypes.includes(file.mimetype)) {
+        throw new BadRequestException(
+          'ไฟล์ต้องเป็นประเภท CSV หรือ Excel (.csv, .xls, .xlsx)',
+        );
+      }
+
+      // ตรวจสอบขนาดไฟล์ (10MB)
+      if (file.size > 10 * 1024 * 1024) {
+        throw new BadRequestException('ไฟล์มีขนาดใหญ่เกิน 10MB');
+      }
+
+      this.logger.log(
+        `📤 User ${req.user.id} uploading file: ${file.originalname} (${file.mimetype}, ${file.size} bytes)`,
+      );
+
+      // ส่งไฟล์ buffer ไปให้ service ประมวลผล
+      const result = await this.orderService.importOrdersFromFileBuffer(
+        file.buffer,
+        file.mimetype,
+        file.originalname,
+        req.user.id,
+      );
+
+      this.logger.log(
+        `✅ File imported successfully: ${result.ordersUpdated} orders updated, ${result.errors?.length || 0} errors`,
+      );
+
+      return success(result, 'นำเข้าไฟล์ออเดอร์สำเร็จ', req);
+    } catch (err) {
+      this.logger.error(`❌ Error importing file:`, err.stack);
+
+      if (err instanceof BadRequestException) {
+        throw err;
+      }
+
       return error(err.message, '400', req);
     }
   }
