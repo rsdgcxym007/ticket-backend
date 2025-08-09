@@ -223,4 +223,45 @@ export class Order {
   // ผู้สร้างออเดอร์ (staff/admin หรือ null=ลูกค้า)
   @Column({ nullable: true })
   createdBy?: string;
+
+  // Hotel booking fields
+  @Column({ nullable: true })
+  hotelName?: string;
+
+  @Column({ nullable: true })
+  hotelDistrict?: string;
+
+  @Column({ nullable: true })
+  roomNumber?: string;
+
+  @Column({ type: 'int', default: 0 })
+  adultCount: number;
+
+  @Column({ type: 'int', default: 0 })
+  childCount: number;
+
+  @Column({ type: 'int', default: 0 })
+  infantCount: number;
+
+  @Column({ nullable: true })
+  voucherNumber?: string;
+
+  @Column({ type: 'time', nullable: true })
+  pickupScheduledTime?: string;
+
+  @Column({ nullable: true })
+  bookerName?: string;
+
+  @Column({ type: 'boolean', default: false })
+  includesPickup: boolean;
+
+  @Column({ type: 'boolean', default: false })
+  includesDropoff: boolean;
+
+  // Payment tracking field for export/import
+  @Column({ type: 'decimal', nullable: true })
+  actualPaidAmount?: number;
+
+  @Column({ type: 'boolean', default: false })
+  paymentAmountVerified: boolean;
 }

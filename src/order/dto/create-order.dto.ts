@@ -7,6 +7,7 @@ import {
   IsString,
   IsDateString,
   IsNumber,
+  IsBoolean,
 } from 'class-validator';
 import {
   TicketType,
@@ -99,4 +100,49 @@ export class CreateOrderDto {
   @IsOptional()
   @IsNumber()
   totalAmount?: number;
+
+  // ✅ Hotel booking fields - สำหรับการจองที่พักร่วม
+  @IsOptional()
+  @IsString()
+  hotelName?: string;
+
+  @IsOptional()
+  @IsString()
+  hotelDistrict?: string;
+
+  @IsOptional()
+  @IsString()
+  roomNumber?: string;
+
+  @IsOptional()
+  @IsInt()
+  adultCount?: number;
+
+  @IsOptional()
+  @IsInt()
+  childCount?: number;
+
+  @IsOptional()
+  @IsInt()
+  infantCount?: number;
+
+  @IsOptional()
+  @IsString()
+  voucherNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  pickupScheduledTime?: string;
+
+  @IsOptional()
+  @IsString()
+  bookerName?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  includesPickup?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  includesDropoff?: boolean;
 }

@@ -4,17 +4,17 @@
 
 // 💰 ราคาตั๋ว
 export const TICKET_PRICES = {
-  RINGSIDE: 1800,
-  STADIUM: 1800,
-  STANDING_ADULT: 1500,
-  STANDING_CHILD: 1200,
+  RINGSIDE: 1400,
+  STADIUM: 1400,
+  STANDING_ADULT: 1200,
+  STANDING_CHILD: 1000,
 } as const;
 
 // 💸 ค่าคอมมิชชั่น
 export const COMMISSION_RATES = {
   SEAT: 400, // ที่นั่งทั่วไป (RINGSIDE, STADIUM)
   STANDING_ADULT: 300, // ตั๋วยืนผู้ใหญ่
-  STANDING_CHILD: 200, // ตั๋วยืนเด็ก
+  STANDING_CHILD: 300, // ตั๋วยืนเด็ก
 } as const;
 
 // ⏰ การจำกัดเวลา

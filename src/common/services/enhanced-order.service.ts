@@ -195,9 +195,6 @@ export class EnhancedOrderService {
           ThailandTimeHelper.format(showDate, 'YYYY-MM-DD') + ' 21:00:00';
         finalOrderData.expiresAt =
           ThailandTimeHelper.toThailandTime(expiryDate);
-        this.logger.log(
-          `🕘 BOOKED order expiry set to 21:00 on show date: ${ThailandTimeHelper.toISOString(finalOrderData.expiresAt)}`,
-        );
       }
 
       // 10. Handle standing tickets - เหมือน createOrder
@@ -212,9 +209,6 @@ export class EnhancedOrderService {
           typeof COMMISSION_RATES.STANDING_ADULT !== 'number' ||
           typeof COMMISSION_RATES.STANDING_CHILD !== 'number'
         ) {
-          this.logger.error(
-            `Invalid constants: TICKET_PRICES.STANDING_ADULT=${TICKET_PRICES.STANDING_ADULT}, TICKET_PRICES.STANDING_CHILD=${TICKET_PRICES.STANDING_CHILD}`,
-          );
           throw new InternalServerErrorException(
             'ข้อมูลราคาตั๋วหรือค่าคอมมิชชั่นไม่ถูกต้อง กรุณาติดต่อเจ้าหน้าที่',
           );
@@ -235,22 +229,9 @@ export class EnhancedOrderService {
         finalOrderData.standingAdultQty = adultQty;
         finalOrderData.standingChildQty = childQty;
         finalOrderData.standingTotal = standingTotal;
-        if (finalOrderData.referrerCode) {
-          finalOrderData.referrerCommission =
-            adultQty * COMMISSION_RATES.STANDING_ADULT +
-            childQty * COMMISSION_RATES.STANDING_CHILD;
-        }
+
         finalOrderData.quantity = adultQty + childQty;
         finalOrderData.total = standingTotal;
-        finalOrderData.totalAmount = standingTotal;
-
-        this.logger.log(
-          `Standing Adult Qty: ${adultQty}, Standing Child Qty: ${childQty}`,
-        );
-        this.logger.log(
-          `Standing Total: ${standingTotal}, Standing Commission: ${finalOrderData.standingCommission}`,
-        );
-
         // Handle standing ticket status logic - เหมือน createOrder
         if (!orderData.status) {
           if (
@@ -770,36 +751,6 @@ export class EnhancedOrderService {
     }
   }
 
-  /**
-   * 🔢 Generate unique order number
-   * สร้างเลขออเดอร์ที่ไม่ซ้ำกัน
-   */
-
-  private generateOrderNumber(): string {
-    const now = ThailandTimeHelper.now();
-    const timestamp = now.getTime().toString().slice(-8);
-    const random = Math.random().toString(36).substr(2, 4).toUpperCase();
-    return `ORD${timestamp}${random}`;
-  }
-
-  /**
-   * ⏰ Calculate order expiry time
-   * คำนวณเวลาหมดอายุของออเดอร์
-   */
-  private calculateExpiryTime(orderData: any): Date {
-    const now = ThailandTimeHelper.now();
-
-    // Standing tickets expire at 9 PM on show date
-    if (orderData.ticketType === 'STANDING') {
-      const showDate = new Date(orderData.showDate);
-      showDate.setHours(21, 0, 0, 0); // 9 PM
-      return showDate;
-    }
-
-    // Regular tickets expire in 5 minutes
-    return new Date(now.getTime() + 5 * 60 * 1000);
-  }
-
   private calculateOrderPricing(request: any): {
     totalAmount: number;
     commission: number;
@@ -834,66 +785,8 @@ export class EnhancedOrderService {
         'Invalid ticket pricing or commission rates. Please contact support.',
       );
     }
-
-    this.logger.log(`Calculating pricing for ticketType: ${ticketType}`);
-    this.logger.log(`TICKET_PRICES: ${JSON.stringify(TICKET_PRICES)}`);
-    this.logger.log(`COMMISSION_RATES: ${JSON.stringify(COMMISSION_RATES)}`);
-
     return { totalAmount, commission };
   }
-  /**
-   * 💰 Calculate order total amount
-   * คำนวณจำนวนเงินรวมของออเดอร์
-   */
-  private async calculateOrderTotal(orderData: any): Promise<{
-    total: number;
-    totalAmount: number;
-  }> {
-    // If total is already provided, use it
-    if (orderData.total || orderData.totalAmount) {
-      const total = orderData.total || orderData.totalAmount;
-      return {
-        total,
-        totalAmount: total,
-      };
-    } // Calculate based on ticket type and quantity
-    let basePrice = 0;
-
-    switch (orderData.ticketType) {
-      case TicketType.RINGSIDE:
-        basePrice = 1800;
-        break;
-      case TicketType.STADIUM:
-        basePrice = 1800;
-        break;
-      case TicketType.STANDING:
-        basePrice = 1500;
-        break;
-      default:
-        basePrice = 1200;
-    }
-
-    // Calculate total based on seats or standing tickets
-    let totalAmount = 0;
-
-    if (orderData.seatIds && orderData.seatIds.length > 0) {
-      // Seat-based pricing
-      totalAmount = basePrice * orderData.seatIds.length;
-    } else {
-      // Standing ticket pricing
-      const adultQty = orderData.standingAdultQty || 0;
-      const childQty = orderData.standingChildQty || 0;
-      const quantity = orderData.quantity || 1;
-
-      totalAmount = basePrice * (adultQty + childQty + quantity);
-    }
-
-    return {
-      total: totalAmount,
-      totalAmount,
-    };
-  }
-
   /**
    * 📊 Get system health and concurrency statistics
    * ได้สถิติสุขภาพระบบและการจัดการ concurrency

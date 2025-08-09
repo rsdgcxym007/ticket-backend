@@ -82,6 +82,7 @@ export enum PaymentStatus {
   FAILED = 'FAILED',
   REFUNDED = 'REFUNDED',
   CANCELLED = 'CANCELLED',
+  PARTIAL = 'PARTIAL', // ชำระบางส่วน (ไม่ครบตามยอดรวม)
 }
 
 export enum AuditAction {
