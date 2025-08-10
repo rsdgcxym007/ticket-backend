@@ -269,13 +269,17 @@ export class OrderService {
           referrerName: `%${referrerName.trim()}%`,
         });
       }
+
       // Manual pagination since we're using query builder
-      query.skip((page - 1) * limit).take(limit);
+      if (limit !== -1) {
+        query.skip((page - 1) * limit).take(limit);
+      }
+
       const [items, total] = await query.getManyAndCount();
       contextLogger.logWithContext('info', 'Orders found successfully', {
         total,
         page,
-        totalPages: Math.ceil(total / limit),
+        totalPages: limit === -1 ? 1 : Math.ceil(total / limit),
       });
       // เพิ่ม payment ข้อมูลในแต่ละ order
       const mappedOrders = this.orderBusinessService
@@ -299,7 +303,7 @@ export class OrderService {
         total,
         page,
         limit,
-        totalPages: Math.ceil(total / limit),
+        totalPages: limit === -1 ? 1 : Math.ceil(total / limit),
       };
     } catch (error) {
       // ถ้าเกิด error จาก database (filter cancelled แล้วไม่มี order) ให้คืน array ว่าง
