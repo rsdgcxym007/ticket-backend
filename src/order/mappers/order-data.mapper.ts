@@ -1,15 +1,11 @@
 // ========================================
-// 🗺️ ORDER DATA MAPPER HELPER
+// 🗺️ ORDER DATA MAPPER
 // ========================================
+// Centralized order data transformation logic
 
-// Entities
-import { Order } from '../../order/order.entity';
-
-// Enums
-import { PaymentMethod, PaymentStatus } from '../enums';
-
-// Utils
-import { DateTimeHelper } from './index';
+import { Order } from '../order.entity';
+import { PaymentMethod, PaymentStatus } from '../../common/enums';
+import { DateTimeHelper } from '../../common/utils';
 
 export interface OrderData {
   id: string;
@@ -21,9 +17,12 @@ export interface OrderData {
   quantity: number;
   price: number;
   totalAmount: number;
+  total: number;
   status: string;
   referrerCommission?: number;
   paymentMethod: PaymentMethod;
+  paymentAmount?: number;
+  outstandingAmount?: number;
   paymentStatus: PaymentStatus;
   showDate: string;
   createdAt: Date;
@@ -56,6 +55,47 @@ export interface OrderData {
       name: string;
     } | null;
   }>;
+  // Hotel booking fields
+  hotelName?: string;
+  hotelDistrict?: string;
+  roomNumber?: string;
+  adultCount?: number;
+  childCount?: number;
+  infantCount?: number;
+  voucherNumber?: string;
+  pickupScheduledTime?: string;
+  bookerName?: string;
+  includesPickup?: boolean;
+  includesDropoff?: boolean;
+  // Additional fields
+  requiresPickup?: boolean;
+  requiresDropoff?: boolean;
+  pickupHotel?: string;
+  dropoffLocation?: string;
+  pickupTime?: string;
+  dropoffTime?: string;
+  travelDate?: string;
+  voucherCode?: string;
+  referenceNo?: string;
+  specialRequests?: string;
+}
+
+export interface TicketData {
+  tickets: Ticket[];
+  totalTickets: number;
+}
+
+export interface Ticket {
+  orderId: string;
+  id: string;
+  orderNumber: string;
+  seatNumber: string | null;
+  type: string;
+  ticketCategory: 'ADULT' | 'CHILD' | 'SEAT';
+  zone: any;
+  customerName: string;
+  showDate: string;
+  qrCode: string;
 }
 
 export class OrderDataMapper {
@@ -63,8 +103,6 @@ export class OrderDataMapper {
    * 🗺️ แปลง Order Entity เป็น OrderData
    */
   static mapToOrderData(order: Order): OrderData {
-    // createdById: id ของ staff/admin/master ที่สร้าง (หรือ userId ถ้าไม่มี createdBy)
-    // createdByName: ชื่อของ staff/admin/master ที่สร้าง (หรือ null ถ้าไม่มี)
     const createdById = order.createdBy || order.userId;
     const createdByName = order.user?.name || null;
 
@@ -77,11 +115,14 @@ export class OrderDataMapper {
       ticketType: order.ticketType,
       quantity: order.quantity,
       price: order.totalAmount,
+      total: order.total,
       totalAmount: order.totalAmount,
       status: order.status,
       referrerCommission: order.referrerCommission,
       paymentMethod: order.paymentMethod || PaymentMethod.CASH,
       paymentStatus: order?.payment?.status || PaymentStatus.PENDING,
+      paymentAmount: order.payment?.amount || 0,
+      outstandingAmount: order.outstandingAmount || 0,
       showDate: DateTimeHelper.formatDate(order.showDate),
       createdAt: order.createdAt,
       updatedAt: order.updatedAt,
@@ -102,6 +143,31 @@ export class OrderDataMapper {
       standingCommission: order.standingCommission,
       referrer: this.mapReferrer(order),
       seats: this.mapSeats(order),
+      // Hotel booking fields
+      hotelName: order.hotelName,
+      hotelDistrict: order.hotelDistrict,
+      roomNumber: order.roomNumber,
+      adultCount: order.adultCount,
+      childCount: order.childCount,
+      infantCount: order.infantCount,
+      voucherNumber: order.voucherNumber,
+      pickupScheduledTime: order.pickupScheduledTime,
+      bookerName: order.bookerName,
+      includesPickup: order.includesPickup,
+      includesDropoff: order.includesDropoff,
+      // Additional fields
+      requiresPickup: order.requiresPickup,
+      requiresDropoff: order.requiresDropoff,
+      pickupHotel: order.pickupHotel,
+      dropoffLocation: order.dropoffLocation,
+      pickupTime: order.pickupTime,
+      dropoffTime: order.dropoffTime,
+      travelDate: order.travelDate
+        ? DateTimeHelper.formatDate(order.travelDate)
+        : undefined,
+      voucherCode: order.voucherCode,
+      referenceNo: order.referenceNo,
+      specialRequests: order.specialRequests,
     };
   }
 
@@ -145,7 +211,43 @@ export class OrderDataMapper {
       seats: order.seats
         ? order.seats.map((s: any) => s.seatNumber).join(', ')
         : '-',
+      // Hotel booking fields
+      hotelName: order.hotelName || '-',
+      hotelDistrict: order.hotelDistrict || '-',
+      roomNumber: order.roomNumber || '-',
+      adultCount: order.adultCount || 0,
+      childCount: order.childCount || 0,
+      infantCount: order.infantCount || 0,
+      voucherNumber: order.voucherNumber || '-',
+      pickupScheduledTime: order.pickupScheduledTime || '-',
+      bookerName: order.bookerName || '-',
+      includesPickup: order.includesPickup || false,
+      includesDropoff: order.includesDropoff || false,
+      // Additional fields
+      requiresPickup: order.requiresPickup || false,
+      requiresDropoff: order.requiresDropoff || false,
+      pickupHotel: order.pickupHotel || '-',
+      dropoffLocation: order.dropoffLocation || '-',
+      pickupTime: order.pickupTime || '-',
+      dropoffTime: order.dropoffTime || '-',
+      travelDate: order.travelDate || '-',
+      voucherCode: order.voucherCode || '-',
+      referenceNo: order.referenceNo || '-',
+      specialRequests: order.specialRequests || '-',
     };
+  }
+
+  /**
+   * 🎫 แปลงสำหรับ Ticket Generation
+   */
+  static mapToTicketData(order: Order): TicketData {
+    const orderData = this.mapToOrderData(order);
+
+    if (orderData.ticketType === 'STANDING') {
+      return this.generateStandingTickets(orderData);
+    } else {
+      return this.generateSeatTickets(orderData);
+    }
   }
 
   /**
@@ -221,26 +323,10 @@ export class OrderDataMapper {
   }
 
   /**
-   * 🎫 แปลงสำหรับ Ticket Generation
-   */
-  static mapToTicketData(order: Order): any {
-    const orderData = this.mapToOrderData(order);
-
-    if (orderData.ticketType === 'STANDING') {
-      return this.generateStandingTickets(orderData);
-    } else {
-      return this.generateSeatTickets(orderData);
-    }
-  }
-
-  /**
    * 🎟️ สร้างตั๋วยืน
    */
-  private static generateStandingTickets(orderData: OrderData): {
-    tickets: any[];
-    totalTickets: number;
-  } {
-    const tickets = [];
+  private static generateStandingTickets(orderData: OrderData): TicketData {
+    const tickets: Ticket[] = [];
     const adultQty = orderData.standingAdultQty || 0;
     const childQty = orderData.standingChildQty || 0;
 
@@ -282,11 +368,8 @@ export class OrderDataMapper {
   /**
    * 🪑 สร้างตั๋วที่นั่ง
    */
-  private static generateSeatTickets(orderData: OrderData): {
-    tickets: any[];
-    totalTickets: number;
-  } {
-    const tickets = (orderData.seats || []).map((seat) => ({
+  private static generateSeatTickets(orderData: OrderData): TicketData {
+    const tickets: Ticket[] = (orderData.seats || []).map((seat) => ({
       orderId: orderData.id,
       id: seat.id,
       orderNumber: orderData.orderNumber,

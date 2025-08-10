@@ -3,7 +3,7 @@ import { Repository } from 'typeorm';
 import { Order } from '../order.entity';
 import { Payment } from '../../payment/payment.entity';
 import { SeatBooking } from '../../seats/seat-booking.entity';
-import { OrderStatus, BookingStatus } from '../../common/enums';
+import { OrderStatus, BookingStatus, PaymentStatus } from '../../common/enums';
 import { ThailandTimeHelper } from '../../common/utils';
 import * as XLSX from 'xlsx';
 
@@ -215,15 +215,16 @@ export class OrderExportImportHelper {
       changes.push(...commissionChanges);
     }
 
-    // 4. อัปเดท Order status ถ้าจำเป็น
-    const statusChanges = await this.updateOrderStatus(
-      order,
-      data,
-      updates,
-      seatBookingRepo,
-    );
-    if (statusChanges.length > 0) {
-      changes.push(...statusChanges);
+    // 4. อัปเดท seat bookings เป็น PAID ถ้า status เป็น PAID
+    if (updates.status === OrderStatus.PAID && order.seatBookings?.length > 0) {
+      await seatBookingRepo.update(
+        { orderId: order.id },
+        {
+          status: BookingStatus.PAID,
+          updatedAt: ThailandTimeHelper.now(),
+        },
+      );
+      changes.push('seats_paid');
     }
 
     // บันทึกการเปลี่ยนแปลง
@@ -294,6 +295,22 @@ export class OrderExportImportHelper {
   ): Promise<string[]> {
     const changes: string[] = [];
 
+    // 🔥 ตรวจสอบกรณีพิเศษ: ถ้า actualPaidAmount เท่ากับ totalAmount มาตั้งแต่แรกแล้ว
+    // และยังไม่เคยมีการ import (ไม่ต้องทำอะไร)
+    if (
+      data.actualPaidAmount === data.totalAmount &&
+      !order.lastImportProcessedAt &&
+      order.importProcessCount === 0
+    ) {
+      changes.push('equal_amounts_skip_initial');
+      console.log(
+        `💡 Order ${
+          order.orderNumber || order.id
+        } has equal amounts from start, no import needed`,
+      );
+      return changes;
+    }
+
     // อัปเดท actualPaidAmount
     if (
       data.actualPaidAmount !== undefined &&
@@ -302,10 +319,104 @@ export class OrderExportImportHelper {
       updates.actualPaidAmount = data.actualPaidAmount;
       changes.push('payment_amount');
 
-      // ถ้าจำนวนเงินตรงกับ totalAmount ให้ verify อัตโนมัติ
+      // 🔥 โลจิกใหม่: ถ้า paymentAmount เท่ากับ totalAmount ให้ทำการอัปเดต
       if (data.actualPaidAmount === data.totalAmount) {
+        // 🛡️ ตรวจสอบว่าออเดอร์นี้เคยถูกอัปเดตแล้วหรือไม่
+        const isAlreadyPaid = order.status === OrderStatus.PAID;
+        const isAlreadyVerified = order.paymentAmountVerified === true;
+        const paymentAlreadyUpdated =
+          order.payment?.status === PaymentStatus.PAID;
+
+        // ถ้าเคยอัปเดตแล้วให้ข้ามการประมวลผล
+        if (isAlreadyPaid && isAlreadyVerified && paymentAlreadyUpdated) {
+          changes.push('already_processed_skip');
+          console.log(
+            `⚠️ Order ${
+              order.orderNumber || order.id
+            } already processed as PAID, skipping update`,
+          );
+          return changes;
+        }
+
         updates.paymentAmountVerified = true;
         changes.push('payment_verified');
+
+        // 🎯 อัปเดท Order Status เป็น PAID (เฉพาะถ้ายังไม่เป็น PAID)
+        if (!isAlreadyPaid) {
+          updates.status = OrderStatus.PAID;
+          changes.push('status_paid');
+        }
+
+        // 💰 คำนวณ payment amount ที่ต้องบันทึกใน payment entity
+        // (เพิ่มค่าเสื้อกลับเข้าไป - ตรงข้ามกับตอน export)
+        let finalPaymentAmount = data.actualPaidAmount;
+
+        // คำนวณจำนวนตั๋วแต่ละประเภท
+        const standingQty =
+          (order.standingAdultQty || 0) + (order.standingChildQty || 0);
+        const ringsideQty =
+          order.ticketType === 'RINGSIDE' ? order.quantity || 0 : 0;
+        const stadiumQty =
+          order.ticketType === 'STADIUM' ? order.quantity || 0 : 0;
+        const sittingQty = ringsideQty + stadiumQty;
+
+        if (order.ticketType === 'STANDING' && standingQty > 0) {
+          // ตั๋วยืน: บวก 400 ต่อตั๋ว
+          finalPaymentAmount = data.actualPaidAmount + standingQty * 400;
+        } else if (
+          (order.ticketType === 'RINGSIDE' || order.ticketType === 'STADIUM') &&
+          sittingQty > 0
+        ) {
+          // ตั๋วนั่ง: บวก 300 ต่อตั๋ว
+          finalPaymentAmount = data.actualPaidAmount + sittingQty * 300;
+        }
+
+        // อัปเดท payment entity พร้อมจำนวนเงินที่ปรับแล้ว (เฉพาะถ้าไม่เคยอัปเดต)
+        if (order.payment && !paymentAlreadyUpdated) {
+          await paymentRepo.update(order.payment.id, {
+            amount: finalPaymentAmount,
+            status: PaymentStatus.PAID,
+            updatedAt: ThailandTimeHelper.now(),
+          });
+          changes.push('payment_entity_with_shirt_fee');
+          console.log(
+            `💰 Updated payment amount for order ${
+              order.orderNumber || order.id
+            }: ${data.actualPaidAmount} → ${finalPaymentAmount}`,
+          );
+        } else if (order.payment && paymentAlreadyUpdated) {
+          changes.push('payment_already_paid_skip');
+          console.log(
+            `⚠️ Payment for order ${
+              order.orderNumber || order.id
+            } already PAID, skipping payment update`,
+          );
+        }
+
+        // 🏆 อัปเดตค่าคอมมิชชั่นถ้ามีผู้แนะนำ
+        if (order.referrer) {
+          // คำนวณค่าคอมมิชชั่นใหม่ตามประเภทตั๋ว
+          let referrerCommission = 0;
+          let standingCommission = 0;
+
+          if (order.ticketType === 'STANDING') {
+            standingCommission = standingQty * 100; // ตั๋วยืน 100 บาทต่อใบ
+            updates.standingCommission = standingCommission;
+          } else if (
+            order.ticketType === 'RINGSIDE' ||
+            order.ticketType === 'STADIUM'
+          ) {
+            referrerCommission = sittingQty * 150; // ตั๋วนั่ง 150 บาทต่อใบ
+            updates.referrerCommission = referrerCommission;
+          }
+
+          changes.push('commission_updated');
+        }
+
+        // 📝 บันทึก timestamp ของการ import เพื่อป้องกันการอัปเดตซ้ำ
+        updates.lastImportProcessedAt = ThailandTimeHelper.now();
+        updates.importProcessCount = (order.importProcessCount || 0) + 1;
+        changes.push('import_timestamp_recorded');
       }
     }
 
@@ -316,15 +427,6 @@ export class OrderExportImportHelper {
     ) {
       updates.paymentAmountVerified = data.paymentAmountVerified;
       changes.push('payment_verified');
-    }
-
-    // อัปเดท payment entity ถ้ามี
-    if (order.payment && changes.includes('payment_amount')) {
-      await paymentRepo.update(order.payment.id, {
-        amount: data.actualPaidAmount || data.totalAmount,
-        updatedAt: ThailandTimeHelper.now(),
-      });
-      changes.push('payment_entity');
     }
 
     return changes;
@@ -366,42 +468,6 @@ export class OrderExportImportHelper {
       }
 
       changes.push('commission');
-    }
-
-    return changes;
-  }
-
-  /**
-   * อัปเดท Order status
-   */
-  private static async updateOrderStatus(
-    order: Order,
-    data: ExportOrderData,
-    updates: any,
-    seatBookingRepo: Repository<SeatBooking>,
-  ): Promise<string[]> {
-    const changes: string[] = [];
-
-    // ถ้าเงินครบและ verified แล้ว ให้เปลี่ยนเป็น PAID
-    if (
-      data.paymentAmountVerified &&
-      data.actualPaidAmount >= data.totalAmount &&
-      order.status !== OrderStatus.PAID
-    ) {
-      updates.status = OrderStatus.PAID;
-      changes.push('status_paid');
-
-      // อัปเดท seat bookings เป็น PAID
-      if (order.seatBookings?.length > 0) {
-        await seatBookingRepo.update(
-          { orderId: order.id },
-          {
-            status: BookingStatus.PAID,
-            updatedAt: ThailandTimeHelper.now(),
-          },
-        );
-        changes.push('seats_paid');
-      }
     }
 
     return changes;

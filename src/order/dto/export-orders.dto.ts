@@ -1,17 +1,16 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsArray, IsUUID, IsOptional, IsBoolean, IsIn } from 'class-validator';
+import { IsOptional, IsBoolean, IsIn } from 'class-validator';
 
 export class ExportOrdersDto {
   @ApiProperty({
-    description: 'Array of order IDs to export (empty array = export all)',
+    description:
+      'Array of order IDs to export or object with order data (empty array = export all)',
     example: ['uuid1', 'uuid2', 'uuid3'],
     type: [String],
     required: false,
   })
-  @IsArray()
   @IsOptional()
-  @IsUUID('all', { each: true })
-  orderIds: string[] = [];
+  orderIds?: string[] | Record<string, any> = [];
 
   @ApiProperty({
     description: 'Export format',

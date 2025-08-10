@@ -73,24 +73,16 @@ export class EnhancedOrderService {
     let seatLocks: string[] = [];
 
     try {
-      this.logger.log(
-        `🎫 Creating order with concurrency control for user: ${userId}`,
-      );
-
-      // 1. Validate user exists - เหมือน createOrder
       const user = await this.userRepo.findOne({ where: { id: userId } });
       if (!user) {
         throw new BadRequestException('ไม่พบข้อมูลผู้ใช้');
       }
-
       // 2. Validate booking limits - เพิ่มจาก createOrder
       try {
         await this.validateBookingLimits(user, orderData);
       } catch (e) {
         throw new BadRequestException(e?.message || 'Booking limit error');
       }
-      this.logger.log(`Booking limits validated for user: ${user.id}`);
-
       // 3. Prevent duplicate orders
       const duplicateCheck =
         await this.duplicatePreventionService.preventDuplicateOrder(
@@ -105,7 +97,6 @@ export class EnhancedOrderService {
           orderData.seatIds,
           orderData.showDate,
         );
-
         // Lock seats if required
         const seatLockResult = await this.concurrencyService.lockSeatsForOrder(
           orderData.seatIds,
@@ -114,17 +105,14 @@ export class EnhancedOrderService {
         );
         seatLocks = seatLockResult.lockedSeats;
       }
-
       // 5. Validate referrer - เหมือน createOrder
       let referrer = null;
       if (orderData.referrerCode) {
-        this.logger.log(`Validating referrer code: ${orderData.referrerCode}`);
         referrer = await this.referrerRepo.findOne({
           where: { code: orderData.referrerCode, isActive: true },
         });
 
         if (!referrer) {
-          this.logger.warn(`Invalid referrer code: ${orderData.referrerCode}`);
           throw new BadRequestException(
             'ไม่พบผู้แนะนำที่มีรหัส: ' + orderData.referrerCode,
           );
@@ -133,23 +121,13 @@ export class EnhancedOrderService {
 
       // 6. Calculate pricing - ใช้ logic เดียวกับ createOrder
       const pricing = this.calculateOrderPricing(orderData);
-      this.logger.log('Order pricing calculated:', pricing);
 
       // 7. Generate order number - เหมือน createOrder
       const orderNumber = ReferenceGenerator.generateOrderNumber();
-      this.logger.log('Generated order number:', orderNumber);
 
       // 8. Validate customer info by purchaseType
       const purchaseType = orderData.purchaseType || OrderPurchaseType.ONSITE;
-      // if (purchaseType === OrderPurchaseType.ONSITE) {
-      //   // ไม่บังคับกรอกข้อมูลลูกค้า
-      // } else {
-      //   // ถ้าไม่ใช่ ONSITE ต้องกรอก customerName
-      //   if (!orderData.customerName) {
-      //     throw new BadRequestException('กรุณากรอกชื่อผู้สั่งซื้อ');
-      //   }
-      // }
-      // 8. Prepare order data - ใช้ logic เดียวกับ createOrder
+
       const finalOrderData: any = {
         orderNumber,
         userId: user.id,
@@ -184,8 +162,31 @@ export class EnhancedOrderService {
         ),
         createdAt: ThailandTimeHelper.now(),
         updatedAt: ThailandTimeHelper.now(),
-        // Always set createdBy for all roles
         createdBy: orderData.createdBy || user.id,
+        hotelName: orderData.hotelName,
+        hotelDistrict: orderData.hotelDistrict,
+        roomNumber: orderData.roomNumber,
+        adultCount: orderData.adultCount || 0,
+        childCount: orderData.childCount || 0,
+        infantCount: orderData.infantCount || 0,
+        voucherNumber: orderData.voucherNumber || '', // ✅ เพิ่ม voucherNumber
+        pickupScheduledTime: orderData.pickupScheduledTime,
+        bookerName: orderData.bookerName,
+        includesPickup: orderData.includesPickup || false,
+        includesDropoff: orderData.includesDropoff || false,
+        // Pickup/Dropoff fields
+        requiresPickup: orderData.requiresPickup || false,
+        requiresDropoff: orderData.requiresDropoff || false,
+        pickupHotel: orderData.pickupHotel,
+        dropoffLocation: orderData.dropoffLocation,
+        pickupTime: orderData.pickupTime,
+        dropoffTime: orderData.dropoffTime,
+        travelDate: orderData.travelDate
+          ? ThailandTimeHelper.toThailandTime(orderData.travelDate)
+          : null,
+        voucherCode: orderData.voucherCode,
+        referenceNo: orderData.referenceNo,
+        specialRequests: orderData.specialRequests,
       };
 
       // 9. Handle BOOKED status expiry - เหมือน createOrder
@@ -319,7 +320,7 @@ export class EnhancedOrderService {
         ...reloadedOrder,
         customerName: reloadedOrder.customerName,
         ticketType: reloadedOrder.ticketType,
-        price: reloadedOrder.totalAmount,
+        price: reloadedOrder.totalAmount || reloadedOrder.total,
         paymentStatus: 'PENDING',
         showDate: ThailandTimeHelper.toISOString(reloadedOrder.showDate),
         seats:
@@ -505,6 +506,7 @@ export class EnhancedOrderService {
         const oldStandingCommission = Number(
           currentOrder.standingCommission || 0,
         );
+
         const totalToSubtract = oldRefCommission + oldStandingCommission;
 
         await queryRunner.query(
@@ -755,16 +757,27 @@ export class EnhancedOrderService {
     totalAmount: number;
     commission: number;
   } {
-    const { ticketType, quantity = 0, seatIds = [] } = request;
+    console.log('request', request);
+
+    const {
+      ticketType,
+      quantity = 0,
+      seatIds = [],
+      standingAdultQty,
+      standingChildQty,
+    } = request;
     let pricePerSeat;
+    let pricePerChild;
     let commissionPerTicket = 0;
     let totalAmount = 0;
     let commission = 0;
 
     if (ticketType === TicketType.STANDING) {
       pricePerSeat = TICKET_PRICES.STANDING_ADULT;
+      pricePerChild = TICKET_PRICES.STANDING_CHILD;
       commissionPerTicket = COMMISSION_RATES.STANDING_ADULT;
-      totalAmount = quantity * pricePerSeat;
+      totalAmount = standingAdultQty * pricePerSeat;
+      totalAmount += standingChildQty * pricePerChild;
       commission = quantity * commissionPerTicket;
     } else {
       pricePerSeat = TICKET_PRICES[ticketType];
