@@ -12,6 +12,7 @@ export enum OrderStatus {
   BOOKED = 'BOOKED', // จองแล้ว (มีที่นั่ง)
   REFUNDED = 'REFUNDED', // คืนเงินแล้ว
   NO_SHOW = 'NO_SHOW', // ไม่มาดูการแสดง
+  PARTIAL_ORDER = 'PARTIAL_ORDER', // ชำระบางส่วน (ไม่ครบตามยอดรวม)
 }
 
 export enum PaymentMethod {

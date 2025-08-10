@@ -35,7 +35,6 @@ import {
   AuditAction,
   OrderPurchaseType,
 } from '../common/enums';
-import { OrderData } from '../common/interfaces';
 
 // ========================================
 // 🛠️ UTILITIES & HELPERS
@@ -44,18 +43,22 @@ import {
   ThailandTimeHelper,
   LoggingHelper,
   ErrorHandlingHelper,
-  OrderDataMapper,
 } from '../common/utils';
-// Removed unused constants imports - now using helpers
 
 // ========================================
 // 🔧 SERVICES
 // ========================================
 import { SeatBookingService } from '../common/services/seat-booking.service';
 import { AuditHelperService } from '../common/services/audit-helper.service';
+import { OrderBusinessService } from './services/order-business.service';
 
 // ========================================
-// 📊 HELPERS
+// 📊 MAPPERS & TYPES
+// ========================================
+import { OrderData } from './mappers/order-data.mapper';
+
+// ========================================
+// 🔄 LEGACY HELPERS (for backward compatibility)
 // ========================================
 import {
   OrderValidationHelper,
@@ -86,6 +89,29 @@ export interface CreateOrderRequest {
   standingAdultQty?: number; // จำนวนตั๋วผู้ใหญ่
   standingChildQty?: number; // จำนวนตั๋วเด็ก
   attendanceStatus?: string;
+  // Hotel booking fields
+  hotelName?: string;
+  hotelDistrict?: string;
+  roomNumber?: string;
+  adultCount?: number;
+  childCount?: number;
+  infantCount?: number;
+  voucherNumber?: string; // เพิ่ม voucherNumber
+  pickupScheduledTime?: string;
+  bookerName?: string;
+  includesPickup?: boolean;
+  includesDropoff?: boolean;
+  // Pickup/Dropoff fields
+  requiresPickup?: boolean;
+  requiresDropoff?: boolean;
+  pickupHotel?: string;
+  dropoffLocation?: string;
+  pickupTime?: string;
+  dropoffTime?: string;
+  travelDate?: string;
+  voucherCode?: string;
+  referenceNo?: string;
+  specialRequests?: string;
 }
 
 export interface FindAllOptions {
@@ -127,18 +153,11 @@ export class OrderService {
     private configService: ConfigService,
     private seatBookingService: SeatBookingService,
     private auditHelperService: AuditHelperService,
+    private orderBusinessService: OrderBusinessService,
   ) {
     // Add console.log to verify logger initialization
   }
 
-  // ========================================
-  // 🎫 ORDER MANAGEMENT
-  // ========================================
-  // Note: Order creation has been moved to EnhancedOrderService for better concurrency control
-
-  /**
-   * ดึง order ด้วย id (public method สำหรับ controller)
-   */
   async getOrderById(id: string): Promise<Order | null> {
     return await this.orderRepo.findOne({
       where: { id },
@@ -150,10 +169,6 @@ export class OrderService {
       ],
     });
   }
-
-  // ==============================================================
-  // 🔍 FIND ALL ORDERS
-  // ========================================
   async findAll(options: FindAllOptions, userId?: string): Promise<any> {
     const {
       page = 1,
@@ -196,7 +211,17 @@ export class OrderService {
         });
       }
       if (status) {
-        query.andWhere('order.status = :status', { status });
+        if (Array.isArray(status)) {
+          query.andWhere('order.status IN (:...status)', { status });
+        } else if (typeof status === 'string' && status.includes(',')) {
+          const statusArr = status
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean);
+          query.andWhere('order.status IN (:...status)', { status: statusArr });
+        } else {
+          query.andWhere('order.status = :status', { status });
+        }
       }
       if (purchaseType) {
         query.andWhere('order.purchaseType = :purchaseType', { purchaseType });
@@ -207,11 +232,26 @@ export class OrderService {
         });
       }
       if (search) {
-        const searchValue = `%${search.toLowerCase()}%`;
-        query.andWhere(
-          '(LOWER(order.orderNumber) LIKE :search OR LOWER(order.customerName) LIKE :search OR LOWER(order.customerPhone) LIKE :search)',
-          { search: searchValue },
-        );
+        let keywords: string[] = [];
+        if (typeof search === 'string' && search.includes(',')) {
+          keywords = search
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean);
+        } else {
+          keywords = [search.trim()];
+        }
+        // สร้างเงื่อนไข OR สำหรับแต่ละ keyword ในทุก field
+        const searchConds: string[] = [];
+        const params: any = {};
+        keywords.forEach((kw, idx) => {
+          const param = `search${idx}`;
+          params[param] = `%${kw.toLowerCase()}%`;
+          searchConds.push(
+            `(LOWER(order.orderNumber) LIKE :${param} OR LOWER(order.customerName) LIKE :${param} OR LOWER(order.customerPhone) LIKE :${param} OR LOWER(order.voucherNumber) LIKE :${param} OR LOWER(order.hotelName) LIKE :${param})`,
+          );
+        });
+        query.andWhere(searchConds.join(' OR '), params);
       }
       if (createdBy !== undefined) {
         if (createdBy === null || createdBy === 'null' || createdBy === '') {
@@ -236,8 +276,25 @@ export class OrderService {
         page,
         totalPages: Math.ceil(total / limit),
       });
+      // เพิ่ม payment ข้อมูลในแต่ละ order
+      const mappedOrders = this.orderBusinessService
+        .transformOrdersToData(items)
+        .map((order, idx) => {
+          const payment = items[idx]?.payment;
+          return {
+            ...order,
+            payment: payment
+              ? {
+                  status: payment.status || '-',
+                  amount: payment.amount || 0,
+                  method: payment.method || '-',
+                  // transactionId: payment.transactionId || '-', // Removed, not in Payment entity
+                }
+              : undefined,
+          };
+        });
       return {
-        items: OrderDataMapper.mapOrdersToData(items) as OrderData[],
+        items: mappedOrders,
         total,
         page,
         limit,
@@ -268,8 +325,6 @@ export class OrderService {
       throw ErrorHandlingHelper.handleDatabaseError(error);
     }
   }
-
-  // ===================================================================
   // 🔍 FIND BY ID
   // ========================================
   async findById(id: string, userId?: string): Promise<OrderData | null> {
@@ -299,19 +354,13 @@ export class OrderService {
       }
     }
 
-    return OrderDataMapper.mapToOrderData(order) as OrderData;
+    return this.orderBusinessService.transformOrderToData(order);
   }
-
-  // =================================================================
-  // ✏️ UPDATE ORDER
-  // ======================================================================
   async update(
     id: string,
     updates: Partial<OrderData>,
     userId: string,
   ): Promise<OrderData> {
-    this.logger.log(`✏️ Updating order ${id} by user ${userId}`);
-
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user) {
       throw new BadRequestException('User not found');
@@ -336,6 +385,70 @@ export class OrderService {
       updatedBy: userId,
     } as any);
 
+    // 🧮 คำนวณ Outstanding Amount อัตโนมัติหากมีการเปลี่ยนแปลงข้อมูลที่เกี่ยวข้อง
+    const shouldRecalculateOutstanding =
+      updates.quantity !== undefined ||
+      updates.standingAdultQty !== undefined ||
+      updates.standingChildQty !== undefined ||
+      updates.ticketType !== undefined;
+
+    if (shouldRecalculateOutstanding) {
+      try {
+        // คำนวณ Outstanding Amount ใหม่หลังจากอัปเดต
+        const updatedOrder = await this.orderRepo.findOne({
+          where: { id },
+          relations: ['seatBookings'],
+        });
+
+        if (updatedOrder) {
+          // คำนวณ Outstanding Amount โดยตรงตามสูตร
+          const standingQty = updatedOrder.standingAdultQty || 0;
+          const standingChildQty = updatedOrder.standingChildQty || 0;
+          const ringsideQty =
+            updatedOrder.ticketType === TicketType.RINGSIDE
+              ? updatedOrder.quantity || 0
+              : 0;
+          const stadiumQty =
+            updatedOrder.ticketType === TicketType.STADIUM
+              ? updatedOrder.quantity || 0
+              : 0;
+
+          const rsQty = ringsideQty + stadiumQty;
+          const stdQty = standingQty;
+          const stdchQty = standingChildQty;
+          const totalGuests = rsQty + stdQty + stdchQty;
+
+          // คำนวณราคามวยรวม
+          const rsPrice = 1400;
+          const stdPrice = 1200;
+          const stdchPrice = 1000;
+          const shirtPrice = 300;
+
+          const rsBoxingPrice = rsQty * rsPrice;
+          const stdBoxingPrice = stdQty * stdPrice;
+          const stdchBoxingPrice = stdchQty * stdchPrice;
+          const totalBoxingPrice =
+            rsBoxingPrice + stdBoxingPrice + stdchBoxingPrice;
+
+          // คำนวณค่าเสื้อรวม
+          const totalShirtPrice = totalGuests * shirtPrice;
+
+          // เงินทัวร์ = ราคามวยรวม - ค่าเสื้อรวม
+          const calculatedOutstanding = totalBoxingPrice - totalShirtPrice;
+
+          await this.orderRepo.update(id, {
+            outstandingAmount: calculatedOutstanding,
+          });
+        }
+      } catch (error) {
+        // Log error แต่ไม่ throw เพื่อไม่ให้กระทบกับกระบวนการหลัก
+        this.logger.error(
+          `Failed to update outstanding amount after order change for ${id}`,
+          error,
+        );
+      }
+    }
+
     // Create audit log ใช้ AuditHelperService
     await this.auditHelperService.auditOrderAction(
       AuditAction.UPDATE,
@@ -346,16 +459,10 @@ export class OrderService {
 
     return this.findById(id);
   }
-
-  // ==================================================================
-  // ❌ CANCEL ORDER
-  // ======================================================================
   async cancel(
     id: string,
     userId: string,
   ): Promise<{ success: boolean; message: string }> {
-    this.logger.log(`❌ Cancelling order ${id} by user ${userId}`);
-
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user) {
       throw new BadRequestException('User not found');
@@ -402,15 +509,10 @@ export class OrderService {
     return { success: true, message: 'ยกเลิกออเดอร์สำเร็จ' };
   }
 
-  // ===============================================================
-  // ✅ CONFIRM PAYMENT
-  // ==============================================================
   async confirmPayment(
     id: string,
     userId: string,
   ): Promise<{ success: boolean; message: string }> {
-    this.logger.log(`✅ Confirming payment for order ${id} by user ${userId}`);
-
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user) {
       throw new BadRequestException('User not found');
@@ -458,12 +560,7 @@ export class OrderService {
     return { success: true, message: 'ยืนยันการชำระเงินสำเร็จ' };
   }
 
-  // ============================================================
-  // 🎟️ GENERATE TICKETS
-  // ========================================
   async generateTickets(id: string, userId: string): Promise<any> {
-    this.logger.log(`🎟️ Generating tickets for order ${id} by user ${userId}`);
-
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user) {
       throw new BadRequestException('User not found');
@@ -483,13 +580,13 @@ export class OrderService {
       throw new NotFoundException('Order not found');
     }
 
-    // Permission check ใช้ OrderValidationHelper
-    OrderValidationHelper.validateTicketGeneration(user, order);
+    // Permission check ใช้ OrderBusinessService
+    this.orderBusinessService.validateTicketGeneration(user, order);
 
     console.log('order', order);
 
-    // Generate tickets ใช้ OrderDataMapper
-    const ticketData = OrderDataMapper.mapToTicketData(order);
+    // Generate tickets ใช้ OrderBusinessService
+    const ticketData = this.orderBusinessService.generateTicketData(order);
 
     // Create audit log ใช้ AuditHelperService
     await this.auditHelperService.auditOrderAction(
@@ -515,9 +612,6 @@ export class OrderService {
     return ticketData;
   }
 
-  // =================================================================
-  // 🔄 CHANGE SEATS - COMPREHENSIVE VERSION
-  // =================================================================
   async changeSeats(
     id: string,
     newSeatNumbers: string[],
@@ -528,7 +622,6 @@ export class OrderService {
     newCustomerEmail?: string,
     newShowDate?: string,
   ): Promise<{ success: boolean; message: string; updatedOrder?: any }> {
-    this.logger.log(`🔄 Changing seats for order ${id} by user ${userId}`);
     try {
       const user = await this.userRepo.findOne({ where: { id: userId } });
       if (!user) {
@@ -572,11 +665,6 @@ export class OrderService {
       // Get current seat count
       const currentSeatCount = order.seatBookings?.length || 0;
       const newSeatCount = newSeatIds.length;
-
-      this.logger.log(
-        `Current seats: ${currentSeatCount}, New seats: ${newSeatCount}`,
-      );
-
       // Handle different order statuses
       switch (order.status) {
         case OrderStatus.PENDING:
@@ -633,8 +721,6 @@ export class OrderService {
     }
   }
   async getOrderStats(): Promise<any> {
-    this.logger.log('📊 Getting order statistics');
-
     const [
       totalOrders,
       confirmedOrders,
@@ -664,16 +750,10 @@ export class OrderService {
       totalRevenue: totalRevenue.total || 0,
     };
   }
-
-  // ================================================================
-  // 🗑️ REMOVE ORDER
-  // ======================================================================
   async remove(
     id: string,
     userId: string,
   ): Promise<{ success: boolean; message: string }> {
-    this.logger.log(`🗑️ Removing order ${id} by user ${userId}`);
-
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user) {
       throw new BadRequestException('User not found');
@@ -711,10 +791,6 @@ export class OrderService {
 
     return { success: true, message: 'ลบออเดอร์สำเร็จ' };
   }
-
-  // ==============================================================
-  // 🕐 SCHEDULED TASKS
-  // =================================================
   @Cron(CronExpression.EVERY_MINUTE)
   async handleExpiredOrders() {
     this.logger.debug('🕐 Checking for expired orders...');
@@ -747,29 +823,14 @@ export class OrderService {
           },
         );
       }
-
-      this.logger.log(
-        `⏰ Order ${order.orderNumber} expired and seats released`,
-      );
     }
   }
 
-  // =======================================================
-  // 🔧 PRIVATE HELPER METHODS
-  // ===============================================
-  // 🔧 HELPER METHODS ที่เหลือ (ฟังก์ชันเฉพาะที่ไม่ได้ย้ายไป helpers)
-  // ===============================================
-
-  // =================================================================
-  // ✏️ UPDATE ORDER FOR TICKET TYPE: STANDING
-  // ======================================================================
   async updateStandingOrder(
     id: string,
     updates: Partial<OrderData>,
     userId: string,
   ): Promise<OrderData> {
-    this.logger.log(`✏️ Updating standing order ${id} by user ${userId}`);
-
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user) {
       throw new BadRequestException('User not found');
@@ -814,9 +875,6 @@ export class OrderService {
     return this.findById(id);
   }
 
-  /**
-   * 📄 Export ข้อมูลออเดอร์สำหรับ Excel/CSV
-   */
   async exportOrdersData(filters: {
     status?: string;
     search?: string;
@@ -844,8 +902,6 @@ export class OrderService {
     };
   }> {
     try {
-      this.logger.log('🔄 Starting export orders data process', filters);
-
       // ดึงข้อมูลทั้งหมดตาม filter (ไม่จำกัดจำนวน)
       const result = await this.findAll(
         {
@@ -870,6 +926,7 @@ export class OrderService {
 
       // เตรียมข้อมูลสำหรับ export
       const exportOrders = orders.map((order) => ({
+        id: order.id, // เพิ่ม id สำหรับการกรองใน export-spreadsheet
         orderNumber: order.orderNumber,
         customerName: order.customerName || '-',
         customerPhone: order.customerPhone || '-',
@@ -881,6 +938,7 @@ export class OrderService {
         standingChildQty: order.standingChildQty || 0,
         totalAmount: order.totalAmount || 0,
         status: order.status,
+        voucherNumber: order.voucherNumber || '-',
         purchaseType: order.purchaseType || OrderPurchaseType.ONSITE,
         attendanceStatus: order.attendanceStatus || 'PENDING',
         paymentMethod: order.paymentMethod || PaymentMethod.CASH,
@@ -898,12 +956,12 @@ export class OrderService {
         seats: order.seats
           ? order.seats.map((s: any) => s.seatNumber).join(', ')
           : '-',
+        // เพิ่มข้อมูล payment
+        paymentStatus: order.payment?.status || '-',
+        paymentAmount: order.payment?.amount || 0,
+        paymentMethodDetail: order.payment?.method || '-',
+        paymentTransactionId: order.payment?.transactionId || '-',
       }));
-
-      this.logger.log(
-        `✅ Export data prepared: ${exportOrders.length} orders`,
-        summary,
-      );
 
       return {
         orders: exportOrders,
@@ -921,38 +979,32 @@ export class OrderService {
     }
   }
 
-  /**
-   *  สร้าง PDF ตามรูปแบบตารางใบเสร็จ (A4 แนวนอน)
-   * ตรงตามภาพที่ส่งมา Boxing Stadium Patong Beach
-   */
   async generateOrdersPDF(exportData: {
     orders: any[];
     summary: any;
     metadata: any;
   }): Promise<Buffer> {
     try {
-      this.logger.log('🔄 Starting PDF generation for orders (Landscape A4)');
-
       // 📊 กำหนด PaymentMethod Header
-      let paymentMethodHeader = 'ทุกช่องทาง'; // ค่าเริ่มต้น
+      const paymentMethodHeader = 'ยอดเงิน'; // ค่าเริ่มต้น
       if (exportData.metadata?.filters?.paymentMethod) {
-        const method = exportData.metadata.filters.paymentMethod;
-        switch (method.toUpperCase()) {
-          case 'CASH':
-            paymentMethodHeader = 'เงินสด';
-            break;
-          case 'CREDIT_CARD':
-            paymentMethodHeader = 'บัตรเครดิต';
-            break;
-          case 'BANK_TRANSFER':
-            paymentMethodHeader = 'โอนเงิน';
-            break;
-          case 'QR_CODE':
-            paymentMethodHeader = 'QR Code';
-            break;
-          default:
-            paymentMethodHeader = method;
-        }
+        // const method = exportData.metadata.filters.paymentMethod;
+        // switch (method.toUpperCase()) {
+        //   case 'CASH':
+        //     paymentMethodHeader = 'เงินสด';
+        //     break;
+        //   case 'CREDIT_CARD':
+        //     paymentMethodHeader = 'บัตรเครดิต';
+        //     break;
+        //   case 'BANK_TRANSFER':
+        //     paymentMethodHeader = 'โอนเงิน';
+        //     break;
+        //   case 'QR_CODE':
+        //     paymentMethodHeader = 'QR Code';
+        //     break;
+        //   default:
+        //     paymentMethodHeader = method;
+        // }
       }
 
       // 📋 TABLE HEADERS - ปรับ rowSpan/colSpan ตามภาพตัวอย่าง
@@ -973,17 +1025,19 @@ export class OrderService {
         },
         {
           text: 'จำนวนแขก',
-          colSpan: 2,
+          colSpan: 3,
           style: 'tableHeader',
           alignment: 'center',
         },
         {},
+        {},
         {
           text: 'ราคามวย',
-          colSpan: 2,
+          colSpan: 3,
           style: 'tableHeader',
           alignment: 'center',
         },
+        {},
         {},
         {
           text: 'เสื้อ',
@@ -1046,44 +1100,81 @@ export class OrderService {
       // Sub-headers สำหรับแถวที่ 2 (เฉพาะคอลัมน์ที่มี colSpan)
       const subHeaders = [
         '', // NO.
-        '', // รายละเอียด
+        '', // ชื่อเอเย่นต์
         'RS', // จำนวนแขก RS
         'STD', // จำนวนแขก STD
+        'CH', // จำนวนแขก Child
         'RS', // ราคามวย RS
         'STD', // ราคามวย STD
-        '', // เสื้อ 300
-        '', // เสื้อ F
+        'CHI', // ราคามวย CHI
+        'เสื้อ', // เสื้อ (normal shirt)
+        'เสื้อ F', // เสื้อ F
         '', // เงินทัวร์
+        '', // เสื้อ (รวม)
         '', // รวม
         '', // ฟรี
         '', // PaymentMethod
-        '', // No./C
+        '', // No.V/C
       ];
 
       // � เตรียมข้อมูลแถวสำหรับตาราง
-      const tableRows = exportData.orders.map((order, index) => {
+      // เรียงลำดับข้อมูลก่อนแปลงเป็นแถว
+      const sortedOrders = [...exportData.orders].sort((a, b) => {
+        const aReferrerName = a.referrerName || '';
+        const bReferrerName = b.referrerName || '';
+
+        // ถ้าทั้งคู่มี referrerName หรือทั้งคู่ไม่มี ให้เปรียบเทียบกัน
+        if (
+          (aReferrerName && bReferrerName) ||
+          (!aReferrerName && !bReferrerName)
+        ) {
+          if (aReferrerName && bReferrerName) {
+            // เรียงตาม referrerName A-Z
+            const nameCompare = aReferrerName.localeCompare(
+              bReferrerName,
+              'th',
+            );
+            if (nameCompare !== 0) return nameCompare;
+          }
+          // ถ้า referrerName เหมือนกันหรือทั้งคู่ไม่มี ให้เรียงตาม createdAt (ล่าสุดก่อน)
+          const aCreatedAt = new Date(a.createdAt || 0).getTime();
+          const bCreatedAt = new Date(b.createdAt || 0).getTime();
+          return bCreatedAt - aCreatedAt;
+        }
+
+        // ถ้ามีเพียงฝ่ายใดฝ่ายหนึ่งที่มี referrerName ให้ฝ่ายที่มีขึ้นก่อน
+        if (aReferrerName && !bReferrerName) return -1;
+        if (!aReferrerName && bReferrerName) return 1;
+
+        return 0;
+      });
+
+      const tableRows = sortedOrders.map((order, index) => {
         // 📊 คำนวณจำนวนตั๋วแยกตามประเภท
-        const standingQty =
-          (order.standingAdultQty || 0) + (order.standingChildQty || 0);
+        console.log(order);
+        const standingQty = order.standingAdultQty || 0;
+        const standingChildQty = order.standingChildQty || 0;
         const ringsideQty =
           order.ticketType === 'RINGSIDE' ? order.quantity || 0 : 0;
         const stadiumQty =
           order.ticketType === 'STADIUM' ? order.quantity || 0 : 0;
         const rsQty = ringsideQty + stadiumQty;
         const stdQty = standingQty;
-        const totalGuests = rsQty + stdQty;
+        const stdchQty = standingChildQty;
+        const totalGuests = rsQty + stdQty + stdchQty;
 
         // 💰 คำนวณราคาตามประเภทตั๋ว
         const rsPrice = 1400;
         const stdPrice = 1200;
+        const stdchPrice = 1000; // ราคามวยสำหรับ Child
         const shirtPrice = 300;
 
         // ราคามวยแยกตามประเภท
-        const rsBoxingPrice = rsPrice;
-        const stdBoxingPrice = stdPrice;
+        const rsBoxingPrice = rsQty * rsPrice;
+        const stdBoxingPrice = stdQty * stdPrice;
+        const stdchBoxingPrice = stdchQty * stdchPrice;
         const totalBoxingPrice =
-          totalGuests *
-          (order.ticketType === 'RINGSIDE' ? rsBoxingPrice : stdBoxingPrice);
+          rsBoxingPrice + stdBoxingPrice + stdchBoxingPrice;
 
         // ค่าเสื้อรวม
         const ShirtPrice = shirtPrice;
@@ -1095,6 +1186,28 @@ export class OrderService {
         // รวม = เงินทัวร์ + เสื้อ
         const totalAmount = tourMoney + totalShirtPrice;
 
+        // 💰 คำนวณ paymentAmount ตามเงื่อนไขใหม่
+        const grossPaymentAmount = order.paymentAmount || 0;
+        let paymentAmount = grossPaymentAmount;
+
+        // ถ้า paymentAmount เท่ากับ totalAmount หรือ paymentAmount เป็น 0 ไม่ต้องทำอะไร
+        if (
+          grossPaymentAmount !== 0 &&
+          grossPaymentAmount !== totalAmount &&
+          grossPaymentAmount > totalAmount
+        ) {
+          // ถ้า paymentAmount มากกว่า totalAmount ให้ลบค่าเสื้อ
+          if (order.ticketType === 'STANDING') {
+            // ตั๋วยืน: ลบ 400 ต่อตั๋ว
+            const standingDeduction = (stdQty + stdchQty) * 400;
+            paymentAmount = grossPaymentAmount - standingDeduction;
+          } else {
+            // ตั๋วนั่ง (RINGSIDE/STADIUM): ลบ 300 ต่อตั๋ว
+            const sittingDeduction = rsQty * 300;
+            paymentAmount = grossPaymentAmount - sittingDeduction;
+          }
+        }
+
         // Logic: ช่องที่เป็น 0 ไม่ต้องโชว์ 0 ให้เป็นว่าง
         function showValue(val: number | string) {
           if (typeof val === 'string') val = Number(val.replace(/,/g, ''));
@@ -1103,10 +1216,7 @@ export class OrderService {
 
         // Logic: ชื่อเอเย่นต์ ถ้าไม่มีให้ว่าง, ถ้าซ้ำกับออเดอร์ก่อนหน้าให้ว่าง
         let refName = order.referrerName || '';
-        if (
-          index > 0 &&
-          exportData.orders[index - 1]?.referrerName === refName
-        ) {
+        if (index > 0 && sortedOrders[index - 1]?.referrerName === refName) {
           refName = '';
         }
 
@@ -1115,8 +1225,10 @@ export class OrderService {
           refName, // ชื่อเอเย่นต์
           rsQty === 0 ? '' : rsQty.toString(), // จำนวนแขก RS
           stdQty === 0 ? '' : stdQty.toString(), // จำนวนแขก STD
-          showValue(rsBoxingPrice), // ราคามวย RS
-          showValue(stdBoxingPrice), // ราคามวย STD
+          stdchQty === 0 ? '' : stdchQty.toString(), // จำนวนแขก Child
+          showValue(rsPrice), // ราคามวย RS
+          showValue(stdPrice), // ราคามวย STD
+          showValue(stdchPrice), // ราคามวย Child
           showValue(ShirtPrice), // เสื้อ 300
           '', // เสื้อ F (ว่าง)
           tourMoney === 0
@@ -1131,56 +1243,104 @@ export class OrderService {
             ? ''
             : totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2 }), // รวม
           '', // ฟรี (ว่าง)
-          totalAmount === 0
+          paymentAmount === 0
             ? ''
-            : totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2 }), // PaymentMethod column
-          '', // No./C (ชื่อลูกค้า)
+            : paymentAmount.toLocaleString('en-US', {
+                minimumFractionDigits: 2,
+              }), // PaymentMethod column
+          order.voucherNumber, // No./C (ชื่อลูกค้า)
         ];
       });
 
       // � คำนวณสรุปสำหรับแถวท้าย
       let totalRS = 0;
       let totalSTD = 0;
-      let totalRSBoxingPrice = 0; // ราคามวย RS แยก
-      let totalSTDBoxingPrice = 0; // ราคามวย STD แยก
+      let totalCH = 0; // จำนวนแขก Child
+      // let totalRSBoxingPrice = 0; // ราคามวย RS แยก
+      // let totalSTDBoxingPrice = 0; // ราคามวย STD แยก
       let totalShirtPrice = 0;
       let totalTourMoney = 0;
       let grandTotal = 0;
-      let shirtPriceTotals = 0;
+      let grandTotalPayment = 0; // รวม
+      // let shirtPriceTotals = 0;
+      // let totalCHBoxingPrice = 0; // ราคามวย Child แยก
 
-      // วนลูปคำนวณผลรวมจาก tableRows
-      exportData.orders.forEach((order) => {
-        const standingQty =
-          (order.standingAdultQty || 0) + (order.standingChildQty || 0);
+      // วนลูปคำนวณผลรวมจาก sortedOrders
+      sortedOrders.forEach((order) => {
+        const standingQty = order.standingAdultQty || 0;
+        const standingChildQty = order.standingChildQty || 0;
         const ringsideQty =
           order.ticketType === 'RINGSIDE' ? order.quantity || 0 : 0;
         const stadiumQty =
           order.ticketType === 'STADIUM' ? order.quantity || 0 : 0;
         const rsQty = ringsideQty + stadiumQty;
         const stdQty = standingQty;
-        const guests = rsQty + stdQty;
+        const stdchQty = standingChildQty;
+        const guests = rsQty + stdQty + stdchQty;
 
         const rsPrice = 1400;
         const stdPrice = 1200;
+        const stdchPrice = 1000;
         const shirtPrice = 300;
 
         const rsBoxingPrice = rsQty * rsPrice; // ราคามวย RS
         const stdBoxingPrice = stdQty * stdPrice; // ราคามวย STD
-        const totalBoxingPrice = rsBoxingPrice + stdBoxingPrice;
+        const stdchBoxingPrice = stdchQty * stdchPrice; // ราคามวย Child
+        const totalBoxingPrice =
+          rsBoxingPrice + stdBoxingPrice + stdchBoxingPrice;
         const shirtPriceTotal = guests * shirtPrice;
         const tourMoney = totalBoxingPrice - shirtPriceTotal;
         const total = tourMoney + shirtPriceTotal;
 
         totalRS += rsQty;
         totalSTD += stdQty;
+        totalCH += stdchQty;
         // totalRSBoxingPrice += rsBoxingPrice;
         // totalSTDBoxingPrice += stdBoxingPrice;
-        totalRSBoxingPrice += 0;
-        totalSTDBoxingPrice += 0;
+        // totalCHBoxingPrice += stdchBoxingPrice;
         totalShirtPrice += shirtPriceTotal;
-        shirtPriceTotals += 0;
+        // shirtPriceTotals += shirtPriceTotal;
         totalTourMoney += tourMoney;
         grandTotal += total;
+
+        // คำนวณ grandTotalPayment ตามเงื่อนไขใหม่ (ใช้โลจิกเดียวกับการแสดงในแต่ละแถว)
+        const grossOrderPayment = Number(order.paymentAmount || 0); // แปลงเป็นตัวเลข
+        let orderPaymentAmount = grossOrderPayment;
+
+        // ใช้โลจิกเดียวกันกับในแต่ละแถวของตาราง
+        if (
+          grossOrderPayment !== 0 &&
+          grossOrderPayment !== total &&
+          grossOrderPayment > total
+        ) {
+          // ถ้า paymentAmount มากกว่า totalAmount ให้ลบค่าเสื้อ
+          if (order.ticketType === 'STANDING') {
+            // ตั๋วยืน: ลบ 400 ต่อตั๋ว
+            const standingDeduction = (stdQty + stdchQty) * 400;
+            orderPaymentAmount = grossOrderPayment - standingDeduction;
+          } else {
+            // ตั๋วนั่ง (RINGSIDE/STADIUM): ลบ 300 ต่อตั๋ว
+            const sittingDeduction = rsQty * 300;
+            orderPaymentAmount = grossOrderPayment - sittingDeduction;
+          }
+        }
+
+        // แปลงเป็นตัวเลขและบวกเฉพาะค่าที่ไม่เป็น 0 (ตรงกับเงื่อนไขการแสดงผล)
+        const numericPaymentAmount = Number(orderPaymentAmount);
+        if (numericPaymentAmount !== 0) {
+          grandTotalPayment = Number(grandTotalPayment) + numericPaymentAmount;
+        }
+
+        // Debug log สำหรับตรวจสอบการคำนวณ
+        console.log(`Order ${order.orderNumber || 'unknown'}:`, {
+          ticketType: order.ticketType,
+          rsQty,
+          stdQty: stdQty + stdchQty,
+          grossPayment: grossOrderPayment,
+          total,
+          calculatedPayment: numericPaymentAmount,
+          runningTotal: grandTotalPayment,
+        });
       });
 
       // เพิ่มแถวสรุปท้ายตาราง (ปรับให้ตรงกับโครงสร้างใหม่)
@@ -1189,20 +1349,34 @@ export class OrderService {
         'สรุปทั้งหมด', // รายละเอียด
         totalRS.toString(), // จำนวนแขก RS
         totalSTD.toString(), // จำนวนแขก STD
-        totalRSBoxingPrice.toLocaleString(), // ราคามวย RS
-        totalSTDBoxingPrice.toLocaleString(), // ราคามวย STD
-        shirtPriceTotals.toLocaleString(), // เสื้อ 300
+        totalCH.toString(), // จำนวนแขก Child
+        0, // ราคามวย RS
+        0, // ราคามวย STD
+        0, // ราคามวย Child
+        0, // เสื้อ 300
         '', // เสื้อ F
         totalTourMoney.toLocaleString('en-US', { minimumFractionDigits: 2 }), // เงินทัวร์
         totalShirtPrice.toLocaleString('en-US', { minimumFractionDigits: 2 }), // จำนวนรวมเสื้อ
         grandTotal.toLocaleString('en-US', { minimumFractionDigits: 2 }), // รวม
         '', // ฟรี
-        grandTotal.toLocaleString('en-US', { minimumFractionDigits: 2 }), // PaymentMethod column
+        grandTotalPayment.toLocaleString('en-US', { minimumFractionDigits: 2 }), // PaymentMethod column
         ``, // No./C
       ];
 
       // เพิ่ม summaryRow เข้าไปใน tableRows
       tableRows.push(summaryRow);
+
+      // Debug log สำหรับตรวจสอบผลรวมสุดท้าย
+      console.log('=== PDF Summary Calculation ===');
+      console.log('Total RS:', totalRS);
+      console.log('Total STD:', totalSTD);
+      console.log('Total CH:', totalCH);
+      console.log('Total Tour Money:', totalTourMoney);
+      console.log('Total Shirt Price:', totalShirtPrice);
+      console.log('Grand Total:', grandTotal);
+      console.log('Grand Total Payment:', grandTotalPayment);
+      console.log('================================');
+
       const today = new Date();
 
       const weekday = today.toLocaleDateString('th-TH', { weekday: 'long' }); // เช่น "วันอาทิตย์"
@@ -1219,7 +1393,7 @@ export class OrderService {
       const docDefinition = {
         pageSize: 'A4',
         pageOrientation: 'landscape', // ⭐ A4 แนวนอน
-        pageMargins: [30, 60, 20, 60],
+        pageMargins: [10, 60, 20, 60],
         defaultStyle: {
           font: 'THSarabunNew', // ใช้ฟอนต์ไทย
           fontSize: 10,
@@ -1244,7 +1418,9 @@ export class OrderService {
           {
             table: {
               headerRows: 2, // 2 แถว header (main + sub)
-              widths: [25, 150, 25, 25, 35, 35, 35, 35, 60, 60, 60, 15, 60, 50], // ความกว้างคอลัมน์ใหม่
+              widths: [
+                20, 150, 20, 20, 20, 30, 30, 30, 25, 25, 60, 60, 60, 15, 60, 60,
+              ], // ความกว้างคอลัมน์ใหม่
               body: [
                 // แถวที่ 1: Main headers (ใช้ style จาก header object)
                 headers,
@@ -1259,11 +1435,11 @@ export class OrderService {
                   row.map((cell, index) => ({
                     text: cell,
                     style: 'tableCell',
-                    alignment: [2, 3, 8, 9, 10, 12].includes(index)
+                    alignment: [2, 3, 8, 9, 10, 11, 12, 14].includes(index)
                       ? 'right' // RS, STD, เงินทัวร์, เสื้อ, รวม, paymentMethodHeader
                       : index === 0 || index === 1 // NO. และ ชื่อเอเย่นต์
                         ? 'left' // รายละเอียดและชื่อลูกค้าชิดซ้าย
-                        : index === 13
+                        : index === 13 || index === 15 // No./C และ PaymentMethod
                           ? 'center' // PaymentMethod column
                           : 'center',
                   })),
@@ -1317,9 +1493,6 @@ export class OrderService {
       // 🎯 สร้าง PDF Buffer
       const pdfBuffer = await createPdfBuffer(docDefinition);
 
-      this.logger.log(
-        `✅ PDF generated successfully: ${pdfBuffer.length} bytes (Landscape A4)`,
-      );
       return pdfBuffer;
     } catch (error) {
       this.logger.error('❌ Failed to generate PDF', error.stack);
@@ -1329,23 +1502,507 @@ export class OrderService {
     }
   }
 
-  // ========================================
-  // 📤 EXPORT/IMPORT METHODS
-  // ========================================
+  async generateOrdersExcel(exportData: {
+    orders: any[];
+    summary: any;
+    metadata: any;
+  }): Promise<Buffer> {
+    try {
+      console.log('🔧 Starting Excel generation with ExcelJS...');
+      console.log('📊 Orders to process:', exportData.orders.length);
 
-  /**
-   * Export orders to spreadsheet format (CSV or Excel)
-   */
+      // ใช้ dynamic import สำหรับ exceljs แบบ optimized
+      const ExcelJS = await import('exceljs');
+      const workbook = new ExcelJS.Workbook();
+
+      // ตั้งค่า workbook properties สำหรับการรองรับภาษาไทย
+      workbook.creator = 'Boxing Stadium System';
+      workbook.lastModifiedBy = 'Boxing Stadium System';
+      workbook.created = new Date();
+      workbook.modified = new Date();
+      workbook.company = 'Boxing Stadium Patong Beach';
+      workbook.title = 'Orders Export Report';
+      workbook.subject = 'Order Management System Export';
+
+      console.log('✅ ExcelJS workbook created with metadata');
+
+      // สร้าง worksheet พร้อม configuration ที่เหมาะสมสำหรับภาษาไทย
+      const worksheet = workbook.addWorksheet('Orders Export', {
+        properties: {
+          tabColor: { argb: 'FF0000FF' },
+          defaultRowHeight: 20,
+        },
+        views: [
+          {
+            state: 'frozen',
+            xSplit: 2,
+            ySplit: 1,
+            activeCell: 'A1',
+            showGridLines: true,
+          },
+        ],
+        pageSetup: {
+          paperSize: 9, // A4
+          orientation: 'landscape',
+          fitToPage: true,
+          margins: {
+            left: 0.7,
+            right: 0.7,
+            top: 0.75,
+            bottom: 0.75,
+            header: 0.3,
+            footer: 0.3,
+          },
+        },
+      });
+
+      // สร้าง headers ที่รองรับภาษาไทยอย่างเต็มรูปแบบ
+      const headers = [
+        'Order ID',
+        'NO.',
+        'ชื่อเอเย่นต์',
+        'RS',
+        'STD',
+        'CH',
+        'ราคามวย RS',
+        'ราคามวย STD',
+        'ราคามวย CHI',
+        'เสื้อ',
+        'เสื้อ F',
+        'เงินทัวร์',
+        'เสื้อรวม',
+        'รวม',
+        'ฟรี',
+        'ยอดเงิน',
+        'No. V/C',
+      ];
+
+      // เพิ่ม header row พร้อมการจัดรูปแบบ professional
+      const headerRow = worksheet.addRow(headers);
+
+      // จัดรูปแบบ header ให้ professional
+      headerRow.eachCell((cell) => {
+        cell.font = {
+          bold: true,
+          name: 'Tahoma',
+          size: 11,
+          color: { argb: 'FFFFFFFF' }, // สีขาว
+        };
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FF366092' }, // สีน้ำเงินเข้ม
+        };
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FF000000' } },
+          left: { style: 'thin', color: { argb: 'FF000000' } },
+          bottom: { style: 'thin', color: { argb: 'FF000000' } },
+          right: { style: 'thin', color: { argb: 'FF000000' } },
+        };
+        cell.alignment = {
+          horizontal: 'center',
+          vertical: 'middle',
+          wrapText: true,
+        };
+      });
+
+      console.log('📊 Adding data rows with Thai language support...');
+
+      // เรียงลำดับข้อมูลก่อนแปลงเป็นแถว
+      const sortedOrders = [...exportData.orders].sort((a, b) => {
+        const aReferrerName = a.referrerName || '';
+        const bReferrerName = b.referrerName || '';
+
+        // ถ้าทั้งคู่มี referrerName หรือทั้งคู่ไม่มี ให้เปรียบเทียบกัน
+        if (
+          (aReferrerName && bReferrerName) ||
+          (!aReferrerName && !bReferrerName)
+        ) {
+          if (aReferrerName && bReferrerName) {
+            // เรียงตาม referrerName A-Z
+            const nameCompare = aReferrerName.localeCompare(
+              bReferrerName,
+              'th',
+            );
+            if (nameCompare !== 0) return nameCompare;
+          }
+          // ถ้า referrerName เหมือนกันหรือทั้งคู่ไม่มี ให้เรียงตาม createdAt (ล่าสุดก่อน)
+          const aCreatedAt = new Date(a.createdAt || 0).getTime();
+          const bCreatedAt = new Date(b.createdAt || 0).getTime();
+          return bCreatedAt - aCreatedAt;
+        }
+
+        // ถ้ามีเพียงฝ่ายใดฝ่ายหนึ่งที่มี referrerName ให้ฝ่ายที่มีขึ้นก่อน
+        if (aReferrerName && !bReferrerName) return -1;
+        if (!aReferrerName && bReferrerName) return 1;
+
+        return 0;
+      });
+
+      // เพิ่มข้อมูลพร้อมการจัดรูปแบบที่เหมาะสม
+      sortedOrders.forEach((order, index) => {
+        const standingQty = order.standingAdultQty || 0;
+        const standingChildQty = order.standingChildQty || 0;
+        const ringsideQty =
+          order.ticketType === 'RINGSIDE' ? order.quantity || 0 : 0;
+        const stadiumQty =
+          order.ticketType === 'STADIUM' ? order.quantity || 0 : 0;
+        const rsQty = ringsideQty + stadiumQty;
+        const stdQty = standingQty;
+        const stdchQty = standingChildQty;
+        const totalGuests = rsQty + stdQty + stdchQty;
+
+        // 💰 คำนวณราคาตามประเภทตั๋ว (ตรงกับ PDF)
+        const rsPrice = 1400;
+        const stdPrice = 1200;
+        const stdchPrice = 1000; // ราคามวยสำหรับ Child
+        const shirtPrice = 300;
+
+        // ราคามวยแยกตามประเภท
+        const rsBoxingPrice = rsQty * rsPrice;
+        const stdBoxingPrice = stdQty * stdPrice;
+        const stdchBoxingPrice = stdchQty * stdchPrice;
+        const totalBoxingPrice =
+          rsBoxingPrice + stdBoxingPrice + stdchBoxingPrice;
+
+        // ค่าเสื้อรวม
+        const totalShirtPrice = totalGuests * shirtPrice;
+
+        // เงินทัวร์ = ราคามวย - ค่าเสื้อ
+        const tourMoney = totalBoxingPrice - totalShirtPrice;
+
+        // รวม = เงินทัวร์ + เสื้อ
+        const totalAmount = tourMoney + totalShirtPrice;
+
+        // 💰 คำนวณ paymentAmount ตามเงื่อนไขใหม่ (Excel version)
+        const grossPaymentAmount = order.paymentAmount || 0;
+        let paymentAmount = grossPaymentAmount;
+
+        // ถ้า paymentAmount เท่ากับ totalAmount หรือ paymentAmount เป็น 0 ไม่ต้องทำอะไร
+        if (
+          grossPaymentAmount !== 0 &&
+          grossPaymentAmount !== totalAmount &&
+          grossPaymentAmount > totalAmount
+        ) {
+          // ถ้า paymentAmount มากกว่า totalAmount ให้ลบค่าเสื้อ
+          if (order.ticketType === 'STANDING') {
+            // ตั๋วยืน: ลบ 400 ต่อตั๋ว
+            const standingDeduction = (stdQty + stdchQty) * 400;
+            paymentAmount = grossPaymentAmount - standingDeduction;
+          } else {
+            // ตั๋วนั่ง (RINGSIDE/STADIUM): ลบ 300 ต่อตั๋ว
+            const sittingDeduction = rsQty * 300;
+            paymentAmount = grossPaymentAmount - sittingDeduction;
+          }
+        }
+
+        // Logic: ชื่อเอเย่นต์ ถ้าไม่มีให้ว่าง, ถ้าซ้ำกับออเดอร์ก่อนหน้าให้ว่าง
+        let refName = order.referrerName || '';
+        if (index > 0 && sortedOrders[index - 1]?.referrerName === refName) {
+          refName = '';
+        }
+
+        const rowData = [
+          order.id || '',
+          index + 1,
+          refName, // ใช้ refName แทน order.referrer?.name
+          rsQty === 0 ? '' : rsQty,
+          stdQty === 0 ? '' : stdQty,
+          stdchQty === 0 ? '' : stdchQty,
+          rsPrice,
+          stdPrice,
+          stdchPrice,
+          shirtPrice, // เสื้อ 300
+          '', // เสื้อ F (ว่าง)
+          tourMoney === 0 ? '' : tourMoney,
+          totalShirtPrice === 0 ? '' : totalShirtPrice,
+          totalAmount === 0 ? '' : totalAmount,
+          '', // ฟรี (ว่าง)
+          paymentAmount === 0 ? '' : paymentAmount,
+          order.voucherNumber || '',
+        ];
+
+        const dataRow = worksheet.addRow(rowData);
+
+        // จัดรูปแบบ data rows
+        dataRow.eachCell((cell, colNumber) => {
+          cell.font = {
+            name: 'Tahoma',
+            size: 10,
+          };
+
+          // สีพื้นหลังสลับแถว
+          if (index % 2 === 0) {
+            cell.fill = {
+              type: 'pattern',
+              pattern: 'solid',
+              fgColor: { argb: 'FFF8F9FA' }, // สีเทาอ่อน
+            };
+          }
+
+          cell.border = {
+            top: { style: 'thin', color: { argb: 'FFD3D3D3' } },
+            left: { style: 'thin', color: { argb: 'FFD3D3D3' } },
+            bottom: { style: 'thin', color: { argb: 'FFD3D3D3' } },
+            right: { style: 'thin', color: { argb: 'FFD3D3D3' } },
+          };
+
+          // จัดตำแหน่งข้อมูล
+          if (colNumber === 1) {
+            // Order ID
+            cell.alignment = { horizontal: 'left', vertical: 'middle' };
+          } else if (colNumber === 3) {
+            // ชื่อเอเย่นต์
+            cell.alignment = { horizontal: 'left', vertical: 'middle' };
+          } else if (colNumber >= 4 && colNumber <= 17) {
+            // ตัวเลข
+            cell.alignment = { horizontal: 'right', vertical: 'middle' };
+
+            // จัดรูปแบบตัวเลขเงิน
+            if ([7, 8, 9, 10, 12, 13, 14, 16].includes(colNumber)) {
+              if (typeof cell.value === 'number' && cell.value > 0) {
+                cell.numFmt = '#,##0.00';
+              }
+            }
+          } else {
+            cell.alignment = { horizontal: 'center', vertical: 'middle' };
+          }
+        });
+      });
+
+      // ปรับขนาดคอลัมน์อัตโนมัติ
+      const columnWidths = [
+        { width: 40 }, // Order ID
+        { width: 8 }, // NO.
+        { width: 25 }, // ชื่อเอเย่นต์
+        { width: 8 }, // RS
+        { width: 8 }, // STD
+        { width: 8 }, // CH
+        { width: 15 }, // ราคามวย RS
+        { width: 15 }, // ราคามวย STD
+        { width: 15 }, // ราคามวย CHI
+        { width: 10 }, // เสื้อ
+        { width: 10 }, // เสื้อ F
+        { width: 15 }, // เงินทัวร์
+        { width: 15 }, // เสื้อรวม
+        { width: 15 }, // รวม
+        { width: 8 }, // ฟรี
+        { width: 15 }, // ยอดเงิน
+        { width: 20 }, // No. V/C
+      ];
+
+      worksheet.columns = columnWidths;
+
+      // เพิ่ม auto-filter สำหรับ header
+      worksheet.autoFilter = {
+        from: 'A1',
+        to: String.fromCharCode(65 + headers.length - 1) + '1',
+      };
+
+      console.log('🔧 Generating Excel buffer with optimal settings...');
+
+      // สร้าง buffer ด้วยการตั้งค่าที่เหมาะสมสำหรับ performance
+      const buffer = await workbook.xlsx.writeBuffer({
+        useSharedStrings: true, // ลดขนาดไฟล์และปรับปรุงประสิทธิภาพ
+        useStyles: true, // เปิดใช้งาน styles
+      });
+
+      console.log(
+        '✅ Excel buffer generated, size:',
+        buffer.byteLength,
+        'bytes',
+      );
+
+      // ตรวจสอบความถูกต้องของ Excel file
+      const bufferInstance = Buffer.from(buffer);
+
+      // ตรวจสอบ Excel magic bytes (ZIP signature)
+      const magicBytes = bufferInstance.slice(0, 4);
+      const expectedMagicBytes = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
+      const isValidExcel = magicBytes.equals(expectedMagicBytes);
+
+      console.log('📋 File validation:');
+      console.log('  - Magic bytes:', magicBytes.toString('hex'));
+      console.log('  - Expected:', expectedMagicBytes.toString('hex'));
+      console.log('  - Is valid Excel:', isValidExcel);
+      console.log('  - Buffer size:', bufferInstance.length, 'bytes');
+
+      if (!isValidExcel) {
+        console.error('❌ Generated buffer is not a valid Excel file');
+        throw new Error('Failed to generate valid Excel file - invalid format');
+      }
+
+      console.log('✅ Excel file validation passed - ready for download');
+      return bufferInstance;
+    } catch (error) {
+      this.logger.error('❌ Excel generation failed:', {
+        message: error.message,
+        stack: error.stack,
+        orderCount: exportData?.orders?.length || 0,
+      });
+
+      throw new InternalServerErrorException(
+        `เกิดข้อผิดพลาดในการสร้าง Excel: ${error.message}`,
+      );
+    }
+  }
+  async generateOrdersCSV(exportData: {
+    orders: any[];
+    summary: any;
+    metadata: any;
+  }): Promise<string> {
+    try {
+      const headers = [
+        'Order ID', // เพิ่ม Order ID เป็นคอลัมน์แรก
+        'NO.',
+        'ชื่อเอเย่นต์',
+        'RS',
+        'STD',
+        'CH',
+        'ราคามวย RS',
+        'ราคามวย STD',
+        'ราคามวย CHI',
+        'เสื้อ',
+        'เสื้อ F',
+        'เงินทัวร์',
+        'เสื้อรวม',
+        'รวม',
+        'ฟรี',
+        'ยอดเงิน',
+        'No. V/C',
+      ];
+
+      let csvContent = headers.join(',') + '\n';
+
+      // เรียงลำดับข้อมูลก่อนแปลงเป็นแถว
+      const sortedOrders = [...exportData.orders].sort((a, b) => {
+        const aReferrerName = a.referrerName || '';
+        const bReferrerName = b.referrerName || '';
+
+        // ถ้าทั้งคู่มี referrerName หรือทั้งคู่ไม่มี ให้เปรียบเทียบกัน
+        if (
+          (aReferrerName && bReferrerName) ||
+          (!aReferrerName && !bReferrerName)
+        ) {
+          if (aReferrerName && bReferrerName) {
+            // เรียงตาม referrerName A-Z
+            const nameCompare = aReferrerName.localeCompare(
+              bReferrerName,
+              'th',
+            );
+            if (nameCompare !== 0) return nameCompare;
+          }
+          // ถ้า referrerName เหมือนกันหรือทั้งคู่ไม่มี ให้เรียงตาม createdAt (ล่าสุดก่อน)
+          const aCreatedAt = new Date(a.createdAt || 0).getTime();
+          const bCreatedAt = new Date(b.createdAt || 0).getTime();
+          return bCreatedAt - aCreatedAt;
+        }
+
+        // ถ้ามีเพียงฝ่ายใดฝ่ายหนึ่งที่มี referrerName ให้ฝ่ายที่มีขึ้นก่อน
+        if (aReferrerName && !bReferrerName) return -1;
+        if (!aReferrerName && bReferrerName) return 1;
+
+        return 0;
+      });
+
+      sortedOrders.forEach((order, index) => {
+        const standingQty = order.standingAdultQty || 0;
+        const standingChildQty = order.standingChildQty || 0;
+        const ringsideQty =
+          order.ticketType === 'RINGSIDE' ? order.quantity || 0 : 0;
+        const stadiumQty =
+          order.ticketType === 'STADIUM' ? order.quantity || 0 : 0;
+        const rsQty = ringsideQty + stadiumQty;
+        const stdQty = standingQty;
+        const stdchQty = standingChildQty;
+        const totalGuests = rsQty + stdQty + stdchQty;
+
+        // 💰 คำนวณราคาตามประเภทตั๋ว (ตรงกับ PDF)
+        const rsPrice = 1400;
+        const stdPrice = 1200;
+        const stdchPrice = 1000; // ราคามวยสำหรับ Child
+        const ShirtPrice = 300;
+
+        // ราคามวยแยกตามประเภท
+        const rsBoxingPrice = rsQty * rsPrice;
+        const stdBoxingPrice = stdQty * stdPrice;
+        const stdchBoxingPrice = stdchQty * stdchPrice;
+        const totalBoxingPrice =
+          rsBoxingPrice + stdBoxingPrice + stdchBoxingPrice;
+
+        // ค่าเสื้อรวม
+        const totalShirtPrice = totalGuests * ShirtPrice;
+
+        // เงินทัวร์ = ราคามวย - ค่าเสื้อ
+        const tourMoney = totalBoxingPrice - totalShirtPrice;
+
+        // รวม = เงินทัวร์ + เสื้อ
+        const totalAmount = tourMoney + totalShirtPrice;
+
+        // 💰 คำนวณ paymentAmount ตามเงื่อนไขใหม่ (CSV version)
+        const grossPaymentAmount = order.paymentAmount || 0;
+        let paymentAmount = grossPaymentAmount;
+
+        // ถ้า paymentAmount เท่ากับ totalAmount หรือ paymentAmount เป็น 0 ไม่ต้องทำอะไร
+        if (
+          grossPaymentAmount !== 0 &&
+          grossPaymentAmount !== totalAmount &&
+          grossPaymentAmount > totalAmount
+        ) {
+          // ถ้า paymentAmount มากกว่า totalAmount ให้ลบค่าเสื้อ
+          if (order.ticketType === 'STANDING') {
+            // ตั๋วยืน: ลบ 400 ต่อตั๋ว
+            const standingDeduction = (stdQty + stdchQty) * 400;
+            paymentAmount = grossPaymentAmount - standingDeduction;
+          } else {
+            // ตั๋วนั่ง (RINGSIDE/STADIUM): ลบ 300 ต่อตั๋ว
+            const sittingDeduction = rsQty * 300;
+            paymentAmount = grossPaymentAmount - sittingDeduction;
+          }
+        }
+
+        // Logic: ชื่อเอเย่นต์ ถ้าไม่มีให้ว่าง, ถ้าซ้ำกับออเดอร์ก่อนหน้าให้ว่าง
+        let refName = order.referrerName || '';
+        if (index > 0 && sortedOrders[index - 1]?.referrerName === refName) {
+          refName = '';
+        }
+
+        const row = [
+          order.id || '', // Order ID เป็นคอลัมน์แรก
+          index + 1,
+          `"${refName}"`, // ใช้ refName แทน order.referrer?.name
+          rsQty === 0 ? '' : rsQty,
+          stdQty === 0 ? '' : stdQty,
+          stdchQty === 0 ? '' : stdchQty,
+          rsPrice,
+          stdPrice,
+          stdchPrice,
+          ShirtPrice, // เสื้อ 300
+          '', // เสื้อ F (ว่าง)
+          tourMoney === 0 ? '' : tourMoney,
+          totalShirtPrice === 0 ? '' : totalShirtPrice,
+          totalAmount === 0 ? '' : totalAmount,
+          '', // ฟรี (ว่าง)
+          paymentAmount === 0 ? '' : paymentAmount,
+          `"${order.voucherNumber || ''}"`,
+        ];
+        csvContent += row.join(',') + '\n';
+      });
+
+      return csvContent;
+    } catch (error) {
+      this.logger.error('❌ Failed to generate CSV', error.stack);
+      throw new InternalServerErrorException(
+        `เกิดข้อผิดพลาดในการสร้าง CSV: ${error.message}`,
+      );
+    }
+  }
   async exportOrders(
     orderIds: string[],
     format: 'csv' | 'excel' = 'csv',
     includePayments: boolean = true,
   ): Promise<{ data: string | Buffer; filename: string; mimeType: string }> {
     try {
-      this.logger.log(
-        `🔄 Exporting ${orderIds.length} orders to ${format.toUpperCase()} format`,
-      );
-
       // ถ้า orderIds ว่าง ให้ export ทั้งหมด
       let whereCondition = {};
       if (orderIds.length > 0) {
@@ -1381,29 +2038,18 @@ export class OrderService {
         format,
         includePayments,
       );
-
-      this.logger.log(
-        `✅ Successfully exported ${orders.length} orders to ${format.toUpperCase()}`,
-      );
       return result;
     } catch (error) {
-      this.logger.error('❌ Failed to export orders', error.stack);
       throw new InternalServerErrorException(
         `เกิดข้อผิดพลาดในการ export ออเดอร์: ${error.message}`,
       );
     }
   }
-
-  /**
-   * Import and update orders from spreadsheet data
-   */
   async importAndUpdateOrders(
     importData: any[],
     userId: string,
   ): Promise<ImportUpdateResult> {
     try {
-      this.logger.log(`🔄 Importing and updating ${importData.length} orders`);
-
       const result = await OrderExportImportHelper.importAndUpdateOrders(
         importData,
         this.orderRepo,
@@ -1411,11 +2057,6 @@ export class OrderService {
         this.seatBookingRepo,
         userId,
       );
-
-      this.logger.log(
-        `✅ Import completed: ${result.ordersUpdated} orders updated, ${result.paymentsUpdated} payments updated`,
-      );
-
       return result;
     } catch (error) {
       this.logger.error('❌ Failed to import orders', error.stack);
@@ -1424,10 +2065,6 @@ export class OrderService {
       );
     }
   }
-
-  /**
-   * Import ออเดอร์จาก file buffer (CSV/Excel)
-   */
   async importOrdersFromFileBuffer(
     buffer: Buffer,
     mimeType: string,
@@ -1435,10 +2072,6 @@ export class OrderService {
     userId: string,
   ): Promise<ImportUpdateResult> {
     try {
-      this.logger.log(
-        `📄 Importing orders from file: ${filename} (${mimeType})`,
-      );
-
       const result = await OrderExportImportHelper.importFromFileBuffer(
         buffer,
         mimeType,
@@ -1448,11 +2081,6 @@ export class OrderService {
         this.seatBookingRepo,
         userId,
       );
-
-      this.logger.log(
-        `✅ File import completed: ${result.ordersUpdated} orders updated, ${result.errors?.length || 0} errors`,
-      );
-
       return result;
     } catch (error) {
       this.logger.error('❌ Failed to import from file', error.stack);
@@ -1460,5 +2088,181 @@ export class OrderService {
         `เกิดข้อผิดพลาดในการ import ไฟล์: ${error.message}`,
       );
     }
+  }
+
+  // =============================================
+  // 🚀 BATCH PROCESSING METHODS
+  // =============================================
+
+  /**
+   * 📤 Batch Export with Progress Tracking
+   */
+  async batchExportOrdersWithProgress(
+    filters: any,
+    taskId: string,
+    progressService: any,
+    batchService: any,
+  ): Promise<any[]> {
+    try {
+      // Update progress - starting
+      progressService.updateExportProgress(taskId, {
+        status: 'PROCESSING',
+        currentPhase: 'FETCHING',
+        message: 'กำลังดึงข้อมูลออเดอร์...',
+      });
+
+      // Fetch all orders with optimized query
+      const orders = await this.orderRepo
+        .createQueryBuilder('order')
+        .leftJoinAndSelect('order.payment', 'payment')
+        .leftJoinAndSelect('order.referrer', 'referrer')
+        .leftJoinAndSelect('order.seatBookings', 'seatBookings')
+        .leftJoinAndSelect('seatBookings.seat', 'seat')
+        .leftJoinAndSelect('seat.zone', 'zone')
+        .select([
+          'order.id',
+          'order.orderNumber',
+          'order.customerName',
+          'order.customerPhone',
+          'order.customerEmail',
+          'order.ticketType',
+          'order.quantity',
+          'order.totalAmount',
+          'order.actualPaidAmount',
+          'order.paymentAmountVerified',
+          'order.status',
+          'order.paymentMethod',
+          'order.showDate',
+          'order.createdAt',
+          'order.updatedAt',
+          'order.standingAdultQty',
+          'order.standingChildQty',
+          'order.standingCommission',
+          'order.referrerCommission',
+          'payment.id',
+          'payment.status',
+          'referrer.id',
+          'referrer.code',
+          'referrer.name',
+        ])
+        .orderBy('order.createdAt', 'DESC')
+        .getMany();
+
+      progressService.updateExportProgress(taskId, {
+        currentPhase: 'PROCESSING',
+        ordersTotal: orders.length,
+        message: `พบ ${orders.length} ออเดอร์ กำลังประมวลผล...`,
+      });
+
+      // Use batch processing service
+      const exportData = await batchService.batchExportOrders(orders, taskId);
+
+      return exportData;
+    } catch (error) {
+      progressService.failTask(taskId, error.message);
+      throw new InternalServerErrorException(
+        `เกิดข้อผิดพลาดในการ export: ${error.message}`,
+      );
+    }
+  }
+
+  /**
+   * 📥 Batch Import with Progress Tracking
+   */
+  async batchImportOrdersWithProgress(
+    importData: any[],
+    userId: string,
+    taskId: string,
+    progressService: any,
+    batchService: any,
+  ): Promise<ImportUpdateResult> {
+    try {
+      progressService.updateImportProgress(taskId, {
+        status: 'PROCESSING',
+        ordersTotal: importData.length,
+        message: 'เริ่มนำเข้าข้อมูลออเดอร์...',
+      });
+
+      // Use batch processing service
+      const result = await batchService.batchImportOrders(
+        importData,
+        this.orderRepo,
+        this.paymentRepo,
+        this.seatBookingRepo,
+        userId,
+        taskId,
+      );
+
+      progressService.completeTask(
+        taskId,
+        `นำเข้าข้อมูลเสร็จสิ้น: ${result.ordersUpdated} ออเดอร์อัปเดต`,
+      );
+
+      return result;
+    } catch (error) {
+      progressService.failTask(taskId, error.message);
+      throw new InternalServerErrorException(
+        `เกิดข้อผิดพลาดในการ import: ${error.message}`,
+      );
+    }
+  }
+
+  /**
+   * 📊 Optimized Export Data Query (for large datasets)
+   */
+  async getOptimizedExportData(filters: any = {}): Promise<any[]> {
+    const queryBuilder = this.orderRepo
+      .createQueryBuilder('order')
+      .leftJoinAndSelect('order.payment', 'payment')
+      .leftJoinAndSelect('order.referrer', 'referrer')
+      .select([
+        'order.id',
+        'order.orderNumber',
+        'order.customerName',
+        'order.customerPhone',
+        'order.customerEmail',
+        'order.ticketType',
+        'order.quantity',
+        'order.totalAmount',
+        'order.actualPaidAmount',
+        'order.paymentAmountVerified',
+        'order.status',
+        'order.paymentMethod',
+        'order.showDate',
+        'order.createdAt',
+        'order.updatedAt',
+        'order.standingAdultQty',
+        'order.standingChildQty',
+        'order.standingCommission',
+        'order.referrerCommission',
+        'payment.status',
+        'referrer.code',
+        'referrer.name',
+      ]);
+
+    // Apply filters
+    if (filters.status) {
+      queryBuilder.andWhere('order.status = :status', {
+        status: filters.status,
+      });
+    }
+
+    if (filters.showDate) {
+      queryBuilder.andWhere('order.showDate = :showDate', {
+        showDate: filters.showDate,
+      });
+    }
+
+    if (filters.search) {
+      queryBuilder.andWhere(
+        '(order.orderNumber ILIKE :search OR order.customerName ILIKE :search OR order.customerPhone ILIKE :search)',
+        { search: `%${filters.search}%` },
+      );
+    }
+
+    // Order by creation date for consistent export
+    queryBuilder.orderBy('order.createdAt', 'DESC');
+
+    return await queryBuilder.getMany();
   }
 }

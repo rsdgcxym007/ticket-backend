@@ -455,4 +455,4 @@ export {
 // ✨ Export helpers ใหม่ที่ refactor แล้ว
 export { OrderValidationHelper } from './order-validation.helper';
 export { OrderPricingHelper } from './order-pricing.helper';
-export { OrderDataMapper } from './order-data-mapper.helper';
+// Removed OrderDataMapper - moved to src/order/mappers/order-data.mapper.ts

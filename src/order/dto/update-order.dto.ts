@@ -68,6 +68,10 @@ export class UpdateOrderDto {
   totalAmount?: number;
 
   @IsOptional()
+  @IsNumber()
+  outstandingAmount?: number;
+
+  @IsOptional()
   @IsDateString()
   showDate?: string;
 

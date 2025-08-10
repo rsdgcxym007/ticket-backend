@@ -13,6 +13,7 @@ import { BusinessService } from '../common/services/business.service';
 import { AuditModule } from '../audit/audit.module';
 import { ConcurrencyModule } from '../common/services/concurrency.module';
 import { SeatBookingService } from '../common/services/seat-booking.service';
+import { OrderBusinessService } from './services/order-business.service';
 import { AuditHelperService } from '../common/services/audit-helper.service';
 
 @Module({
@@ -28,6 +29,7 @@ import { AuditHelperService } from '../common/services/audit-helper.service';
   controllers: [OrderController],
   providers: [
     OrderService,
+    OrderBusinessService, // ✅ เพิ่ม OrderBusinessService
     BusinessService,
     SeatBookingService, // ✅ เพิ่ม SeatBookingService
     AuditHelperService, // ✅ เพิ่ม AuditHelperService

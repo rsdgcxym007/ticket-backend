@@ -4,10 +4,10 @@
 
 // 💰 ราคาตั๋ว
 export const TICKET_PRICES = {
-  RINGSIDE: 1400,
-  STADIUM: 1400,
-  STANDING_ADULT: 1200,
-  STANDING_CHILD: 1000,
+  RINGSIDE: 1800,
+  STADIUM: 1800,
+  STANDING_ADULT: 1500,
+  STANDING_CHILD: 1300,
 } as const;
 
 // 💸 ค่าคอมมิชชั่น

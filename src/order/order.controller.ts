@@ -27,7 +27,6 @@ import { ChangeSeatsDto } from './dto/change-seats.dto';
 import { ExportOrdersDto } from './dto/export-orders.dto';
 import { ImportOrdersDto } from './dto/import-orders.dto';
 import { error, success } from '../common/responses';
-import { ApiResponseHelper } from '../common/utils';
 import {
   ApiTags,
   ApiBearerAuth,
@@ -41,10 +40,11 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '../common/enums';
 import { AuthenticatedRequest } from '../common/interfaces/auth.interface';
-import { OrderData } from '../common/interfaces';
+import { OrderData } from './mappers/order-data.mapper';
 import { EnhancedOrderService } from '../common/services/enhanced-order.service';
 import { ConcurrencyService } from '../common/services/concurrency.service';
 import { OrderUpdatesGateway } from '../common/gateways/order-updates.gateway';
+import { OrderControllerHelper } from './utils/controller.helper';
 
 @ApiTags('Orders')
 @ApiBearerAuth()
@@ -188,40 +188,27 @@ export class OrderController {
     @Query('attendanceStatus') attendanceStatus?: string,
     @Query('referrerName') referrerName?: string,
   ) {
-    try {
-      const result = await this.orderService.findAll(
-        {
-          page,
-          limit,
-          status,
-          search,
-          createdBy,
-          showDate,
-          paymentMethod,
-          purchaseType,
-          attendanceStatus,
-          referrerName,
-        },
-        req.user.id,
-      );
+    const result = await this.orderService.findAll(
+      {
+        page,
+        limit,
+        status,
+        search,
+        createdBy,
+        showDate,
+        paymentMethod,
+        purchaseType,
+        attendanceStatus,
+        referrerName,
+      },
+      req.user.id,
+    );
 
-      return success(
-        {
-          data: Array.isArray(result.items) ? result.items : [],
-          total: result.total,
-          page: result.page,
-          limit: result.limit,
-        },
-        'ดึงรายการออเดอร์สำเร็จ',
-        req,
-      );
-    } catch (err) {
-      return ApiResponseHelper.error(
-        err.message,
-        err.status || 400,
-        'ORD_FIND_ALL_ERROR',
-      );
-    }
+    return OrderControllerHelper.createPaginationResponse(
+      result,
+      'ดึงรายการออเดอร์สำเร็จ',
+      req,
+    );
   }
 
   /**
@@ -236,13 +223,12 @@ export class OrderController {
     @Param('id', ParseUUIDPipe) id: string,
     @Req() req: AuthenticatedRequest,
   ) {
-    try {
-      const data = await this.orderService.findById(id, req.user.id);
-      return success(data, 'ดึงรายละเอียดออเดอร์สำเร็จ', req);
-    } catch (err) {
-      if (err.status === 404 || err.name === 'NotFoundException') throw err;
-      return error(err.message, '400', req);
-    }
+    const data = await this.orderService.findById(id, req.user.id);
+    return OrderControllerHelper.createSuccessResponse(
+      data,
+      'ดึงรายละเอียดออเดอร์สำเร็จ',
+      req,
+    );
   }
 
   /**
@@ -258,107 +244,60 @@ export class OrderController {
     @Body() dto: UpdateOrderDto,
     @Req() req: AuthenticatedRequest,
   ) {
-    try {
-      const updates: Partial<OrderData> = {
-        ...dto,
-        showDate: dto.showDate ? dto.showDate : undefined,
-        expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : undefined,
-      };
+    const updates: Partial<OrderData> = {
+      ...dto,
+      showDate: dto.showDate ? dto.showDate : undefined,
+      expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : undefined,
+    };
 
-      const data = await this.orderService.update(id, updates, req.user.id);
-      return success(data, 'อัปเดตออเดอร์สำเร็จ', req);
-    } catch (err) {
-      return error(err.message, '400', req);
-    }
+    const data = await this.orderService.update(id, updates, req.user.id);
+    return OrderControllerHelper.createSuccessResponse(
+      data,
+      'อัปเดตออเดอร์สำเร็จ',
+      req,
+    );
   }
 
   /**
-   * ❌ ยกเลิกออเดอร์ (Enhanced with Concurrency Protection)
+   * ❌ ยกเลิกออเดอร์
    */
   @Patch(':id/cancel')
   @Roles(UserRole.USER, UserRole.STAFF, UserRole.ADMIN)
-  @ApiOperation({ summary: 'ยกเลิกออเดอร์ (ป้องกัน race condition)' })
+  @ApiOperation({ summary: 'ยกเลิกออเดอร์' })
   @ApiResponse({ status: 200, description: 'ยกเลิกออเดอร์สำเร็จ' })
-  @ApiResponse({ status: 400, description: 'ไม่สามารถยกเลิกได้' })
+  @ApiResponse({ status: 404, description: 'ไม่พบออเดอร์' })
   @ApiResponse({ status: 409, description: 'ออเดอร์ถูกประมวลผลแล้ว' })
   async cancel(@Param('id', ParseUUIDPipe) id: string) {
-    try {
-      this.logger.log(`🛡️ Enhanced cancel request for order: ${id}`);
-      // กรณีไม่มี req ให้ส่ง userId เป็น undefined
-      const result =
-        await this.enhancedOrderService.cancelOrderWithConcurrencyControl(
-          id,
-          undefined,
-        );
-      this.logger.log(`✅ Enhanced cancel successful for order: ${id}`);
-      // ต้องมี result.success === true เท่านั้นถึงจะสำเร็จ
+    const result =
+      await this.enhancedOrderService.cancelOrderWithConcurrencyControl(
+        id,
+        undefined,
+      );
+
+    if (!result?.success) {
+      const message = result?.message || 'Order not found';
+      if (message.includes('not found') || message.includes('ไม่พบ')) {
+        throw new NotFoundException(message);
+      }
       if (
-        !result ||
-        typeof result.success !== 'boolean' ||
-        result.success !== true
+        message.includes('already cancelled') ||
+        message.includes('cancelled')
       ) {
-        if (
-          result &&
-          result.message &&
-          (result.message.includes('not found') ||
-            result.message.includes('ไม่พบ'))
-        ) {
-          throw new NotFoundException(result.message || 'Order not found');
-        }
-        // ถ้ามี message อื่นที่สื่อถึง conflict ให้ throw 409
-        if (
-          result &&
-          result.message &&
-          (result.message.includes('already cancelled') ||
-            result.message.includes('already processed') ||
-            result.message.includes('ซ้ำ') ||
-            result.message.includes('cancelled'))
-        ) {
-          throw new ConflictException(result.message);
-        }
-        throw new NotFoundException('Order not found');
+        throw new ConflictException(message);
       }
-      // เพิ่ม robust check: ถ้า success === true แต่ไม่มี id หรือ status !== 'CANCELLED' ให้ throw 404
-      let orderId: string | undefined = undefined;
-      let orderStatus: string | undefined = undefined;
-      // Helper: get nested order object
-      const getOrderObj = (res: any) => {
-        if (res && typeof res === 'object') {
-          if (res.data && typeof res.data === 'object') return res.data;
-          if (res.updatedOrder && typeof res.updatedOrder === 'object')
-            return res.updatedOrder;
-        }
-        return res;
-      };
-      const orderObj = getOrderObj(result);
-      if (orderObj) {
-        orderId = orderObj.id;
-        orderStatus = orderObj.status;
-      }
-      // รองรับสถานะที่ขึ้นต้นด้วย 'CANCEL' (case-insensitive)
-      if (
-        !orderId ||
-        !orderStatus ||
-        typeof orderStatus !== 'string' ||
-        !orderStatus.toUpperCase().startsWith('CANCEL')
-      ) {
-        throw new NotFoundException('Order not found');
-      }
-      // ส่งกลับเฉพาะ id เท่านั้น
-      return { id: orderId };
-    } catch (err) {
-      this.logger.error(`❌ Error cancelling order: ${id}`, err.stack);
-      // ถ้าเป็น HttpException ให้ throw ออกไปเลย เพื่อให้ NestJS ตอบ status code ที่ถูกต้อง
-      if (err instanceof ConflictException || err instanceof NotFoundException)
-        throw err;
-      // รองรับกรณี legacy ที่อาจใช้ err.status/err.name
-      if (err.status === 409 || err.name === 'ConflictException')
-        throw new ConflictException(err.message);
-      if (err.status === 404 || err.name === 'NotFoundException')
-        throw new NotFoundException(err.message);
-      // ไม่ใช้ req ใน error response อีกต่อไป
-      return { message: err.message, error: 'Cancel Error', statusCode: 400 };
+      throw new NotFoundException('Order not found');
     }
+
+    const orderObj =
+      (result as any).data || (result as any).updatedOrder || result;
+    const orderId = orderObj?.id;
+    const orderStatus = orderObj?.status;
+
+    if (!orderId || !orderStatus?.toUpperCase().startsWith('CANCEL')) {
+      throw new NotFoundException('Order not found');
+    }
+
+    return { id: orderId };
   }
 
   /**
@@ -414,71 +353,41 @@ export class OrderController {
     @Body() changeSeatsDto: ChangeSeatsDto,
     @Req() req: AuthenticatedRequest,
   ) {
-    try {
-      // ถ้า seatIds เป็น array ว่าง ให้ throw BadRequestException
-      if (
-        !Array.isArray(changeSeatsDto.seatIds) ||
-        changeSeatsDto.seatIds.length === 0
-      ) {
-        throw new BadRequestException('seatIds must not be empty');
-      }
-      const result = await this.orderService.changeSeats(
-        id,
-        changeSeatsDto.seatIds, // These are now seat numbers, not IDs
-        req.user.id,
-        changeSeatsDto.newReferrerCode,
-        changeSeatsDto.newCustomerName,
-        changeSeatsDto.newCustomerPhone,
-        changeSeatsDto.newCustomerEmail,
-        changeSeatsDto.newShowDate,
-      );
-      // ต้องมี result.success === true เท่านั้นถึงจะสำเร็จ
-      if (
-        !result ||
-        typeof result.success !== 'boolean' ||
-        result.success !== true
-      ) {
-        throw new BadRequestException(
-          result && result.message ? result.message : 'Change seats failed',
-        );
-      }
-      // robust: ถ้า success === true แต่ไม่มี id หรือไม่มี seatBookings/seats ที่เป็น array ไม่ว่าง ให้ throw 400
-      if (result.success === true) {
-        // Helper: get nested order object
-        const getOrderObj = (res: any) => {
-          if (res && typeof res === 'object') {
-            if (res.updatedOrder && typeof res.updatedOrder === 'object') {
-              return res.updatedOrder;
-            }
-            if (res.data && typeof res.data === 'object') {
-              return res.data;
-            }
-          }
-          return res;
-        };
-        const orderObj = getOrderObj(result);
-        // ตรวจสอบ id และ array ที่เกี่ยวกับที่นั่ง (seatIds, seatBookings, seats)
-        const hasValidSeats =
-          (Array.isArray(orderObj?.seatIds) && orderObj.seatIds.length > 0) ||
-          (Array.isArray(orderObj?.seatBookings) &&
-            orderObj.seatBookings.length > 0) ||
-          (Array.isArray(orderObj?.seats) && orderObj.seats.length > 0);
-        if (!orderObj?.id || !hasValidSeats) {
-          throw new BadRequestException('Change seats failed: invalid result');
-        }
-      }
-      return success(result, 'เปลี่ยนที่นั่งสำเร็จ', req);
-    } catch (err) {
-      // ถ้าเป็น HttpException ให้ throw ออกไปเลย เพื่อให้ NestJS ตอบ status code ที่ถูกต้อง
-      if (err instanceof BadRequestException) {
-        throw err;
-      }
-      if (err.status === 400 || err.name === 'BadRequestException') {
-        throw new BadRequestException(err.message);
-      }
-      // ถ้าไม่ใช่ BadRequestException ให้ throw 500
-      throw err;
+    if (
+      !Array.isArray(changeSeatsDto.seatIds) ||
+      changeSeatsDto.seatIds.length === 0
+    ) {
+      throw new BadRequestException('seatIds must not be empty');
     }
+
+    const result = await this.orderService.changeSeats(
+      id,
+      changeSeatsDto.seatIds,
+      req.user.id,
+      changeSeatsDto.newReferrerCode,
+      changeSeatsDto.newCustomerName,
+      changeSeatsDto.newCustomerPhone,
+      changeSeatsDto.newCustomerEmail,
+      changeSeatsDto.newShowDate,
+    );
+
+    if (!result?.success) {
+      throw new BadRequestException(result?.message || 'Change seats failed');
+    }
+
+    const orderObj =
+      (result as any).updatedOrder || (result as any).data || result;
+    const hasValidSeats =
+      (Array.isArray(orderObj?.seatIds) && orderObj.seatIds.length > 0) ||
+      (Array.isArray(orderObj?.seatBookings) &&
+        orderObj.seatBookings.length > 0) ||
+      (Array.isArray(orderObj?.seats) && orderObj.seats.length > 0);
+
+    if (!orderObj?.id || !hasValidSeats) {
+      throw new BadRequestException('Change seats failed: invalid result');
+    }
+
+    return success(result, 'เปลี่ยนที่นั่งสำเร็จ', req);
   }
 
   /**
@@ -554,51 +463,31 @@ export class OrderController {
   // =============================================
 
   /**
-   * 🔒 ล็อกที่นั่งชั่วคราว (สำหรับ frontend)
+   * 🔒 ล็อกที่นั่งชั่วคราว
    */
   @Post('seats/lock')
   @Roles(UserRole.USER, UserRole.STAFF, UserRole.ADMIN)
-  @ApiOperation({ summary: 'ล็อกที่นั่งชั่วคราว (ป้องกัน race condition)' })
+  @ApiOperation({ summary: 'ล็อกที่นั่งชั่วคราว' })
   @ApiResponse({ status: 201, description: 'ล็อกที่นั่งสำเร็จ' })
   @ApiResponse({ status: 409, description: 'ที่นั่งถูกจองแล้ว' })
   async lockSeats(
     @Body() dto: { seatIds: string[]; showDate: string },
     @Req() req: AuthenticatedRequest,
   ) {
-    try {
-      this.logger.log(`🔒 Locking seats for user: ${req.user.id}`, dto);
+    const result = await this.concurrencyService.lockSeatsForOrder(
+      dto.seatIds,
+      dto.showDate,
+      5, // 5 minutes lock
+    );
 
-      const result = await this.concurrencyService.lockSeatsForOrder(
-        dto.seatIds,
-        dto.showDate,
-        5, // 5 minutes lock
-      );
+    this.orderUpdatesGateway.notifySeatLocked({
+      seatIds: dto.seatIds,
+      showDate: dto.showDate,
+      userId: req.user.id,
+      message: 'ล็อกที่นั่งชั่วคราวสำเร็จ',
+    });
 
-      // ✅ Send real-time notification to frontend
-      this.orderUpdatesGateway.notifySeatLocked({
-        seatIds: dto.seatIds,
-        showDate: dto.showDate,
-        userId: req.user.id,
-        message: 'ล็อกที่นั่งชั่วคราวสำเร็จ',
-      });
-
-      this.logger.log(`✅ Seats locked successfully for user: ${req.user.id}`);
-      return success(result, 'ล็อกที่นั่งสำเร็จ', req);
-    } catch (err) {
-      this.logger.error(
-        `❌ Error locking seats for user: ${req.user.id}`,
-        err.stack,
-      );
-
-      if (
-        err.message.includes('already locked') ||
-        err.message.includes('CONFLICT')
-      ) {
-        return error(err.message, '409', req);
-      }
-
-      return error(err.message, '400', req);
-    }
+    return success(result, 'ล็อกที่นั่งสำเร็จ', req);
   }
 
   /**
@@ -612,48 +501,28 @@ export class OrderController {
     @Body() dto: { seatIds: string[]; showDate: string },
     @Req() req: AuthenticatedRequest,
   ) {
-    try {
-      this.logger.log(`🔓 Unlocking seats for user: ${req.user.id}`, dto);
+    const result = await this.concurrencyService.releaseSeatLocks(dto.seatIds);
 
-      const result = await this.concurrencyService.releaseSeatLocks(
-        dto.seatIds,
-      );
+    this.orderUpdatesGateway.notifySeatUnlocked({
+      seatIds: dto.seatIds,
+      showDate: dto.showDate,
+      userId: req.user.id,
+      message: 'ปลดล็อกที่นั่งสำเร็จ',
+    });
 
-      // ✅ Send real-time notification to frontend
-      this.orderUpdatesGateway.notifySeatUnlocked({
-        seatIds: dto.seatIds,
-        showDate: dto.showDate,
-        userId: req.user.id,
-        message: 'ปลดล็อกที่นั่งสำเร็จ',
-      });
-
-      this.logger.log(
-        `✅ Seats unlocked successfully for user: ${req.user.id}`,
-      );
-      return success(result, 'ปลดล็อกที่นั่งสำเร็จ', req);
-    } catch (err) {
-      this.logger.error(
-        `❌ Error unlocking seats for user: ${req.user.id}`,
-        err.stack,
-      );
-      return error(err.message, '400', req);
-    }
+    return success(result, 'ปลดล็อกที่นั่งสำเร็จ', req);
   }
 
   /**
-   * 💓 ตรวจสอบสถานะระบบ Concurrency
+   * 💓 ตรวจสอบสถานะระบบ
    */
   @Get('system/health')
   @Roles(UserRole.STAFF, UserRole.ADMIN)
-  @ApiOperation({ summary: 'ตรวจสอบสถานะระบบ Concurrency' })
+  @ApiOperation({ summary: 'ตรวจสอบสถานะระบบ' })
   @ApiResponse({ status: 200, description: 'ข้อมูลสถานะระบบ' })
   async getSystemHealth(@Req() req: AuthenticatedRequest) {
-    try {
-      const health = await this.enhancedOrderService.getSystemHealth();
-      return success(health, 'ข้อมูลสถานะระบบ', req);
-    } catch (err) {
-      return error(err.message, '400', req);
-    }
+    const health = await this.enhancedOrderService.getSystemHealth();
+    return success(health, 'ข้อมูลสถานะระบบ', req);
   }
 
   /**
@@ -664,49 +533,34 @@ export class OrderController {
   @ApiOperation({ summary: 'ทำความสะอาดล็อกและออเดอร์ที่หมดอายุ' })
   @ApiResponse({ status: 200, description: 'ทำความสะอาดสำเร็จ' })
   async cleanupExpiredLocks(@Req() req: AuthenticatedRequest) {
-    try {
-      this.logger.log('🧹 Manual cleanup triggered by admin');
-
-      // ใช้ ConcurrencyService แทน
-      await this.concurrencyService.cleanupExpiredSeatLocks();
-
-      this.logger.log('✅ Manual cleanup completed');
-      return success(
-        { message: 'ล้างข้อมูลชั่วคราวสำเร็จ' },
-        'ทำความสะอาดสำเร็จ',
-        req,
-      );
-    } catch (err) {
-      this.logger.error('❌ Error during manual cleanup', err.stack);
-      return error(err.message, '400', req);
-    }
+    await this.concurrencyService.cleanupExpiredSeatLocks();
+    return success(
+      { message: 'ล้างข้อมูลชั่วคราวสำเร็จ' },
+      'ทำความสะอาดสำเร็จ',
+      req,
+    );
   }
 
   /**
-   * 📊 ดูสถิติการทำงานของ Enhanced Order System
+   * 📊 สถิติระบบ Enhanced
    */
   @Get('system/stats')
   @Roles(UserRole.STAFF, UserRole.ADMIN)
   @ApiOperation({ summary: 'สถิติการทำงานของ Enhanced Order System' })
   @ApiResponse({ status: 200, description: 'ข้อมูลสถิติระบบ' })
   async getEnhancedSystemStats(@Req() req: AuthenticatedRequest) {
-    try {
-      // ใช้ข้อมูลพื้นฐาน
-      const basicStats = {
-        timestamp: new Date().toISOString(),
-        systemStatus: 'Enhanced Order System Active',
-        features: [
-          'Concurrency Control',
-          'Duplicate Prevention',
-          'Seat Locking',
-          'Atomic Transactions',
-        ],
-      };
+    const basicStats = {
+      timestamp: new Date().toISOString(),
+      systemStatus: 'Enhanced Order System Active',
+      features: [
+        'Concurrency Control',
+        'Duplicate Prevention',
+        'Seat Locking',
+        'Atomic Transactions',
+      ],
+    };
 
-      return success(basicStats, 'ข้อมูลสถิติระบบ Enhanced', req);
-    } catch (err) {
-      return error(err.message, '400', req);
-    }
+    return success(basicStats, 'ข้อมูลสถิติระบบ Enhanced', req);
   }
 
   /**
@@ -714,7 +568,7 @@ export class OrderController {
    */
   @Get('export/excel')
   @Roles(UserRole.STAFF, UserRole.ADMIN)
-  @ApiOperation({ summary: 'Export ข้อมูลออเดอร์เป็นไฟล์ Excel' })
+  @ApiOperation({ summary: 'Export ข้อมูลออเดอร์เป็นไฟล์ Excel/CSV' })
   @ApiQuery({
     name: 'status',
     required: false,
@@ -741,9 +595,16 @@ export class OrderController {
     type: Boolean,
     description: 'รวมข้อมูลทุกหน้า',
   })
+  @ApiQuery({
+    name: 'format',
+    required: false,
+    enum: ['csv', 'excel'],
+    description: 'รูปแบบไฟล์ที่ต้องการ',
+  })
   @ApiResponse({ status: 200, description: 'Export สำเร็จ' })
   async exportOrders(
     @Req() req: AuthenticatedRequest,
+    @Res() res: any,
     @Query('status') status?: string,
     @Query('search') search?: string,
     @Query('createdBy') createdBy?: string,
@@ -753,33 +614,54 @@ export class OrderController {
     @Query('attendanceStatus') attendanceStatus?: string,
     @Query('includeAllPages') includeAllPages: boolean = true,
     @Query('referrerName') referrerName?: string,
+    @Query('format') format: 'csv' | 'excel' = 'csv',
   ) {
-    try {
-      // ดึงข้อมูลทั้งหมดที่ตรงตาม filter (ไม่จำกัดจำนวนหน้า)
-      const exportData = await this.orderService.exportOrdersData({
-        status,
-        search,
-        createdBy,
-        showDate,
-        paymentMethod,
-        purchaseType,
-        attendanceStatus,
-        includeAllPages,
-        referrerName,
+    // ดึงข้อมูลทั้งหมดที่ตรงตาม filter (ไม่จำกัดจำนวนหน้า)
+    const exportData = await this.orderService.exportOrdersData({
+      status,
+      search,
+      createdBy,
+      showDate,
+      paymentMethod,
+      purchaseType,
+      attendanceStatus,
+      includeAllPages,
+      referrerName,
+    });
+
+    const timestamp = new Date().toISOString().split('T')[0];
+
+    if (format === 'excel') {
+      const excelBuffer =
+        await this.orderService.generateOrdersExcel(exportData);
+
+      res.set({
+        'Content-Type':
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Disposition': `attachment; filename="orders-export-${timestamp}.xlsx"`,
+        'Content-Length': excelBuffer.length,
       });
 
-      return success(exportData, 'Export ข้อมูลออเดอร์สำเร็จ', req);
-    } catch (err) {
-      return error(err.message, '400', req);
+      res.send(excelBuffer);
+    } else {
+      const csvContent = await this.orderService.generateOrdersCSV(exportData);
+
+      res.set({
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': `attachment; filename="orders-export-${timestamp}.csv"`,
+        'Content-Length': Buffer.byteLength(csvContent, 'utf8'),
+      });
+
+      res.send(csvContent);
     }
   }
 
   /**
-   * 📄 Export ข้อมูลออเดอร์เป็น PDF Preview ตามรูปแบบตารางใบเสร็จ
+   * 📄 Export ข้อมูลออเดอร์เป็น PDF
    */
   @Get('export/pdf')
   @Roles(UserRole.STAFF, UserRole.ADMIN)
-  @ApiOperation({ summary: 'Export ข้อมูลออเดอร์เป็นไฟล์ PDF Preview' })
+  @ApiOperation({ summary: 'Export ข้อมูลออเดอร์เป็นไฟล์ PDF' })
   @ApiQuery({
     name: 'status',
     required: false,
@@ -820,35 +702,27 @@ export class OrderController {
     @Query('includeAllPages') includeAllPages: boolean = true,
     @Query('referrerName') referrerName?: string,
   ) {
-    try {
-      // ดึงข้อมูลทั้งหมดที่ตรงตาม filter
-      const exportData = await this.orderService.exportOrdersData({
-        status,
-        search,
-        createdBy,
-        showDate,
-        paymentMethod,
-        purchaseType,
-        attendanceStatus,
-        includeAllPages,
-        referrerName,
-      });
+    const exportData = await this.orderService.exportOrdersData({
+      status,
+      search,
+      createdBy,
+      showDate,
+      paymentMethod,
+      purchaseType,
+      attendanceStatus,
+      includeAllPages,
+      referrerName,
+    });
 
-      // สร้าง PDF ตามรูปแบบตารางใบเสร็จ
-      const pdfBuffer = await this.orderService.generateOrdersPDF(exportData);
+    const pdfBuffer = await this.orderService.generateOrdersPDF(exportData);
 
-      // ส่ง PDF กลับให้ front-end
-      res.set({
-        'Content-Type': 'application/pdf',
-        'Content-Disposition': 'inline; filename="orders-export.pdf"',
-        'Content-Length': pdfBuffer.length,
-      });
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': 'inline; filename="orders-export.pdf"',
+      'Content-Length': pdfBuffer.length,
+    });
 
-      res.send(pdfBuffer);
-    } catch (err) {
-      this.logger.error('❌ Error exporting PDF:', err.stack);
-      return error(err.message, '400', req);
-    }
+    res.send(pdfBuffer);
   }
 
   // ========================================
@@ -858,53 +732,150 @@ export class OrderController {
   @Post('export-spreadsheet')
   @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.STAFF)
   @ApiOperation({
-    summary: 'Export orders to spreadsheet format',
-    description:
-      'Export selected orders to CSV or Excel format for external editing',
+    summary: 'Export orders to spreadsheet format (Excel/CSV)',
+    description: 'Export selected orders by IDs to CSV or Excel format',
   })
   @ApiResponse({
     status: 200,
     description: 'Orders exported successfully',
-    schema: {
-      type: 'string',
-      format: 'binary',
-    },
+    schema: { type: 'string', format: 'binary' },
   })
   async exportOrdersToSpreadsheet(
     @Body() exportOrdersDto: ExportOrdersDto,
     @Req() req: AuthenticatedRequest,
     @Res() res: any,
   ) {
-    console.log('exportOrdersDto', exportOrdersDto);
+    // ดึงข้อมูลออเดอร์ทั้งหมดก่อน
+    const exportData = await this.orderService.exportOrdersData({
+      includeAllPages: true,
+    });
 
-    try {
-      const result = await this.orderService.exportOrders(
-        exportOrdersDto.orderIds,
-        exportOrdersDto.format || 'csv',
-        exportOrdersDto.includePayments ?? true,
-      );
+    // แปลง orderIds ให้เป็น array ถ้าเป็น object
+    let orderIds: string[] = [];
 
-      this.logger.log(
-        `✅ Orders exported to ${exportOrdersDto.format || 'CSV'} successfully`,
-      );
+    if (exportOrdersDto.orderIds) {
+      if (Array.isArray(exportOrdersDto.orderIds)) {
+        // ถ้าเป็น array อยู่แล้ว
+        orderIds = exportOrdersDto.orderIds;
+      } else if (typeof exportOrdersDto.orderIds === 'object') {
+        // ถ้าเป็น object ให้แปลงเป็น array ของ IDs
+        const values = Object.values(exportOrdersDto.orderIds as any);
 
-      // Set appropriate headers for file download
-      res.setHeader('Content-Type', result.mimeType);
-      res.setHeader(
-        'Content-Disposition',
-        `attachment; filename="${result.filename}"`,
-      );
-
-      if (result.mimeType === 'text/csv') {
-        // For CSV, send as text
-        res.send(result.data);
-      } else {
-        // For Excel, send as buffer
-        res.send(result.data);
+        // ตรวจสอบว่า value แต่ละตัวเป็น string หรือ object
+        orderIds = values
+          .map((value: any) => {
+            if (typeof value === 'string') {
+              // ถ้าเป็น string ให้ใช้เลย (รูปแบบใหม่)
+              return value;
+            } else if (typeof value === 'object' && value.id) {
+              // ถ้าเป็น object ที่มี property id (รูปแบบเก่า)
+              return value.id;
+            }
+            return null;
+          })
+          .filter((id) => id); // กรองเฉพาะที่มี id
       }
-    } catch (err) {
-      this.logger.error('❌ Error exporting orders to spreadsheet:', err.stack);
-      return error(err.message, '400', req);
+    }
+
+    console.log('📋 Processed orderIds:', orderIds);
+
+    // กรองเฉพาะออเดอร์ที่ต้องการ (ถ้าระบุ IDs)
+    if (orderIds && orderIds.length > 0) {
+      const beforeFilter = exportData.orders.length;
+      exportData.orders = exportData.orders.filter((order) =>
+        orderIds.includes(order.id),
+      );
+      console.log(
+        `🔄 Filtered from ${beforeFilter} to ${exportData.orders.length} orders`,
+      );
+
+      // Debug: แสดง IDs ที่พบจริง
+      const foundIds = exportData.orders.map((order) => order.id);
+      console.log('✅ Found order IDs:', foundIds);
+
+      const notFoundIds = orderIds.filter((id) => !foundIds.includes(id));
+      if (notFoundIds.length > 0) {
+        console.log('❌ Not found order IDs:', notFoundIds);
+      }
+    }
+
+    const timestamp = new Date().toISOString().split('T')[0];
+    const format = exportOrdersDto.format || 'csv';
+
+    console.log(`📊 Export format: ${format}`);
+    console.log(`📊 Orders to export: ${exportData.orders.length}`);
+    if (format === 'excel') {
+      try {
+        console.log('🔄 Generating Excel file...');
+        const excelBuffer =
+          await this.orderService.generateOrdersExcel(exportData);
+        console.log(
+          '✅ Excel file generated successfully, size:',
+          excelBuffer.length,
+        );
+
+        // ตรวจสอบว่า buffer เป็น Excel จริง
+        if (!Buffer.isBuffer(excelBuffer) || excelBuffer.length < 1000) {
+          throw new Error('Invalid Excel buffer generated');
+        }
+
+        // ตรวจสอบ magic bytes ของ Excel file
+        const magicBytes = excelBuffer.slice(0, 4);
+        const isValidExcel = magicBytes.equals(
+          Buffer.from([0x50, 0x4b, 0x03, 0x04]),
+        ); // ZIP signature (Excel is ZIP-based)
+
+        if (!isValidExcel) {
+          console.error('❌ Generated file is not a valid Excel format');
+          throw new Error('Generated file is not Excel format');
+        }
+
+        console.log('🔍 Excel validation passed - sending Excel file');
+
+        res.set({
+          'Content-Type':
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'Content-Disposition': `attachment; filename="orders-export-${timestamp}.xlsx"`,
+          'Content-Length': excelBuffer.length.toString(),
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          Pragma: 'no-cache',
+          Expires: '0',
+          'Access-Control-Expose-Headers': 'Content-Disposition',
+        });
+
+        return res.end(excelBuffer, 'binary');
+      } catch (error) {
+        console.error('❌ Excel generation failed:', error);
+        throw new BadRequestException(
+          `Excel generation failed: ${error.message}`,
+        );
+      }
+    } else {
+      try {
+        console.log('🔄 Generating CSV file...');
+        const csvContent =
+          await this.orderService.generateOrdersCSV(exportData);
+        console.log(
+          '✅ CSV file generated successfully, length:',
+          csvContent.length,
+        );
+
+        // เพิ่ม BOM สำหรับ UTF-8 encoding ใน CSV
+        const csvWithBOM = '\uFEFF' + csvContent;
+
+        res.set({
+          'Content-Type': 'text/csv; charset=utf-8',
+          'Content-Disposition': `attachment; filename="orders-export-${timestamp}.csv"`,
+          'Content-Length': Buffer.byteLength(csvWithBOM, 'utf8'),
+        });
+
+        res.send(csvWithBOM);
+      } catch (error) {
+        console.error('❌ CSV generation failed:', error);
+        throw new BadRequestException(
+          `CSV generation failed: ${error.message}`,
+        );
+      }
     }
   }
 
@@ -912,8 +883,7 @@ export class OrderController {
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @ApiOperation({
     summary: 'Import and update orders from spreadsheet data',
-    description:
-      'Import spreadsheet data and update orders with payment information and other changes',
+    description: 'Import spreadsheet data and update orders',
   })
   @ApiResponse({
     status: 200,
@@ -923,27 +893,12 @@ export class OrderController {
     @Body() importOrdersDto: ImportOrdersDto,
     @Req() req: AuthenticatedRequest,
   ) {
-    try {
-      this.logger.log(
-        `🔄 User ${req.user.id} importing ${importOrdersDto.importData.length} orders from spreadsheet`,
-      );
+    const result = await this.orderService.importAndUpdateOrders(
+      importOrdersDto.importData,
+      req.user.id,
+    );
 
-      const result = await this.orderService.importAndUpdateOrders(
-        importOrdersDto.importData,
-        req.user.id,
-      );
-
-      this.logger.log(
-        `✅ Orders imported successfully: ${result.ordersUpdated} orders updated`,
-      );
-      return success(result, 'นำเข้าและอัปเดตข้อมูลออเดอร์เรียบร้อยแล้ว', req);
-    } catch (err) {
-      this.logger.error(
-        '❌ Error importing orders from spreadsheet:',
-        err.stack,
-      );
-      return error(err.message, '400', req);
-    }
+    return success(result, 'นำเข้าและอัปเดตข้อมูลออเดอร์เรียบร้อยแล้ว', req);
   }
 
   /**
@@ -963,56 +918,46 @@ export class OrderController {
     @UploadedFile() file: Express.Multer.File,
     @Req() req: AuthenticatedRequest,
   ) {
-    try {
-      // ตรวจสอบไฟล์
-      if (!file) {
-        throw new BadRequestException('กรุณาเลือกไฟล์สำหรับ import');
-      }
-
-      // ตรวจสอบ MIME type
-      const allowedTypes = [
-        'text/csv',
-        'application/vnd.ms-excel',
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        'application/csv',
-      ];
-
-      if (!allowedTypes.includes(file.mimetype)) {
-        throw new BadRequestException(
-          'ไฟล์ต้องเป็นประเภท CSV หรือ Excel (.csv, .xls, .xlsx)',
-        );
-      }
-
-      // ตรวจสอบขนาดไฟล์ (10MB)
-      if (file.size > 10 * 1024 * 1024) {
-        throw new BadRequestException('ไฟล์มีขนาดใหญ่เกิน 10MB');
-      }
-
-      this.logger.log(
-        `📤 User ${req.user.id} uploading file: ${file.originalname} (${file.mimetype}, ${file.size} bytes)`,
-      );
-
-      // ส่งไฟล์ buffer ไปให้ service ประมวลผล
-      const result = await this.orderService.importOrdersFromFileBuffer(
-        file.buffer,
-        file.mimetype,
-        file.originalname,
-        req.user.id,
-      );
-
-      this.logger.log(
-        `✅ File imported successfully: ${result.ordersUpdated} orders updated, ${result.errors?.length || 0} errors`,
-      );
-
-      return success(result, 'นำเข้าไฟล์ออเดอร์สำเร็จ', req);
-    } catch (err) {
-      this.logger.error(`❌ Error importing file:`, err.stack);
-
-      if (err instanceof BadRequestException) {
-        throw err;
-      }
-
-      return error(err.message, '400', req);
+    if (!file) {
+      throw new BadRequestException('กรุณาเลือกไฟล์สำหรับ import');
     }
+
+    const allowedTypes = [
+      'text/csv',
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/csv',
+    ];
+
+    if (!allowedTypes.includes(file.mimetype)) {
+      throw new BadRequestException(
+        'ไฟล์ต้องเป็นประเภท CSV หรือ Excel (.csv, .xls, .xlsx)',
+      );
+    }
+
+    // รองรับไฟล์ขนาดใหญ่สำหรับ import ข้อมูลจำนวนมาก
+    if (file.size > 50 * 1024 * 1024) {
+      throw new BadRequestException('ไฟล์มีขนาดใหญ่เกิน 50MB');
+    }
+
+    this.logger.log(
+      `📤 Starting import: ${file.originalname} (${file.size} bytes)`,
+    );
+
+    const result = await this.orderService.importOrdersFromFileBuffer(
+      file.buffer,
+      file.mimetype,
+      file.originalname,
+      req.user.id,
+    );
+
+    this.logger.log('✅ Import completed successfully');
+
+    return success(result, 'นำเข้าไฟล์ออเดอร์สำเร็จ', req);
   }
+
+  // =============================================
+  // 🚀 FUTURE: BATCH PROCESSING (ยังไม่ได้ implement)
+  // =============================================
+  // TODO: เพิ่ม batch processing สำหรับข้อมูลขนาดใหญ่ในอนาคต
 }

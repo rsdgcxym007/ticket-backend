@@ -38,162 +38,51 @@ export class PaymentService {
   ) {}
 
   // ========================================
-  // 💰 ชำระเงินสำหรับตั๋วนั่ง (RINGSIDE/STADIUM)
+  // 🎯 NEW ENHANCED METHODS
   // ========================================
 
-  async payWithCashStanding(dto: CreatePaymentDto, user: User) {
-    const logger = LoggingHelper.createContextLogger('PaymentService');
-    const startTime = Date.now();
-
-    return ErrorHandlingHelper.retry(async () => {
-      const order = await this.orderRepo.findOne({
-        where: { id: dto.orderId },
-        relations: ['referrer'],
-      });
-
-      if (!order) {
-        throw ErrorHandlingHelper.createError(
-          'ไม่พบคำสั่งซื้อ (Order not found)',
-          404,
-          'ORDER_NOT_FOUND',
-        );
-      }
-
-      if (order.status === OrderStatus.PAID) {
-        throw ErrorHandlingHelper.createError(
-          'คำสั่งซื้อนี้ถูกชำระเงินไปแล้ว',
-          400,
-          'ORDER_ALREADY_PAID',
-        );
-      }
-
-      // ✅ ตรวจสอบว่า order นี้เป็นตั๋วยืน
-      if (
-        (order.standingAdultQty || 0) === 0 &&
-        (order.standingChildQty || 0) === 0
-      ) {
-        throw ErrorHandlingHelper.createError(
-          'ออเดอร์นี้ไม่มีตั๋วยืน',
-          400,
-          'NO_STANDING_TICKETS',
-        );
-      }
-
-      // ✅ ผูก referrer ถ้ายังไม่มี
-      if (!order.referrer && dto.referrerCode) {
-        const referrer = await this.referrerRepo.findOne({
-          where: { code: dto.referrerCode },
-        });
-        if (!referrer) {
-          throw ErrorHandlingHelper.createError(
-            'ไม่พบผู้แนะนำ (Referrer not found)',
-            404,
-            'REFERRER_NOT_FOUND',
-          );
-        }
-        order.referrer = referrer;
-        order.referrerCode = referrer.code;
-      }
-
-      // ✅ อัปเดตชื่อผู้สั่ง (ถ้ามี)
-      if (dto.customerName) {
-        order.customerName = dto.customerName;
-        LoggingHelper.logBusinessEvent(logger, 'Customer name updated', {
-          orderId: dto.orderId,
-          customerName: dto.customerName,
-        });
-      }
-
-      // ✅ อัปเดตค่าคอมรวมของ referrer (ถ้ามี)
-      if (order.referrer) {
-        await this.referrerRepo.save(order.referrer);
-      }
-
-      // ✅ อัปเดตสถานะ order
-      order.paymentMethod = dto.method || PaymentMethod.CASH;
-      order.status = OrderStatus.PAID;
-      await this.orderRepo.save(order);
-
-      // ✅ สร้าง payment
-      const payment = this.paymentRepo.create({
-        order,
-        amount: dto.amount || order.total,
-        method: dto.method || PaymentMethod.CASH,
-        paidAt: new Date(),
-        createdBy: user,
-        user,
-      } as DeepPartial<Payment>);
-
-      const savedPayment = await this.paymentRepo.save(payment);
-      order.payment = savedPayment;
-      await this.orderRepo.save(order);
-
-      // 📝 Audit logging for payment creation
-      await AuditHelper.logCreate(
-        'Payment',
-        savedPayment.id,
-        {
-          orderId: dto.orderId,
-          amount: savedPayment.amount,
-          method: dto.method || PaymentMethod.CASH,
-          ticketType: 'STANDING',
-        },
-        AuditHelper.createSystemContext({
-          source: 'PaymentService.payWithCashStanding',
-          userId: user.id,
-          orderNumber: order.orderNumber,
-        }),
-      );
-
-      LoggingHelper.logBusinessEvent(
-        logger,
-        'Standing ticket payment completed',
-        {
-          orderId: dto.orderId,
-          paymentId: savedPayment.id,
-          amount: savedPayment.amount,
-        },
-      );
-
-      LoggingHelper.logPerformance(
-        logger,
-        'payment.payWithCashStanding',
-        startTime,
-        {
-          orderId: dto.orderId,
-          amount: savedPayment.amount,
-        },
-      );
-
-      return savedPayment;
-    }, 2);
-  }
-
   /**
-   * ช่วยกำหนดสถานะ Order/Payment กรณีชำระไม่ครบ
+   * ตรวจสอบและกำหนดสถานะการชำระเงินตามยอดที่จ่าย
    */
-  private applyPaymentStatusByAmount(order: Order, amount: number) {
-    const total = Number(order.totalAmount ?? order.total ?? 0);
-    const paid = Number(amount || 0);
+  private validateAndApplyPaymentStatus(order: Order, amount: number) {
+    const totalRequired = Number(order.total ?? 0);
+    const paidAmount = Number(amount || 0);
+    const previouslyPaid = Number(order.actualPaidAmount || 0);
+    const totalAfterPayment = previouslyPaid + paidAmount;
 
-    if (paid <= 0) {
-      return { paymentStatus: PaymentStatus.FAILED, orderStatus: order.status };
+    // ตรวจสอบยอดเงินที่ส่งเข้ามา
+    if (paidAmount <= 0) {
+      throw new BadRequestException('ยอดเงินที่ชำระต้องมากกว่า 0');
     }
 
-    if (paid < total) {
-      // ชำระบางส่วน
+    if (totalAfterPayment > totalRequired) {
+      throw new BadRequestException(
+        `ยอดเงินที่ชำระเกินกว่าที่ต้องชำระ (ต้องชำระ: ${totalRequired}, ชำระแล้ว: ${previouslyPaid}, จะชำระ: ${paidAmount})`,
+      );
+    }
+
+    // กำหนดสถานะตามยอดเงิน
+    if (totalAfterPayment < totalRequired) {
+      // ชำระไม่ครบ
       return {
         paymentStatus: PaymentStatus.PARTIAL,
-        // ถ้ายังไม่มีสลิป ให้คงเป็น PENDING, ถ้ารอเช็คสลิปก็ยัง PENDING_SLIP ได้
-        orderStatus:
-          order.status === OrderStatus.PENDING_SLIP
-            ? OrderStatus.PENDING_SLIP
-            : OrderStatus.PENDING,
+        orderStatus: OrderStatus.PARTIAL_ORDER,
+        isFullyPaid: false,
+        totalRequired,
+        totalAfterPayment,
+        remainingAmount: totalRequired - totalAfterPayment,
       };
     }
 
-    // ครบตามยอด
-    return { paymentStatus: PaymentStatus.PAID, orderStatus: OrderStatus.PAID };
+    // ชำระครบ
+    return {
+      paymentStatus: PaymentStatus.PAID,
+      orderStatus: OrderStatus.PAID,
+      isFullyPaid: true,
+      totalRequired,
+      totalAfterPayment,
+      remainingAmount: 0,
+    };
   }
 
   /**
@@ -209,24 +98,34 @@ export class PaymentService {
     auditSource: string,
     ticketTypeLabel: 'SEATED' | 'STANDING',
   ): Promise<Payment> {
-    const wasFullyPaid =
-      !!order.paymentAmountVerified || order.status === OrderStatus.PAID;
+    const logger = LoggingHelper.createContextLogger('PaymentService');
 
-    // กำหนดสถานะชั่วคราวตามยอดในรอบนี้
-    const { orderStatus } = this.applyPaymentStatusByAmount(order, amount);
+    // ตรวจสอบและกำหนดสถานะการชำระเงิน
+    const paymentValidation = this.validateAndApplyPaymentStatus(order, amount);
+    const wasFullyPaidBefore = order.status === OrderStatus.PAID;
+
+    // อัปเดตข้อมูลการชำระเงิน
     order.paymentMethod = method || PaymentMethod.CASH;
-    order.status = orderStatus;
+    order.status = paymentValidation.orderStatus;
     order.updatedBy = user.id;
 
     // สะสมยอดที่จ่ายจริง
-    const currentPaid = Number(order.actualPaidAmount || 0);
-    order.actualPaidAmount = currentPaid + Number(amount);
+    const previouslyPaid = Number(order.actualPaidAmount || 0);
+    order.actualPaidAmount = previouslyPaid + Number(amount);
 
-    // ตรวจครบยอด
-    const total = Number(order.totalAmount ?? order.total ?? 0);
-    const isFullyPaid = Number(order.actualPaidAmount) >= total;
+    logger.log(
+      `💰 Payment validation: ${JSON.stringify({
+        totalRequired: paymentValidation.totalRequired,
+        previouslyPaid,
+        currentPayment: amount,
+        totalAfterPayment: paymentValidation.totalAfterPayment,
+        isFullyPaid: paymentValidation.isFullyPaid,
+        remainingAmount: paymentValidation.remainingAmount,
+      })}`,
+    );
 
-    if (isFullyPaid) {
+    // หากชำระครบแล้ว
+    if (paymentValidation.isFullyPaid) {
       order.paymentAmountVerified = true;
       order.status = OrderStatus.PAID;
 
@@ -237,14 +136,53 @@ export class PaymentService {
           booking.updatedAt = new Date();
         }
         await this.bookingRepo.save(order.seatBookings);
+        logger.log(
+          `🪑 Updated ${order.seatBookings.length} seat bookings to PAID`,
+        );
       }
 
-      // เครดิตค่าคอมให้ referrer เมื่อชำระครบครั้งแรกเท่านั้น
-      if (order.referrer && !wasFullyPaid && commissionToCredit > 0) {
-        order.referrer.totalCommission =
-          (order.referrer.totalCommission || 0) + commissionToCredit;
-        await this.referrerRepo.save(order.referrer);
+      // อัปเดตค่าคอมมิชชั่นบนออเดอร์เมื่อชำระครบเท่านั้น
+      if (order.referrer && commissionToCredit > 0) {
+        if (flow === 'SEATED') {
+          order.referrerCommission = commissionToCredit;
+          order.standingCommission = 0;
+        } else {
+          order.referrerCommission = 0;
+          order.standingCommission = commissionToCredit;
+        }
+
+        // เครดิตค่าคอมให้ referrer เมื่อชำระครบครั้งแรกเท่านั้น
+        if (!wasFullyPaidBefore) {
+          const oldCommission = order.referrer.totalCommission || 0;
+          order.referrer.totalCommission = oldCommission + commissionToCredit;
+          await this.referrerRepo.save(order.referrer);
+
+          logger.log(
+            `💰 Commission credited: ${commissionToCredit} to referrer ${order.referrer.code} (${oldCommission} → ${order.referrer.totalCommission})`,
+          );
+
+          // บันทึก audit log สำหรับการเครดิตค่าคอม
+          await AuditHelper.logUpdate(
+            'Referrer',
+            order.referrer.id,
+            { totalCommission: oldCommission },
+            { totalCommission: order.referrer.totalCommission },
+            AuditHelper.createSystemContext({
+              source: `${auditSource}.commission`,
+              userId: user.id,
+              orderNumber: order.orderNumber,
+              commissionAmount: commissionToCredit,
+            }),
+          );
+        }
       }
+    } else {
+      // กรณีชำระไม่ครบ ให้เคลียร์ค่าคอมมิชชั่นบนออเดอร์เพื่อไม่ให้อัปเดตก่อนเวลา
+      order.referrerCommission = 0;
+      order.standingCommission = 0;
+      logger.log(
+        `⏳ Partial payment recorded. Remaining: ${paymentValidation.remainingAmount} THB`,
+      );
     }
 
     await this.orderRepo.save(order);
@@ -252,19 +190,22 @@ export class PaymentService {
     // อัปเดต/สร้าง payment record
     let savedPayment: Payment;
     if (order.payment) {
-      order.payment.amount = Number(order.payment.amount || 0) + Number(amount);
-      order.payment.status = isFullyPaid
-        ? PaymentStatus.PAID
-        : PaymentStatus.PARTIAL;
+      const oldAmount = Number(order.payment.amount || 0);
+      order.payment.amount = oldAmount + Number(amount);
+      order.payment.status = paymentValidation.paymentStatus;
       order.payment.paidAt = new Date();
       savedPayment = await this.paymentRepo.save(order.payment);
+
+      logger.log(
+        `🔄 Updated existing payment: ${oldAmount} + ${amount} = ${savedPayment.amount}`,
+      );
     } else {
       const payment = this.paymentRepo.create({
         order,
         orderId: order.id,
         amount: amount,
         method,
-        status: isFullyPaid ? PaymentStatus.PAID : PaymentStatus.PARTIAL,
+        status: paymentValidation.paymentStatus,
         paidAt: new Date(),
         user,
         userId: user.id,
@@ -273,6 +214,8 @@ export class PaymentService {
       savedPayment = await this.paymentRepo.save(payment);
       order.payment = savedPayment;
       await this.orderRepo.save(order);
+
+      logger.log(`✨ Created new payment record: ${amount} THB`);
     }
 
     // Audit log สร้าง/อัปเดตการชำระเงิน
@@ -284,6 +227,8 @@ export class PaymentService {
         amount: savedPayment.amount,
         method: method || PaymentMethod.CASH,
         ticketType: ticketTypeLabel,
+        isFullyPaid: paymentValidation.isFullyPaid,
+        remainingAmount: paymentValidation.remainingAmount,
       },
       AuditHelper.createSystemContext({
         source: auditSource,
@@ -344,14 +289,15 @@ export class PaymentService {
       // อัปเดตข้อมูลลูกค้าและผู้แนะนำ
       await this.updateOrderInfo(order, dto);
 
-      // เตรียมค่าคอม (ยังไม่เครดิตจนกว่าจะชำระครบ)
-      let seatedCommission = 0;
-      if (order.referrer) {
-        seatedCommission = order.seatBookings.length * 400;
-        order.referrerCommission = seatedCommission;
-      }
+      // คำนวณค่าคอมมิชชั่นสำหรับตั๋วนั่ง (เครดิตเมื่อชำระครบเท่านั้น)
+      const seatedCommission = order.referrer
+        ? this.calculateSeatedCommission(order)
+        : 0;
+      // ไม่อัปเดตค่าคอมบนออเดอร์ที่นี่ รออัปเดตเมื่อชำระครบใน handlePayment
 
-      const amount = dto.amount ?? Number(order.totalAmount ?? order.total);
+      // ใช้ยอดเงินที่ส่งมา หรือยอด default จาก order.total
+      const amount = dto.amount ?? Number(order.total ?? 0);
+
       const savedPayment = await this.handlePayment(
         order,
         amount,
@@ -372,6 +318,9 @@ export class PaymentService {
           paymentId: savedPayment.id,
           amount: savedPayment.amount,
           seatCount: order.seatBookings.length,
+          isFullyPaid: savedPayment.status === PaymentStatus.PAID,
+          commissionCredited:
+            savedPayment.status === PaymentStatus.PAID ? seatedCommission : 0,
         },
       );
 
@@ -413,7 +362,7 @@ export class PaymentService {
       }
       if (order.ticketType !== 'STANDING') {
         throw new BadRequestException(
-          'คำสั่งซื้อนี้ไม่ใช่ตั๋วยืน กรุณาใช้ endpoint สำหรับตัวนั่ง',
+          'คำสั่งซื้อนี้ไม่ใช่ตั๋วยืน กรุณาใช้ endpoint สำหรับตั๋วนั่ง',
         );
       }
       if (
@@ -426,17 +375,19 @@ export class PaymentService {
       // อัปเดตข้อมูลลูกค้าและผู้แนะนำ
       await this.updateOrderInfo(order, dto);
 
-      // เตรียมค่าคอมมิชชั่นสำหรับตั๋วยืน (ยังไม่เครดิตจนกว่าจะชำระครบ)
-      let standingCommission = 0;
-      if (order.referrer) {
-        const adultCommission = (order.standingAdultQty || 0) * 300;
-        const childCommission = (order.standingChildQty || 0) * 300;
-        standingCommission = adultCommission + childCommission;
-        order.referrerCommission = 0;
-        order.standingCommission = standingCommission;
-      }
+      // คำนวณค่าคอมมิชชั่นสำหรับตั๋วยืน (เครดิตเมื่อชำระครบเท่านั้น)
+      const standingCommission = order.referrer
+        ? this.calculateStandingCommission(order)
+        : 0;
+      // ไม่อัปเดตค่าคอมบนออเดอร์ที่นี่ รออัปเดตเมื่อชำระครบใน handlePayment
 
-      const amount = dto.amount ?? Number(order.totalAmount ?? order.total);
+      // ใช้ยอดเงินที่ส่งมา หรือยอด default จาก order.total
+      const amount = dto.amount ?? Number(order.total ?? 0);
+
+      logger.log(
+        `🎫 Processing standing ticket payment: Order ${order.orderNumber}, Amount: ${amount}, Total Required: ${order.total}, Adult: ${order.standingAdultQty}, Child: ${order.standingChildQty}`,
+      );
+
       const savedPayment = await this.handlePayment(
         order,
         amount,
@@ -447,6 +398,11 @@ export class PaymentService {
         'PaymentService.payStandingTicket',
         'STANDING',
       );
+
+      logger.log(
+        `✅ Standing ticket payment completed: Order ${order.orderNumber}, Payment ${savedPayment.id}, Status: ${savedPayment.status}`,
+      );
+
       return savedPayment;
     } catch (err) {
       logger.error(`❌ Error in payStandingTicket: ${err.message}`, err.stack);
@@ -469,13 +425,25 @@ export class PaymentService {
       throw new NotFoundException('ไม่พบคำสั่งซื้อ');
     }
 
+    const totalRequired = Number(order.total ?? 0);
+    const actualPaid = Number(order.actualPaidAmount || 0);
+    const remainingAmount = Math.max(0, totalRequired - actualPaid);
+    const isFullyPaid =
+      actualPaid >= totalRequired && order.status === OrderStatus.PAID;
+
     return {
       orderId: order.id,
       orderNumber: order.orderNumber,
       status: order.status,
       ticketType: order.ticketType,
-      totalAmount: order.totalAmount,
-      isPaid: order.status === OrderStatus.PAID,
+
+      // ข้อมูลการชำระเงิน
+      totalAmount: totalRequired,
+      actualPaidAmount: actualPaid,
+      remainingAmount,
+      isFullyPaid,
+      paymentStatus: order.payment?.status || 'UNPAID',
+
       payment: order.payment
         ? {
             id: order.payment.id,
@@ -485,20 +453,29 @@ export class PaymentService {
             status: order.payment.status,
           }
         : null,
+
+      // ข้อมูลค่าคอมมิชชั่น
       commission: {
         referrerCode: order.referrerCode,
-        referrerCommission: order.referrerCommission,
-        standingCommission: order.standingCommission,
+        referrerCommission: order.referrerCommission || 0,
+        standingCommission: order.standingCommission || 0,
+        totalCommission:
+          (order.referrerCommission || 0) + (order.standingCommission || 0),
+        isCommissionCredited: isFullyPaid && order.referrer ? true : false,
       },
+
+      // ข้อมูลตั๋ว
       tickets:
         order.ticketType === 'STANDING'
           ? {
-              adultQty: order.standingAdultQty,
-              childQty: order.standingChildQty,
+              type: 'STANDING',
+              adultQty: order.standingAdultQty || 0,
+              childQty: order.standingChildQty || 0,
               total:
                 (order.standingAdultQty || 0) + (order.standingChildQty || 0),
             }
           : {
+              type: 'SEATED',
               seatCount: order.seatBookings?.length || 0,
               seats:
                 order.seatBookings?.map((booking) => ({
@@ -596,86 +573,78 @@ export class PaymentService {
     if (dto.customerName && dto.customerName !== order.customerName) {
       order.customerName = dto.customerName;
       orderUpdated = true;
-      logger.log(`📝 Updated customer name to: ${dto.customerName}`);
     }
 
     // อัปเดตข้อมูลเพิ่มเติม ถ้ามีใน DTO
     if (dto.customerEmail && dto.customerEmail !== order.customerEmail) {
       order.customerEmail = dto.customerEmail;
       orderUpdated = true;
-      logger.log(`📝 Updated customer email to: ${dto.customerEmail}`);
     }
     if (dto.customerPhone && dto.customerPhone !== order.customerPhone) {
       order.customerPhone = dto.customerPhone;
       orderUpdated = true;
-      logger.log(`📝 Updated customer phone to: ${dto.customerPhone}`);
     }
     if (dto.purchaseType && dto.purchaseType !== order.purchaseType) {
       order.purchaseType = dto.purchaseType;
       orderUpdated = true;
-      logger.log(`📝 Updated purchase type to: ${dto.purchaseType}`);
     }
     if (dto.hotelName && dto.hotelName !== order.hotelName) {
       order.hotelName = dto.hotelName;
       orderUpdated = true;
-      logger.log(`📝 Updated hotel name to: ${dto.hotelName}`);
     }
     if (dto.hotelDistrict && dto.hotelDistrict !== order.hotelDistrict) {
       order.hotelDistrict = dto.hotelDistrict;
       orderUpdated = true;
-      logger.log(`📝 Updated hotel district to: ${dto.hotelDistrict}`);
     }
     if (dto.roomNumber && dto.roomNumber !== order.roomNumber) {
       order.roomNumber = dto.roomNumber;
       orderUpdated = true;
-      if (
-        typeof dto.adultCount === 'number' &&
-        dto.adultCount !== order.adultCount
-      ) {
-        order.adultCount = dto.adultCount;
-        orderUpdated = true;
-        logger.log(`📝 Updated adult count to: ${dto.adultCount}`);
-      }
-      if (
-        typeof dto.childCount === 'number' &&
-        dto.childCount !== order.childCount
-      ) {
-        order.childCount = dto.childCount;
-        orderUpdated = true;
-        logger.log(`📝 Updated child count to: ${dto.childCount}`);
-      }
-      if (
-        typeof dto.infantCount === 'number' &&
-        dto.infantCount !== order.infantCount
-      ) {
-        order.infantCount = dto.infantCount;
-        orderUpdated = true;
-      }
-      if (
-        dto.pickupScheduledTime &&
-        dto.pickupScheduledTime !== order.pickupScheduledTime
-      ) {
-        order.pickupScheduledTime = dto.pickupScheduledTime;
-        orderUpdated = true;
-      }
-      if (dto.bookerName && dto.bookerName !== order.bookerName) {
-        order.bookerName = dto.bookerName;
-        orderUpdated = true;
-      }
-      if (
-        typeof dto.includesPickup === 'boolean' &&
-        dto.includesPickup !== order.includesPickup
-      ) {
-        order.includesPickup = dto.includesPickup;
-        orderUpdated = true;
-      }
-      if (
-        typeof dto.includesDropoff === 'boolean' &&
-        dto.includesDropoff !== order.includesDropoff
-      ) {
-        order.includesDropoff = dto.includesDropoff;
-        orderUpdated = true;
-      }
+    }
+    if (
+      typeof dto.adultCount === 'number' &&
+      dto.adultCount !== order.adultCount
+    ) {
+      order.adultCount = dto.adultCount;
+      orderUpdated = true;
+      logger.log(`📝 Updated adult count to: ${dto.adultCount}`);
+    }
+    if (
+      typeof dto.childCount === 'number' &&
+      dto.childCount !== order.childCount
+    ) {
+      order.childCount = dto.childCount;
+      orderUpdated = true;
+      logger.log(`📝 Updated child count to: ${dto.childCount}`);
+    }
+    if (
+      typeof dto.infantCount === 'number' &&
+      dto.infantCount !== order.infantCount
+    ) {
+      order.infantCount = dto.infantCount;
+      orderUpdated = true;
+    }
+    if (dto.voucherNumber && dto.voucherNumber !== order.voucherNumber) {
+      order.voucherNumber = dto.voucherNumber;
+      orderUpdated = true;
+      logger.log(`📝 Updated voucher number to: ${dto.voucherNumber}`);
+    }
+    if (
+      dto.pickupScheduledTime &&
+      dto.pickupScheduledTime !== order.pickupScheduledTime
+    ) {
+      order.pickupScheduledTime = dto.pickupScheduledTime;
+      orderUpdated = true;
+    }
+    if (dto.bookerName && dto.bookerName !== order.bookerName) {
+      order.bookerName = dto.bookerName;
+      orderUpdated = true;
+    }
+    if (
+      typeof dto.includesPickup === 'boolean' &&
+      dto.includesPickup !== order.includesPickup
+    ) {
+      order.includesPickup = dto.includesPickup;
+      orderUpdated = true;
     }
     if (
       typeof dto.includesDropoff === 'boolean' &&
@@ -708,5 +677,16 @@ export class PaymentService {
     if (orderUpdated) {
       await this.orderRepo.save(order);
     }
+  }
+
+  // คำนวณค่าคอมมิชชั่นแบบแยกฟังก์ชัน เพื่อให้ใช้ซ้ำและทดสอบง่าย
+  private calculateSeatedCommission(order: Order): number {
+    return (order.seatBookings?.length || 0) * 400;
+  }
+
+  private calculateStandingCommission(order: Order): number {
+    const adult = order.standingAdultQty || 0;
+    const child = order.standingChildQty || 0;
+    return adult * 300 + child * 300;
   }
 }

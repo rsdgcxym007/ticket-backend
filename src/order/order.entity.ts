@@ -220,6 +220,10 @@ export class Order {
   @Column({ type: 'int', default: 0 })
   standingCommission: number;
 
+  // ยอดค้างจริงที่กำหนดเอง (สำหรับแสดงในรายงาน)
+  @Column({ type: 'decimal', nullable: true })
+  outstandingAmount?: number;
+
   // ผู้สร้างออเดอร์ (staff/admin หรือ null=ลูกค้า)
   @Column({ nullable: true })
   createdBy?: string;
@@ -264,4 +268,11 @@ export class Order {
 
   @Column({ type: 'boolean', default: false })
   paymentAmountVerified: boolean;
+
+  // Import tracking fields for duplicate prevention
+  @Column({ type: 'timestamptz', nullable: true })
+  lastImportProcessedAt?: Date;
+
+  @Column({ type: 'int', default: 0 })
+  importProcessCount: number;
 }

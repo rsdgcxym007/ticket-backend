@@ -1,27 +1,15 @@
-import {
-  OrderStatus,
-  OrderPurchaseType,
-  PaymentMethod,
-  TicketType,
-} from '../../common/enums';
+// ========================================
+// ⚠️ DEPRECATED: ORDER DATA HELPER
+// ========================================
+// This helper is deprecated. Please use OrderBusinessService instead.
+// Location: src/order/services/order-business.service.ts
+
+import { TicketType } from '../../common/enums';
 import { CreateOrderRequest } from '../order.service';
 import { User } from '../../user/user.entity';
 import { Referrer } from '../../referrer/referrer.entity';
-import {
-  ThailandTimeHelper,
-  BusinessLogicHelper,
-  ReferenceGenerator,
-} from '../../common/utils';
-import {
-  TICKET_PRICES,
-  COMMISSION_RATES,
-  TIME_LIMITS,
-} from '../../common/constants';
+import { OrderBusinessService } from '../services/order-business.service';
 import { ConfigService } from '@nestjs/config';
-import {
-  InternalServerErrorException,
-  BadRequestException,
-} from '@nestjs/common';
 
 export interface OrderDataResult {
   orderData: any;
@@ -31,9 +19,12 @@ export interface OrderDataResult {
   };
 }
 
+/**
+ * @deprecated Use OrderBusinessService instead
+ */
 export class OrderDataHelper {
   /**
-   * สร้างข้อมูล order พื้นฐาน
+   * @deprecated Use OrderBusinessService.createBaseOrderData() instead
    */
   static createBaseOrderData(
     request: CreateOrderRequest,
@@ -41,164 +32,61 @@ export class OrderDataHelper {
     referrer: Referrer | null,
     configService: ConfigService,
   ): OrderDataResult {
-    // Calculate pricing
-    const pricing = this.calculateOrderPricing(request);
+    console.warn(
+      'OrderDataHelper.createBaseOrderData is deprecated. Use OrderBusinessService.createBaseOrderData instead.',
+    );
 
-    // Generate order number
-    const orderNumber = ReferenceGenerator.generateOrderNumber();
-
-    // Prepare base order data
-    const orderData: any = {
-      orderNumber,
-      userId: user.id,
-      customerName: request.customerName,
-      customerPhone: request.customerPhone,
-      customerEmail: request.customerEmail,
-      ticketType: request.ticketType,
-      quantity: request.quantity || 0,
-      total: pricing.totalAmount,
-      totalAmount: pricing.totalAmount,
-      status: request.status || OrderStatus.PENDING,
-      paymentMethod: request.paymentMethod || PaymentMethod.CASH,
-      method: PaymentMethod.CASH,
-      showDate: ThailandTimeHelper.toThailandTime(request.showDate),
-      referrerCode: request.referrerCode,
-      referrerId: referrer?.id,
-      referrerCommission: pricing.commission,
-      note: request.note,
-      source: request.source || 'DIRECT',
-      purchaseType: request.purchaseType || OrderPurchaseType.ONSITE,
-      attendanceStatus:
-        request.attendanceStatus ||
-        ((request.purchaseType || OrderPurchaseType.ONSITE) ===
-        OrderPurchaseType.ONSITE
-          ? 'CHECKED_IN'
-          : 'PENDING'),
-      expiresAt: BusinessLogicHelper.calculateExpiryTime(
-        ThailandTimeHelper.now(),
-        configService.get(
-          'RESERVATION_TIMEOUT_MINUTES',
-          TIME_LIMITS.RESERVATION_MINUTES,
-        ),
-      ),
-      createdBy: user.id,
-    };
-
-    // Handle BOOKED order expiry time
-    if (request.status === OrderStatus.BOOKED) {
-      const showDate = ThailandTimeHelper.toThailandTime(request.showDate);
-      const expiryDate =
-        ThailandTimeHelper.format(showDate, 'YYYY-MM-DD') + ' 21:00:00';
-      orderData.expiresAt = ThailandTimeHelper.toThailandTime(expiryDate);
-    }
-
-    return { orderData, pricing };
+    const orderBusinessService = new OrderBusinessService(configService);
+    return orderBusinessService.createBaseOrderData(request, user, referrer);
   }
 
   /**
-   * เพิ่มข้อมูลสำหรับตั๋วแบบยืน
+   * @deprecated Use OrderBusinessService.addStandingTicketData() instead
    */
   static addStandingTicketData(
     orderData: any,
     request: CreateOrderRequest,
   ): void {
-    if (request.ticketType !== TicketType.STANDING) {
-      return;
-    }
+    console.warn(
+      'OrderDataHelper.addStandingTicketData is deprecated. Use OrderBusinessService.addStandingTicketData instead.',
+    );
 
-    const adultQty = request.standingAdultQty || 0;
-    const childQty = request.standingChildQty || 0;
-
-    // Validate constants
-    this.validateStandingTicketConstants();
-
-    const adultTotal = adultQty * TICKET_PRICES.STANDING_ADULT;
-    const childTotal = childQty * TICKET_PRICES.STANDING_CHILD;
-    const standingTotal = adultTotal + childTotal;
-
-    // Validate calculations
-    if (isNaN(adultTotal) || isNaN(childTotal) || isNaN(standingTotal)) {
-      throw new BadRequestException(
-        'ไม่สามารถคำนวณบัตรยืนได้ กรุณาตรวจสอบจำนวนบัตรและราคาอีกครั้ง',
-      );
-    }
-
-    // Update order data for standing tickets
-    orderData.standingAdultQty = adultQty;
-    orderData.standingChildQty = childQty;
-    orderData.standingTotal = standingTotal;
-    orderData.standingCommission =
-      adultQty * COMMISSION_RATES.STANDING_ADULT +
-      childQty * COMMISSION_RATES.STANDING_CHILD;
-    orderData.quantity = adultQty + childQty;
-    orderData.total = standingTotal;
-    orderData.totalAmount = standingTotal;
+    const orderBusinessService = new OrderBusinessService({} as ConfigService);
+    orderBusinessService.addStandingTicketData(orderData, request);
   }
 
   /**
-   * กำหนดสถานะ order สำหรับตั๋วแบบยืนในวันเดียวกัน
+   * @deprecated Use OrderBusinessService.setStandingOrderStatus() instead
    */
   static setStandingOrderStatus(
     orderData: any,
     request: CreateOrderRequest,
   ): void {
-    if (request.ticketType !== TicketType.STANDING || request.status) {
-      return;
-    }
+    console.warn(
+      'OrderDataHelper.setStandingOrderStatus is deprecated. Use OrderBusinessService.setStandingOrderStatus instead.',
+    );
 
-    if (
-      ThailandTimeHelper.isSameDay(request.showDate, ThailandTimeHelper.now())
-    ) {
-      orderData.status = OrderStatus.CONFIRMED;
-    }
+    const orderBusinessService = new OrderBusinessService({} as ConfigService);
+    orderBusinessService.setStandingOrderStatus(orderData, request);
   }
 
   /**
-   * คำนวณราคา order
+   * @deprecated Use OrderBusinessService.calculateOrderPricing() instead
    */
   private static calculateOrderPricing(request: CreateOrderRequest): {
     totalAmount: number;
     commission: number;
   } {
-    // For standing tickets, calculate separately in addStandingTicketData
-    if (request.ticketType === TicketType.STANDING) {
-      return { totalAmount: 0, commission: 0 };
-    }
+    console.warn(
+      'OrderDataHelper.calculateOrderPricing is deprecated. Use OrderBusinessService.calculateOrderPricing instead.',
+    );
 
-    // For seated tickets
-    const quantity = request.quantity || request.seatIds?.length || 0;
-    const pricePerSeat = TICKET_PRICES[request.ticketType];
-
-    if (typeof pricePerSeat !== 'number') {
-      throw new InternalServerErrorException(
-        `Invalid ticket price for type: ${request.ticketType}`,
-      );
-    }
-
-    const totalAmount = quantity * pricePerSeat;
-    const commission = quantity * COMMISSION_RATES.SEAT;
-
-    return { totalAmount, commission };
+    const orderBusinessService = new OrderBusinessService({} as ConfigService);
+    return orderBusinessService.calculateOrderPricing(request);
   }
 
   /**
-   * ตรวจสอบค่าคงที่สำหรับตั๋วแบบยืน
-   */
-  private static validateStandingTicketConstants(): void {
-    if (
-      typeof TICKET_PRICES.STANDING_ADULT !== 'number' ||
-      typeof TICKET_PRICES.STANDING_CHILD !== 'number' ||
-      typeof COMMISSION_RATES.STANDING_ADULT !== 'number' ||
-      typeof COMMISSION_RATES.STANDING_CHILD !== 'number'
-    ) {
-      throw new InternalServerErrorException(
-        'ข้อมูลราคาบัตรหรือค่าคอมมิชชั่นไม่ถูกต้อง กรุณาติดต่อเจ้าหน้าที่',
-      );
-    }
-  }
-
-  /**
-   * คำนวณราคาสำหรับการเปลี่ยนที่นั่ง
+   * @deprecated Use OrderBusinessService.calculateSeatPricing() instead
    */
   static calculateSeatPricing(
     ticketType: TicketType,
@@ -207,17 +95,20 @@ export class OrderDataHelper {
     totalAmount: number;
     commission: number;
   } {
-    const pricePerSeat = TICKET_PRICES[ticketType];
+    console.warn(
+      'OrderDataHelper.calculateSeatPricing is deprecated. Use OrderBusinessService.calculateSeatPricing instead.',
+    );
 
-    if (typeof pricePerSeat !== 'number') {
-      throw new InternalServerErrorException(
-        `Invalid ticket price for type: ${ticketType}`,
-      );
-    }
+    const orderBusinessService = new OrderBusinessService({} as ConfigService);
+    return orderBusinessService.calculateSeatPricing(ticketType, seatCount);
+  }
 
-    const totalAmount = seatCount * pricePerSeat;
-    const commission = seatCount * COMMISSION_RATES.SEAT;
-
-    return { totalAmount, commission };
+  /**
+   * @deprecated All validation methods moved to OrderBusinessService
+   */
+  private static validateStandingTicketConstants(): void {
+    console.warn(
+      'OrderDataHelper.validateStandingTicketConstants is deprecated. Validation is now handled in OrderBusinessService.',
+    );
   }
 }
