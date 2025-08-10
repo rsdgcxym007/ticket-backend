@@ -362,13 +362,8 @@ export class OrderController {
 
     const result = await this.orderService.changeSeats(
       id,
-      changeSeatsDto.seatIds,
+      changeSeatsDto, // Pass the entire DTO as updateData
       req.user.id,
-      changeSeatsDto.newReferrerCode,
-      changeSeatsDto.newCustomerName,
-      changeSeatsDto.newCustomerPhone,
-      changeSeatsDto.newCustomerEmail,
-      changeSeatsDto.newShowDate,
     );
 
     if (!result?.success) {

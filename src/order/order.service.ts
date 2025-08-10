@@ -30,6 +30,7 @@ import {
   UserRole,
   OrderStatus,
   PaymentMethod,
+  PaymentStatus,
   TicketType,
   BookingStatus,
   AuditAction,
@@ -614,13 +615,38 @@ export class OrderService {
 
   async changeSeats(
     id: string,
-    newSeatNumbers: string[],
+    updateData: {
+      seatIds?: string[];
+      newSeatNumbers?: string[];
+      newReferrerCode?: string;
+      newCustomerName?: string;
+      newCustomerPhone?: string;
+      newCustomerEmail?: string;
+      newShowDate?: string;
+      newSource?: string;
+      hotelName?: string;
+      hotelDistrict?: string;
+      roomNumber?: string;
+      adultCount?: number;
+      childCount?: number;
+      infantCount?: number;
+      voucherNumber?: string;
+      pickupScheduledTime?: string;
+      bookerName?: string;
+      includesPickup?: boolean;
+      includesDropoff?: boolean;
+      requiresPickup?: boolean;
+      requiresDropoff?: boolean;
+      pickupHotel?: string;
+      dropoffLocation?: string;
+      pickupTime?: string;
+      dropoffTime?: string;
+      voucherCode?: string;
+      referenceNo?: string;
+      specialRequests?: string;
+      paymentAmount?: string | number;
+    },
     userId: string,
-    newReferrerCode?: string,
-    newCustomerName?: string,
-    newCustomerPhone?: string,
-    newCustomerEmail?: string,
-    newShowDate?: string,
   ): Promise<{ success: boolean; message: string; updatedOrder?: any }> {
     try {
       const user = await this.userRepo.findOne({ where: { id: userId } });
@@ -656,6 +682,49 @@ export class OrderService {
         };
       }
 
+      // ตรวจสอบเงื่อนไขการอัพเดทตาม payment status
+      const isPaymentPaid = order.payment?.status === PaymentStatus.PAID;
+      const isSeatedTicket =
+        order.ticketType === TicketType.RINGSIDE ||
+        order.ticketType === TicketType.STADIUM;
+
+      // ตรวจสอบเงื่อนไขการเปลี่ยนที่นั่งสำหรับ PAID orders
+      let filteredUpdateData = { ...updateData };
+      let seatLimitMessage = '';
+
+      if (isPaymentPaid && isSeatedTicket) {
+        // ตั๋วนั่งที่ PAID แล้ว: ตัดจำนวนที่นั่งถ้าเกินและกรองข้อมูลที่อนุญาต
+
+        // Extract seat numbers first for checking
+        const originalSeatNumbers =
+          updateData.newSeatNumbers || updateData.seatIds || [];
+
+        // ตัดจำนวนที่นั่งถ้าเกินจำนวนที่ซื้อมา
+        const currentSeatCount = order.seatBookings?.length || 0;
+        if (originalSeatNumbers.length > currentSeatCount) {
+          const limitedSeatNumbers = originalSeatNumbers.slice(
+            0,
+            currentSeatCount,
+          );
+          filteredUpdateData.newSeatNumbers = limitedSeatNumbers;
+          filteredUpdateData.seatIds = limitedSeatNumbers;
+          seatLimitMessage = ` (ตัดจำนวนที่นั่งเหลือ ${currentSeatCount} ที่ตามที่ซื้อมา)`;
+        }
+
+        // กรองข้อมูลที่อนุญาตเท่านั้น (เฉพาะที่นั่งและวันที่แสดง)
+        const allowedKeys = ['seatIds', 'newSeatNumbers', 'newShowDate'];
+        filteredUpdateData = Object.keys(filteredUpdateData)
+          .filter((key) => allowedKeys.includes(key))
+          .reduce((obj, key) => {
+            obj[key] = filteredUpdateData[key];
+            return obj;
+          }, {});
+      }
+
+      // Extract seat numbers from filteredUpdateData (support both seatIds and newSeatNumbers for backward compatibility)
+      const newSeatNumbers =
+        filteredUpdateData.newSeatNumbers || filteredUpdateData.seatIds || [];
+
       // Convert seat numbers to seat IDs - use helper
       const newSeatIds = await OrderValidationHelper.convertSeatNumbersToIds(
         newSeatNumbers,
@@ -665,52 +734,293 @@ export class OrderService {
       // Get current seat count
       const currentSeatCount = order.seatBookings?.length || 0;
       const newSeatCount = newSeatIds.length;
-      // Handle different order statuses
-      switch (order.status) {
-        case OrderStatus.PENDING:
-        case OrderStatus.BOOKED:
-          return await OrderSeatManagementHelper.changePendingBookedSeats(
-            order,
-            newSeatIds,
-            userId,
-            user,
-            this.orderRepo,
-            this.seatBookingRepo,
-            this.seatRepo,
-            this.referrerRepo,
-            this.seatBookingService,
-            this.auditHelperService,
-            this.findById.bind(this),
-            newReferrerCode,
-            newCustomerName,
-            newCustomerPhone,
-            newCustomerEmail,
-            newShowDate,
-          );
 
-        case OrderStatus.PAID:
-          return await OrderSeatManagementHelper.changePaidSeats(
-            order,
-            newSeatIds,
-            userId,
-            user,
-            currentSeatCount,
-            newSeatCount,
-            this.orderRepo,
-            this.seatBookingRepo,
-            this.seatRepo,
-            this.auditHelperService,
-            this.findById.bind(this),
-            newShowDate,
-          );
+      // สร้าง updateFields object สำหรับการอัพเดทข้อมูลเพิ่มเติม
+      const updateFields: any = {
+        updatedAt: ThailandTimeHelper.now(),
+        updatedBy: userId,
+      };
 
-        default:
-          return {
-            success: false,
-            message: 'สถานะออเดอร์ไม่ถูกต้อง',
-            updatedOrder: null,
-          };
+      // อัพเดทข้อมูลลูกค้าถ้ามีการส่งมา
+      if (filteredUpdateData.newCustomerName !== undefined) {
+        updateFields.customerName = filteredUpdateData.newCustomerName;
       }
+      if (filteredUpdateData.newCustomerPhone !== undefined) {
+        updateFields.customerPhone = filteredUpdateData.newCustomerPhone;
+      }
+      if (filteredUpdateData.newCustomerEmail !== undefined) {
+        updateFields.customerEmail = filteredUpdateData.newCustomerEmail;
+      }
+      if (filteredUpdateData.newShowDate !== undefined) {
+        updateFields.showDate = filteredUpdateData.newShowDate;
+      }
+      if (filteredUpdateData.newSource !== undefined) {
+        updateFields.source = filteredUpdateData.newSource;
+      }
+      if (filteredUpdateData.hotelName !== undefined) {
+        updateFields.hotelName = filteredUpdateData.hotelName;
+      }
+      if (filteredUpdateData.hotelDistrict !== undefined) {
+        updateFields.hotelDistrict = filteredUpdateData.hotelDistrict;
+      }
+      if (filteredUpdateData.roomNumber !== undefined) {
+        updateFields.roomNumber = filteredUpdateData.roomNumber;
+      }
+      if (filteredUpdateData.adultCount !== undefined) {
+        updateFields.adultCount = filteredUpdateData.adultCount;
+      }
+      if (filteredUpdateData.childCount !== undefined) {
+        updateFields.childCount = filteredUpdateData.childCount;
+      }
+      if (filteredUpdateData.infantCount !== undefined) {
+        updateFields.infantCount = filteredUpdateData.infantCount;
+      }
+      if (filteredUpdateData.voucherNumber !== undefined) {
+        updateFields.voucherNumber = filteredUpdateData.voucherNumber;
+      }
+      if (filteredUpdateData.pickupScheduledTime !== undefined) {
+        updateFields.pickupScheduledTime =
+          filteredUpdateData.pickupScheduledTime;
+      }
+      if (filteredUpdateData.bookerName !== undefined) {
+        updateFields.bookerName = filteredUpdateData.bookerName;
+      }
+      if (filteredUpdateData.includesPickup !== undefined) {
+        updateFields.includesPickup = filteredUpdateData.includesPickup;
+      }
+      if (filteredUpdateData.includesDropoff !== undefined) {
+        updateFields.includesDropoff = filteredUpdateData.includesDropoff;
+      }
+      if (filteredUpdateData.requiresPickup !== undefined) {
+        updateFields.requiresPickup = filteredUpdateData.requiresPickup;
+      }
+      if (filteredUpdateData.requiresDropoff !== undefined) {
+        updateFields.requiresDropoff = filteredUpdateData.requiresDropoff;
+      }
+      if (filteredUpdateData.pickupHotel !== undefined) {
+        updateFields.pickupHotel = filteredUpdateData.pickupHotel;
+      }
+      if (filteredUpdateData.dropoffLocation !== undefined) {
+        updateFields.dropoffLocation = filteredUpdateData.dropoffLocation;
+      }
+      if (filteredUpdateData.pickupTime !== undefined) {
+        updateFields.pickupTime = filteredUpdateData.pickupTime;
+      }
+      if (filteredUpdateData.dropoffTime !== undefined) {
+        updateFields.dropoffTime = filteredUpdateData.dropoffTime;
+      }
+      if (filteredUpdateData.voucherCode !== undefined) {
+        updateFields.voucherCode = filteredUpdateData.voucherCode;
+      }
+      if (filteredUpdateData.referenceNo !== undefined) {
+        updateFields.referenceNo = filteredUpdateData.referenceNo;
+      }
+      if (filteredUpdateData.specialRequests !== undefined) {
+        updateFields.specialRequests = filteredUpdateData.specialRequests;
+      }
+
+      // จัดการ referrer ถ้ามีการส่ง newReferrerCode มา
+      let newReferrerCommission = 0;
+      let newStandingCommission = 0;
+
+      if (filteredUpdateData.newReferrerCode !== undefined) {
+        if (filteredUpdateData.newReferrerCode) {
+          const referrer = await this.referrerRepo.findOne({
+            where: { code: filteredUpdateData.newReferrerCode },
+          });
+          if (referrer) {
+            updateFields.referrerId = referrer.id;
+
+            // ตรวจสอบว่าเป็นออเดอร์ที่ payment ไม่ใช่ PAID และ paymentAmount เท่ากับ totalAmount
+            if (
+              !isPaymentPaid &&
+              filteredUpdateData.paymentAmount !== undefined
+            ) {
+              const paymentAmount =
+                typeof filteredUpdateData.paymentAmount === 'string'
+                  ? parseFloat(filteredUpdateData.paymentAmount)
+                  : filteredUpdateData.paymentAmount;
+
+              // ตรวจสอบว่า paymentAmount เท่ากับ totalAmount หรือไม่
+              if (Math.abs(paymentAmount - order.totalAmount) < 0.01) {
+                // คำนวณ commission ตามประเภทตั๋ว
+                if (isSeatedTicket) {
+                  // ตั๋วนั่ง: referrerCommission 400 ต่อที่นั่ง
+                  const seatCount = order.quantity || 0;
+                  newReferrerCommission = seatCount * 400;
+                } else {
+                  // ตั๋วยืน: standingCommission 300 ต่อตั๋ว (ไม่ว่าเด็กหรือผู้ใหญ่)
+                  const standingAdultQty = order.standingAdultQty || 0;
+                  const standingChildQty = order.standingChildQty || 0;
+                  const totalStandingTickets =
+                    standingAdultQty + standingChildQty;
+                  newStandingCommission = totalStandingTickets * 300;
+                }
+
+                // อัพเดท commission ใน updateFields
+                updateFields.referrerCommission = newReferrerCommission;
+                updateFields.standingCommission = newStandingCommission;
+              }
+            }
+          }
+        } else {
+          updateFields.referrerId = null;
+          // ถ้าลบ referrer ให้ reset commission เป็น 0
+          updateFields.referrerCommission = 0;
+          updateFields.standingCommission = 0;
+        }
+      }
+
+      // จัดการ paymentAmount และตรวจสอบสถานะการชำระเงิน
+      let shouldUpdatePaymentStatus = false;
+      if (filteredUpdateData.paymentAmount !== undefined) {
+        const paymentAmount =
+          typeof filteredUpdateData.paymentAmount === 'string'
+            ? parseFloat(filteredUpdateData.paymentAmount)
+            : filteredUpdateData.paymentAmount;
+
+        // อัพเดท payment.amount
+        if (order.payment) {
+          await this.paymentRepo.update(order.payment.id, {
+            amount: paymentAmount,
+            updatedAt: ThailandTimeHelper.now(),
+          });
+        } else {
+          // สร้าง payment record ใหม่ถ้ายังไม่มี
+          const newPayment = this.paymentRepo.create({
+            amount: paymentAmount,
+            status: PaymentStatus.PENDING,
+            method: order.paymentMethod || PaymentMethod.CASH,
+            createdAt: ThailandTimeHelper.now(),
+            updatedAt: ThailandTimeHelper.now(),
+          });
+          const savedPayment = await this.paymentRepo.save(newPayment);
+
+          // อัพเดต order ให้ลิงค์กับ payment ใหม่
+          await this.orderRepo.update(order.id, {
+            payment: savedPayment,
+          });
+        }
+
+        // ตรวจสอบว่า paymentAmount เท่ากับ totalAmount หรือไม่
+        if (Math.abs(paymentAmount - order.totalAmount) < 0.01) {
+          // ใช้ tolerance สำหรับเลขทศนิยม
+          shouldUpdatePaymentStatus = true;
+          updateFields.status = OrderStatus.PAID;
+        }
+      }
+
+      // อัพเดทข้อมูล order พื้นฐาน
+      await this.orderRepo.update(id, updateFields);
+
+      // อัพเดท payment status ถ้าจำเป็น
+      if (shouldUpdatePaymentStatus && order.payment) {
+        await this.paymentRepo.update(order.payment.id, {
+          status: PaymentStatus.PAID,
+          updatedAt: ThailandTimeHelper.now(),
+        });
+      }
+
+      // Handle different order statuses for seat changes
+      if (newSeatNumbers.length > 0) {
+        switch (order.status) {
+          case OrderStatus.PENDING:
+          case OrderStatus.BOOKED:
+            return await OrderSeatManagementHelper.changePendingBookedSeats(
+              order,
+              newSeatIds,
+              userId,
+              user,
+              this.orderRepo,
+              this.seatBookingRepo,
+              this.seatRepo,
+              this.referrerRepo,
+              this.seatBookingService,
+              this.auditHelperService,
+              this.findById.bind(this),
+              filteredUpdateData.newReferrerCode,
+              filteredUpdateData.newCustomerName,
+              filteredUpdateData.newCustomerPhone,
+              filteredUpdateData.newCustomerEmail,
+              filteredUpdateData.newShowDate,
+            );
+
+          case OrderStatus.PAID:
+            return await OrderSeatManagementHelper.changePaidSeats(
+              order,
+              newSeatIds,
+              userId,
+              user,
+              currentSeatCount,
+              newSeatCount,
+              this.orderRepo,
+              this.seatBookingRepo,
+              this.seatRepo,
+              this.auditHelperService,
+              this.findById.bind(this),
+              filteredUpdateData.newShowDate,
+            );
+
+          default:
+            // ถ้าไม่มีการเปลี่ยนที่นั่งแต่มีการอัพเดทข้อมูลอื่น ๆ
+            break;
+        }
+      }
+
+      // Create audit log สำหรับการอัพเดท
+      await this.auditHelperService.auditOrderAction(
+        AuditAction.UPDATE,
+        id,
+        userId,
+        {
+          ...updateFields,
+          paymentAmount: filteredUpdateData.paymentAmount,
+          statusChanged: shouldUpdatePaymentStatus,
+          newReferrerCode: filteredUpdateData.newReferrerCode,
+          commissionUpdated:
+            newReferrerCommission > 0 || newStandingCommission > 0,
+          newReferrerCommission,
+          newStandingCommission,
+          filteredData:
+            isPaymentPaid && isSeatedTicket
+              ? 'ตัดข้อมูลที่ไม่อนุญาต'
+              : undefined,
+        },
+      );
+
+      // คืนค่าผลลัพธ์
+      const updatedOrder = await this.findById(id);
+
+      // สร้าง message ตามการเปลี่ยนแปลงที่เกิดขึ้น
+      let message = 'อัพเดทข้อมูลสำเร็จ';
+
+      if (shouldUpdatePaymentStatus) {
+        message = 'อัพเดทข้อมูลสำเร็จและเปลี่ยนสถานะเป็น PAID';
+      }
+
+      if (newReferrerCommission > 0 || newStandingCommission > 0) {
+        const commissionInfo = [];
+        if (newReferrerCommission > 0) {
+          commissionInfo.push(
+            `คอมมิชชั่นที่นั่ง: ${newReferrerCommission} บาท`,
+          );
+        }
+        if (newStandingCommission > 0) {
+          commissionInfo.push(`คอมมิชชั่นยืน: ${newStandingCommission} บาท`);
+        }
+        message += ` และอัพเดทคอมมิชชั่น (${commissionInfo.join(', ')})`;
+      }
+
+      // เพิ่ม seatLimitMessage ถ้ามี
+      if (seatLimitMessage) {
+        message += seatLimitMessage;
+      }
+
+      return {
+        success: true,
+        message,
+        updatedOrder,
+      };
     } catch (err: any) {
       this.logger.error('Change seats failed:', err);
       return {
