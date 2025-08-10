@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, Repository } from 'typeorm';
+import { Between, Repository, In } from 'typeorm';
 import { Referrer } from './referrer.entity';
 import { CreateReferrerDto } from './dto/create-referrer.dto';
 import { UpdateReferrerDto } from './dto/update-referrer.dto';
@@ -216,14 +216,14 @@ export class ReferrerService {
   }
 
   async generateReferrerPdf(
-    referrerId: string,
+    referrerIds: string[],
     startDate: string,
     endDate: string,
   ) {
     const orders = await this.orderRepo.find({
       where: {
-        referrerId,
-        status: OrderStatus.PAID,
+        referrerId: In(referrerIds),
+        // status: OrderStatus.PAID,
         createdAt: Between(
           dayjs(startDate).tz('Asia/Bangkok').startOf('day').toDate(),
           dayjs(endDate).tz('Asia/Bangkok').endOf('day').toDate(),
@@ -239,26 +239,34 @@ export class ReferrerService {
       ],
       order: { createdAt: 'ASC' },
     });
-    console.log('orders', orders);
-
+    let totalOrdres = 0;
     const rows = orders
-      .filter((e) => e.status === OrderStatus.PAID)
+      .filter((e) => e.status !== OrderStatus.CANCELLED)
       .map((order) => {
-        const total = +order.total || 0;
-        const commission =
-          Number(order.referrerCommission || 0) +
-          Number(order.standingCommission || 0);
-        const netTotal = total - commission;
-        const commissionStaring = order.standingCommission || 0;
-        const commissionRingside = order.referrerCommission || 0;
         const qty =
           (order.seatBookings?.length || 0) +
           order.standingAdultQty +
           order.standingChildQty;
-        const unitPrice =
-          order.ticketType === 'STANDING'
-            ? commissionStaring
-            : commissionRingside;
+        const rsPrice = 1400;
+        const stdPrice = 1200;
+        const stdChiPrice = 1000;
+
+        let unitPrice = 0;
+        if (order.ticketType === 'STANDING') {
+          unitPrice = stdPrice + order.standingChildQty * stdChiPrice;
+        } else {
+          unitPrice = rsPrice;
+        }
+
+        let netTotal = 0;
+        if (order.ticketType === 'STANDING') {
+          netTotal =
+            order.standingAdultQty * stdPrice +
+            order.standingChildQty * stdChiPrice;
+        } else {
+          netTotal = (order.seatBookings?.length || 0) * rsPrice;
+        }
+        totalOrdres += netTotal;
         return [
           {
             text: dayjs(order.createdAt)
@@ -267,7 +275,7 @@ export class ReferrerService {
             alignment: 'center',
           },
           { text: 'THAI BOXING', alignment: 'center' },
-          { text: order.orderNumber, alignment: 'center' },
+          { text: order.voucherNumber, alignment: 'center' },
           { text: `${qty}`, alignment: 'center' },
           {
             text: unitPrice.toLocaleString(undefined, {
@@ -302,15 +310,12 @@ export class ReferrerService {
       rows.push(emptyRow);
     }
 
-    const total = orders.reduce((sum, o) => sum + +o.total, 0);
-    const commission = orders.reduce(
-      (sum, o) =>
-        sum +
-        Number(o.referrerCommission || 0) +
-        Number(o.standingCommission || 0),
-      0,
-    );
-    const netTotal = total - commission;
+    const total = orders.reduce((sum, o) => sum + +o.actualPaidAmount, 0);
+    // const negrandTotal = orders.reduce(
+    //   (sum, o) => sum + +Number(o.totalAmount),
+    //   0,
+    // );
+    const netTotal = totalOrdres - total;
     const randomInvoice = Math.floor(Math.random() * 900000 + 100000);
 
     const docDefinition = {
@@ -334,33 +339,47 @@ export class ReferrerService {
         },
         {
           table: {
-            widths: ['*', 'auto'], // ซ้ายขวา
+            widths: ['auto', '*', 'auto'],
             body: [
               [
                 {
-                  stack: [
-                    {
-                      text: 'Invoice',
-                      alignment: 'center',
-                      bold: true,
-                      fontSize: 20,
-                      margin: [0, 0, 0, 4],
-                    },
-                    {
-                      text: `DATE ${dayjs(startDate).tz('Asia/Bangkok').format('D MMMM YYYY').toUpperCase()}`,
-                      bold: true,
-                      margin: [0, 0, 0, 0], //ซ บ ข ล
-                    },
-                    { text: orders[0]?.referrer?.name, bold: true },
-                    { text: 'PHUKET THAILAND', bold: true },
-                  ],
+                  text: orders[0]?.referrer?.name || '',
+                  bold: true,
+                  alignment: 'left',
+                  fontSize: 20,
+                },
+                {
+                  text: 'Invoice',
+                  alignment: 'center',
+                  bold: true,
+                  fontSize: 20,
                 },
                 {
                   text: `NO. ${randomInvoice}`,
                   alignment: 'right',
                   bold: true,
-                  margin: [0, 20, 0, 0],
+                  fontSize: 20,
                 },
+              ],
+              [
+                {
+                  text: `DATE ${dayjs(startDate).tz('Asia/Bangkok').format('D MMMM YYYY').toUpperCase()}`,
+                  colSpan: 3,
+                  alignment: 'left',
+                  bold: true,
+                },
+                {},
+                {},
+              ],
+              [
+                {
+                  text: 'PHUKET THAILAND',
+                  colSpan: 3,
+                  alignment: 'left',
+                  bold: true,
+                },
+                {},
+                {},
               ],
             ],
           },
@@ -417,7 +436,253 @@ export class ReferrerService {
                   alignment: 'center',
                 },
                 {
-                  text: `${total.toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
+                  text: `- ${total.toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
+                  alignment: 'right',
+                  color: 'red',
+                },
+              ],
+              [
+                {
+                  text: ThaiBahtText(netTotal),
+                  bold: true,
+                  alignment: 'center',
+                },
+                {
+                  text: `${netTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
+                  alignment: 'right',
+                },
+              ],
+            ],
+          },
+          layout: {
+            hLineWidth: () => 0.5,
+            vLineWidth: () => 0.5,
+          },
+        },
+      ],
+      defaultStyle: {
+        font: 'THSarabunNew',
+        fontSize: 14,
+      },
+    };
+
+    return await createPdfBuffer(docDefinition);
+  }
+
+  async generateReferrerPdfByOrderIds(orderIds: string[]) {
+    const orders = await this.orderRepo.find({
+      where: {
+        id: In(orderIds),
+      },
+      relations: [
+        'user',
+        'payment',
+        'payment.user',
+        'seatBookings',
+        'seatBookings.seat',
+        'referrer',
+      ],
+      order: { createdAt: 'ASC' },
+    });
+
+    let totalOrdres = 0;
+    const rows = orders
+      .filter((e) => e.status !== OrderStatus.CANCELLED)
+      .map((order) => {
+        const qty =
+          (order.seatBookings?.length || 0) +
+          order.standingAdultQty +
+          order.standingChildQty;
+        const rsPrice = 1400;
+        const stdPrice = 1200;
+        const stdChiPrice = 1000;
+
+        let unitPrice = 0;
+        if (order.ticketType === 'STANDING') {
+          unitPrice = stdPrice + order.standingChildQty * stdChiPrice;
+        } else {
+          unitPrice = rsPrice;
+        }
+
+        let netTotal = 0;
+        if (order.ticketType === 'STANDING') {
+          netTotal =
+            order.standingAdultQty * stdPrice +
+            order.standingChildQty * stdChiPrice;
+        } else {
+          netTotal = (order.seatBookings?.length || 0) * rsPrice;
+        }
+        totalOrdres += netTotal;
+        return [
+          {
+            text: dayjs(order.createdAt)
+              .tz('Asia/Bangkok')
+              .format('DD/MM/YYYY'),
+            alignment: 'center',
+          },
+          { text: 'THAI BOXING', alignment: 'center' },
+          { text: order.voucherNumber, alignment: 'center' },
+          { text: `${qty}`, alignment: 'center' },
+          {
+            text: unitPrice.toLocaleString(undefined, {
+              minimumFractionDigits: 2,
+            }),
+            alignment: 'right',
+          },
+          {
+            text: netTotal.toLocaleString(undefined, {
+              minimumFractionDigits: 2,
+            }),
+            alignment: 'right',
+          },
+        ];
+      });
+
+    const MAX_ROWS = 124;
+    const emptyRow = [
+      { text: '', alignment: 'center' },
+      { text: '', alignment: 'center' },
+      { text: '', alignment: 'center' },
+      { text: '', alignment: 'center' },
+      { text: '', alignment: 'right' },
+      { text: '', alignment: 'right' },
+    ];
+
+    const offset = rows.length * 5;
+
+    const rowsToFill = Math.max(0, MAX_ROWS - rows.length - offset);
+
+    for (let i = 0; i < rowsToFill; i++) {
+      rows.push(emptyRow);
+    }
+
+    const total = orders.reduce((sum, o) => sum + +o.actualPaidAmount, 0);
+    // const negrandTotal = orders.reduce(
+    //   (sum, o) => sum + +Number(o.totalAmount),
+    //   0,
+    // );
+    const netTotal = totalOrdres - total;
+    const randomInvoice = Math.floor(Math.random() * 900000 + 100000);
+
+    const docDefinition = {
+      pageOrientation: 'portrait',
+      pageMargins: [20, 40, 20, 30], // เว้นขอบ ซ บ ข ล
+      content: [
+        {
+          text: 'BOXING STADIUM PATONG BEACH',
+          alignment: 'center',
+          bold: true,
+          fontSize: 45,
+          margin: [0, 0, 0, 2],
+        },
+        {
+          text:
+            '2/59 Soi Keb Sub 2, Sai Nam Yen RD, Patong Beach, Phuket 83150\n' +
+            'Tel. 076-345578, 086-4761724, 080-5354042',
+          alignment: 'center',
+          fontSize: 20,
+          margin: [0, -10, 0, 0], //ซ บ ข ล
+        },
+        {
+          table: {
+            widths: ['auto', '*', 'auto'],
+            body: [
+              [
+                {
+                  text: orders[0]?.referrer?.name || '',
+                  bold: true,
+                  alignment: 'left',
+                  fontSize: 20,
+                },
+                {
+                  text: 'Invoice',
+                  alignment: 'center',
+                  bold: true,
+                  fontSize: 20,
+                },
+                {
+                  text: `NO. ${randomInvoice}`,
+                  alignment: 'right',
+                  bold: true,
+                  fontSize: 20,
+                },
+              ],
+              [
+                {
+                  text: `DATE ${dayjs(new Date()).tz('Asia/Bangkok').format('D MMMM YYYY').toUpperCase()}`,
+                  colSpan: 3,
+                  alignment: 'left',
+                  bold: true,
+                },
+                {},
+                {},
+              ],
+              [
+                {
+                  text: 'PHUKET THAILAND',
+                  colSpan: 3,
+                  alignment: 'left',
+                  bold: true,
+                },
+                {},
+                {},
+              ],
+            ],
+          },
+          layout: {
+            hLineWidth: (i) => {
+              // แสดงเฉพาะเส้นขอบบนเท่านั้น
+              return i === 0 ? 0.5 : 0;
+            },
+
+            vLineWidth: (i, node) => {
+              // ซ้ายสุด (i=0) และขวาสุด (i=columns.length): แสดงเส้น
+              // คอลัมน์ตรงกลาง (i=1): ไม่ต้องแสดง
+              return i === 0 || i === node.table.widths.length ? 0.5 : 0;
+            },
+          },
+          margin: [0, 0, 0, 0],
+        },
+        {
+          table: {
+            headerRows: 1,
+            widths: ['15%', '15%', '20%', '10%', '20%', '20%'],
+            body: [
+              [
+                { text: 'วันที่', bold: true, alignment: 'center' },
+                { text: 'รายการ', bold: true, alignment: 'center' },
+                { text: 'V/C', bold: true, alignment: 'center' },
+                { text: 'จำนวน', bold: true, alignment: 'center' },
+                { text: 'ราคา', bold: true, alignment: 'center' },
+                { text: 'ราคารวม', bold: true, alignment: 'center' },
+              ],
+              ...rows,
+            ],
+          },
+          layout: {
+            hLineWidth: (i) => {
+              // เฉพาะ header บนเท่านั้น
+              return i === 0 || i === 1 ? 0.5 : 0;
+            },
+            vLineWidth: () => 0.5,
+            hLineColor: () => '#000000',
+            vLineColor: () => '#000000',
+          },
+        },
+        {
+          margin: [0, 0, 0, 0],
+          table: {
+            widths: ['*', '*'],
+            body: [
+              [
+                {
+                  text: 'CASH ON TOUR',
+                  bold: true,
+                  color: 'red',
+                  alignment: 'center',
+                },
+                {
+                  text: `- ${total.toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
                   alignment: 'right',
                   color: 'red',
                 },

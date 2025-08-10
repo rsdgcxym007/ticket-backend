@@ -14,6 +14,7 @@ import {
 import { ReferrerService } from './referrer.service';
 import { CreateReferrerDto } from './dto/create-referrer.dto';
 import { UpdateReferrerDto } from './dto/update-referrer.dto';
+import { ExportPdfByOrderIdsOnlyDto } from './dto/export-pdf-by-order-ids-only.dto';
 import { ApiResponseHelper } from '../common/utils';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { OrderService } from '../order/order.service';
@@ -92,7 +93,7 @@ export class ReferrerController {
     @Res() res: Response,
   ) {
     const buffer = await this.service.generateReferrerPdf(
-      id,
+      [id],
       startDate,
       endDate,
     );
@@ -100,6 +101,38 @@ export class ReferrerController {
     res.setHeader(
       'Content-Disposition',
       `attachment; filename=referrer-report-${startDate}_to_${endDate}.pdf`,
+    );
+    // ปรับ CORS ให้รองรับ credentials และ whitelist origin
+    const allowedOrigins = [
+      'http://43.229.133.51:3000',
+      'http://localhost:3000',
+    ];
+    const reqOrigin = (res.req as any)?.headers?.origin;
+    if (allowedOrigins.includes(reqOrigin)) {
+      res.setHeader('Access-Control-Allow-Origin', reqOrigin);
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+    }
+    res.send(buffer);
+  }
+
+  @Post('export-pdf-by-orders')
+  async exportReferrerPdfByOrders(
+    @Body() body: ExportPdfByOrderIdsOnlyDto,
+    @Res() res: Response,
+  ) {
+    if (!body.orderIds || body.orderIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'กรุณาระบุ order IDs',
+      });
+    }
+    const buffer = await this.service.generateReferrerPdfByOrderIds(
+      body.orderIds,
+    );
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename=orders-report.pdf`,
     );
     // ปรับ CORS ให้รองรับ credentials และ whitelist origin
     const allowedOrigins = [
@@ -123,9 +156,41 @@ export class ReferrerController {
     @Res() res: Response,
   ) {
     const buffer = await this.service.generateReferrerPdf(
-      id,
+      [id],
       startDate,
       endDate,
+    );
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline; filename="referrer.pdf"');
+    // ปรับ CORS ให้รองรับ credentials และ whitelist origin
+    const allowedOrigins = [
+      'http://43.229.133.51:3000',
+      'http://localhost:3000',
+    ];
+    const reqOrigin = (res.req as any)?.headers?.origin;
+    if (allowedOrigins.includes(reqOrigin)) {
+      res.setHeader('Access-Control-Allow-Origin', reqOrigin);
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+    }
+    res.send(buffer);
+  }
+
+  @Post('preview-pdf-by-orders')
+  @Header('Content-Type', 'application/pdf')
+  async previewReferrerPdfByOrders(
+    @Body() body: ExportPdfByOrderIdsOnlyDto,
+    @Res() res: Response,
+  ) {
+    if (!body.orderIds || body.orderIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'กรุณาระบุ order IDs',
+      });
+    }
+
+    const buffer = await this.service.generateReferrerPdfByOrderIds(
+      body.orderIds,
     );
 
     res.setHeader('Content-Type', 'application/pdf');
@@ -166,10 +231,6 @@ export class ReferrerController {
     @Param('orderId') orderId: string,
     @Res() res: Response,
   ) {
-    // ดึง tickets จาก orderService.generateTickets
-    // NOTE: ต้องระบุ userId (เช่น จาก req.user.id หรือ null ถ้าไม่ใช้ auth)
-    // ดึง userId จาก order
-    // ใช้ public method ใน OrderService เพื่อดึง order
     const order = await this.orderService.getOrderById(orderId);
     const userId = order ? order.userId : null;
     if (!userId)
