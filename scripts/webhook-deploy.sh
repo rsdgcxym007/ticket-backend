@@ -1,7 +1,18 @@
 #!/bin/bash
 
 # Auto-deployment script for webhook triggers
-# This script should be called by your webhook system when code is pushed
+# This script   # Install dependencies and build manually for webhook deployment
+  log "📦 Installing dependencies..."
+  npm cache clean --force || log "Cache clean failed"
+  
+  # Clean install to ensure dev dependencies are included
+  rm -rf node_modules package-lock.json || log "Clean failed"
+  NODE_ENV=development npm install || error_exit "npm install failed"
+  
+  # Verify @nestjs/cli is available
+  if [ ! -f "node_modules/.bin/nest" ]; then
+    error_exit "@nestjs/cli not found after clean install"
+  ficalled by your webhook system when code is pushed
 
 set -e  # Exit on any error
 
