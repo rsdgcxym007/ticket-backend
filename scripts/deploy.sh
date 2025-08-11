@@ -1,7 +1,4 @@
 #!/bin/bash
-
-# #!/bin/bash
-
 # Universal Deployment Script for Ticket Backend
 # Supports multiple deployment modes and environments
 
@@ -66,7 +63,7 @@ quick_deploy() {
   cd "$PROJECT_DIR" || error_exit "Failed to cd to project folder"
   
   git pull origin "$BRANCH" || error_exit "git pull failed"
-  npm install --production || error_exit "npm install failed"
+  npm install || error_exit "npm install failed"
   npm run build || error_exit "Build failed"
   pm2 restart "$PM2_APP_NAME" || error_exit "PM2 restart failed"
 
@@ -103,7 +100,7 @@ full_deploy() {
   # Install and build
   npm cache clean --force
   rm -rf node_modules package-lock.json
-  npm install --production || error_exit "npm install failed"
+  npm install || error_exit "npm install failed"
   npm run build || error_exit "Build failed"
   
   # Start application
