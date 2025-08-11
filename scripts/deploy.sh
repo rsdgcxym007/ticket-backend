@@ -65,7 +65,10 @@ quick_deploy() {
   git pull origin "$BRANCH" || error_exit "git pull failed"
   npm install || error_exit "npm install failed"
   npm run build || error_exit "Build failed"
-  pm2 restart "$PM2_APP_NAME" || error_exit "PM2 restart failed"
+  
+  # Restart safely
+  pm2 stop "$PM2_APP_NAME" 2>/dev/null || log "No running process to stop"
+  pm2 start ecosystem.config.js --env production || error_exit "PM2 start failed"
 
   COMMIT=$(git log -1 --pretty=format:"%h - %s")
   notify "✅ [Ticket Backend] Quick deploy successful: $COMMIT"
@@ -88,8 +91,10 @@ full_deploy() {
 
   cd "$PROJECT_DIR" || error_exit "Failed to cd to project folder"
   
-  # Stop application
-  pm2 stop "$PM2_APP_NAME" 2>/dev/null || log "PM2 stop failed (process might not be running)"
+  # Stop application completely
+  log "⏹️ Stopping existing application..."
+  pm2 stop "$PM2_APP_NAME" 2>/dev/null || log "No running process to stop"
+  pm2 delete "$PM2_APP_NAME" 2>/dev/null || log "No existing process to delete"
   
   # Update code
   git stash push -m "Auto-stash before deployment $(date)" 2>/dev/null || true

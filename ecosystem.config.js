@@ -6,8 +6,8 @@ module.exports = {
     {
       name: 'ticket-backend-prod',
       script: 'dist/main.js',
-      instances: 2, // 2 instances for 2 CPU cores
-      exec_mode: 'cluster',
+      instances: 1, // Single instance to avoid port conflicts
+      exec_mode: 'fork',
       env: {
         NODE_ENV: 'production',
         PORT: 4001,
