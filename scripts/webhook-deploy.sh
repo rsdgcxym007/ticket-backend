@@ -70,9 +70,25 @@ main() {
     error_exit "Deploy script not found: $SCRIPTS_DIR/deploy.sh"
   fi
   
-  # Run quick deployment
-  log "🚀 Running quick deployment..."
-  "$SCRIPTS_DIR/deploy.sh" quick || error_exit "Quick deployment failed"
+  # Install dependencies and build manually for webhook deployment
+  log "� Installing dependencies..."
+  npm cache clean --force || log "Cache clean failed"
+  npm install || error_exit "npm install failed"
+  
+  log "🛠️ Building application..."
+  # Use direct node_modules path to avoid npx issues
+  if [ -f "node_modules/.bin/nest" ]; then
+    ./node_modules/.bin/nest build || error_exit "Build failed"
+  else
+    # Fallback to global nest if available
+    nest build || error_exit "Build failed - NestJS CLI not found"
+  fi
+  
+  # Restart PM2 process
+  log "🔄 Restarting application..."
+  pm2 stop "$PM2_APP_NAME" 2>/dev/null || log "No running process to stop"
+  pm2 start ecosystem.config.js --env production || error_exit "PM2 start failed"
+  pm2 save || log "PM2 save failed"
   
   # Success notification with commit info
   notify "✅ Auto-deployment completed successfully! New commit: $NEW_COMMIT"
