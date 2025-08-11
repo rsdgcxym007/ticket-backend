@@ -12,7 +12,7 @@ BRANCH="feature/newfunction"
 PM2_APP_NAME="ticket-backend-prod"
 
 # Discord webhook for notifications (optional)
-DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/1267885635092938883/z_OKOzQ7jnzNqe0MxKqZV0qWJ_YGJTFJKQiUlKPFBfElWDYVEaFGy3WfBPkOWZcHYtEQ"
+DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/1401766190879215697/2YJq7JXqFqLBOCCWxTDi9tGe4AgzhNL4ctVeBi7Br5ejUzYAyAhm_4_TKnymqUDJY2c4"
 
 # ANSI color codes for logs
 RED='\033[0;31m'
