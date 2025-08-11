@@ -11,7 +11,7 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 # Configuration
-PROJECT_DIR="/var/www/ticket-backend"
+PROJECT_DIR="/var/www/backend/ticket-backend"
 PM2_APP_NAME="ticket-backend-prod"
 BACKUP_DIR="/var/backups/ticket-backend"
 DISCORD_WEBHOOK="https://discord.com/api/webhooks/1401766190879215697/2YJq7JXqFqLBOCCWxTDi9tGe4AgzhNL4ctVeBi7Br5ejUzYAyAhm_4_TKnymqUDJY2c4"

@@ -15,7 +15,7 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 # Configuration
-PROJECT_DIR="/var/www/ticket-backend"
+PROJECT_DIR="/var/www/backend/ticket-backend"
 PM2_APP_NAME="ticket-backend-prod"
 BRANCH="feature/newfunction"
 
