@@ -1,7 +1,10 @@
 #!/bin/bash
 
 # Auto-deployment Webhook Handler for Ticket Backend
-# This  # Install dependencies and build manually for webhook deployment
+# This  #  # Install dependencies and build manually for webhook deployment
+  log "📦 Installing dependencies..."
+  npm cache clean --force || log "Cache clean failed"
+  npm install --include=dev || error_exit "npm install failed"tall dependencies and build manually for webhook deployment
   log "📦 Installing dependencies..."
   npm cache clean --force || log "Cache clean failed"
   npm install --include=dev || error_exit "npm install failed"ipt should be called by your webhook system when code is pushed
