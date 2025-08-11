@@ -3,6 +3,7 @@ import { Repository } from 'typeorm';
 import { Order } from '../../order/order.entity';
 import { Payment } from '../../payment/payment.entity';
 import { SeatBooking } from '../../seats/seat-booking.entity';
+import { Referrer } from '../../referrer/referrer.entity';
 import { ProgressService } from './progress.service';
 import { OrderExportImportHelper } from '../../order/helpers/order-export-import.helper';
 import {
@@ -88,6 +89,7 @@ export class BatchProcessingService {
     orderRepo: Repository<Order>,
     paymentRepo: Repository<Payment>,
     seatBookingRepo: Repository<SeatBooking>,
+    referrerRepo: Repository<Referrer>,
     userId: string,
     taskId: string,
   ): Promise<ImportUpdateResult> {
@@ -126,6 +128,7 @@ export class BatchProcessingService {
           orderRepo,
           paymentRepo,
           seatBookingRepo,
+          referrerRepo,
           userId,
         );
 

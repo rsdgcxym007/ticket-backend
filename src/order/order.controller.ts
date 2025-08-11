@@ -341,48 +341,36 @@ export class OrderController {
   }
 
   /**
-   * 🔄 เปลี่ยนที่นั่ง
+   * 🔄 เปลี่ยนที่นั่ง / อัพเดทข้อมูลออเดอร์
    */
   @Patch(':id/change-seats')
   @Roles(UserRole.STAFF, UserRole.ADMIN)
-  @ApiOperation({ summary: 'เปลี่ยนที่นั่ง' })
-  @ApiResponse({ status: 200, description: 'เปลี่ยนที่นั่งสำเร็จ' })
-  @ApiResponse({ status: 400, description: 'ไม่สามารถเปลี่ยนที่นั่งได้' })
+  @ApiOperation({ summary: 'เปลี่ยนที่นั่งหรืออัพเดทข้อมูลออเดอร์' })
+  @ApiResponse({ status: 200, description: 'อัพเดทข้อมูลสำเร็จ' })
+  @ApiResponse({ status: 400, description: 'ไม่สามารถอัพเดทข้อมูลได้' })
   async changeSeats(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() changeSeatsDto: ChangeSeatsDto,
     @Req() req: AuthenticatedRequest,
   ) {
-    if (
-      !Array.isArray(changeSeatsDto.seatIds) ||
-      changeSeatsDto.seatIds.length === 0
-    ) {
-      throw new BadRequestException('seatIds must not be empty');
-    }
-
     const result = await this.orderService.changeSeats(
       id,
-      changeSeatsDto, // Pass the entire DTO as updateData
+      changeSeatsDto,
       req.user.id,
     );
 
     if (!result?.success) {
-      throw new BadRequestException(result?.message || 'Change seats failed');
+      throw new BadRequestException(result?.message || 'อัพเดทข้อมูลล้มเหลว');
     }
 
-    const orderObj =
-      (result as any).updatedOrder || (result as any).data || result;
-    const hasValidSeats =
-      (Array.isArray(orderObj?.seatIds) && orderObj.seatIds.length > 0) ||
-      (Array.isArray(orderObj?.seatBookings) &&
-        orderObj.seatBookings.length > 0) ||
-      (Array.isArray(orderObj?.seats) && orderObj.seats.length > 0);
-
-    if (!orderObj?.id || !hasValidSeats) {
-      throw new BadRequestException('Change seats failed: invalid result');
+    // ตรวจสอบว่ามี updatedOrder กลับมาหรือไม่
+    if (!result.updatedOrder?.id) {
+      throw new BadRequestException(
+        'อัพเดทข้อมูลล้มเหลว: ไม่พบข้อมูลออเดอร์ที่อัพเดท',
+      );
     }
 
-    return success(result, 'เปลี่ยนที่นั่งสำเร็จ', req);
+    return success(result, result.message || 'อัพเดทข้อมูลสำเร็จ', req);
   }
 
   /**

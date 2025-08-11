@@ -3,6 +3,7 @@ import { Repository } from 'typeorm';
 import { Order } from '../order.entity';
 import { Payment } from '../../payment/payment.entity';
 import { SeatBooking } from '../../seats/seat-booking.entity';
+import { Referrer } from '../../referrer/referrer.entity';
 import { OrderStatus, BookingStatus, PaymentStatus } from '../../common/enums';
 import { ThailandTimeHelper } from '../../common/utils';
 import * as XLSX from 'xlsx';
@@ -113,6 +114,7 @@ export class OrderExportImportHelper {
     orderRepo: Repository<Order>,
     paymentRepo: Repository<Payment>,
     seatBookingRepo: Repository<SeatBooking>,
+    referrerRepo: Repository<Referrer>,
     userId: string,
   ): Promise<ImportUpdateResult> {
     const result: ImportUpdateResult = {
@@ -130,6 +132,7 @@ export class OrderExportImportHelper {
           orderRepo,
           paymentRepo,
           seatBookingRepo,
+          referrerRepo,
           userId,
         );
 
@@ -169,6 +172,7 @@ export class OrderExportImportHelper {
     orderRepo: Repository<Order>,
     paymentRepo: Repository<Payment>,
     seatBookingRepo: Repository<SeatBooking>,
+    referrerRepo: Repository<Referrer>,
     userId: string,
   ): Promise<{
     orderNumber: string;
@@ -176,9 +180,9 @@ export class OrderExportImportHelper {
     success: boolean;
     error?: string;
   }> {
-    // ค้นหา order
+    // ค้นหา order โดยใช้ id (UUID) ที่ได้จาก Order ID column ใน CSV
     const order = await orderRepo.findOne({
-      where: { orderNumber: data.orderNumber },
+      where: { id: data.orderNumber },
       relations: ['payment', 'seatBookings', 'referrer'],
     });
 
@@ -204,6 +208,7 @@ export class OrderExportImportHelper {
       data,
       updates,
       paymentRepo,
+      referrerRepo,
     );
     if (paymentChanges.length > 0) {
       changes.push(...paymentChanges);
@@ -292,26 +297,24 @@ export class OrderExportImportHelper {
     data: ExportOrderData,
     updates: any,
     paymentRepo: Repository<Payment>,
+    referrerRepo: Repository<Referrer>,
   ): Promise<string[]> {
     const changes: string[] = [];
 
-    // 🔥 ตรวจสอบกรณีพิเศษ: ถ้า actualPaidAmount เท่ากับ totalAmount มาตั้งแต่แรกแล้ว
-    // และยังไม่เคยมีการ import (ไม่ต้องทำอะไร)
+    // 🚫 ตรวจสอบว่าออเดอร์เป็น PAID แล้วหรือไม่ - ถ้าใช่ให้ข้าม
     if (
-      data.actualPaidAmount === data.totalAmount &&
-      !order.lastImportProcessedAt &&
-      order.importProcessCount === 0
+      order.status === OrderStatus.PAID ||
+      order.status === OrderStatus.CANCELLED
     ) {
-      changes.push('equal_amounts_skip_initial');
+      changes.push('order_already_paid_skip');
       console.log(
-        `💡 Order ${
-          order.orderNumber || order.id
-        } has equal amounts from start, no import needed`,
+        `⚠️ Order ${order.orderNumber || order.id} is already PAID, skipping import update`,
       );
       return changes;
     }
 
-    // อัปเดท actualPaidAmount
+    // อัปเดท actualPaidAmount (ยกเลิก logic skip กรณี equal amounts)
+    // เพราะผู้ใช้อาจต้องการ import ข้อมูลที่แก้ไขใหม่
     if (
       data.actualPaidAmount !== undefined &&
       data.actualPaidAmount !== order.actualPaidAmount
@@ -321,31 +324,12 @@ export class OrderExportImportHelper {
 
       // 🔥 โลจิกใหม่: ถ้า paymentAmount เท่ากับ totalAmount ให้ทำการอัปเดต
       if (data.actualPaidAmount === data.totalAmount) {
-        // 🛡️ ตรวจสอบว่าออเดอร์นี้เคยถูกอัปเดตแล้วหรือไม่
-        const isAlreadyPaid = order.status === OrderStatus.PAID;
-        const isAlreadyVerified = order.paymentAmountVerified === true;
-        const paymentAlreadyUpdated =
-          order.payment?.status === PaymentStatus.PAID;
-
-        // ถ้าเคยอัปเดตแล้วให้ข้ามการประมวลผล
-        if (isAlreadyPaid && isAlreadyVerified && paymentAlreadyUpdated) {
-          changes.push('already_processed_skip');
-          console.log(
-            `⚠️ Order ${
-              order.orderNumber || order.id
-            } already processed as PAID, skipping update`,
-          );
-          return changes;
-        }
-
         updates.paymentAmountVerified = true;
         changes.push('payment_verified');
 
-        // 🎯 อัปเดท Order Status เป็น PAID (เฉพาะถ้ายังไม่เป็น PAID)
-        if (!isAlreadyPaid) {
-          updates.status = OrderStatus.PAID;
-          changes.push('status_paid');
-        }
+        // 🎯 อัปเดท Order Status เป็น PAID
+        updates.status = OrderStatus.PAID;
+        changes.push('status_paid');
 
         // 💰 คำนวณ payment amount ที่ต้องบันทึกใน payment entity
         // (เพิ่มค่าเสื้อกลับเข้าไป - ตรงข้ามกับตอน export)
@@ -361,18 +345,18 @@ export class OrderExportImportHelper {
         const sittingQty = ringsideQty + stadiumQty;
 
         if (order.ticketType === 'STANDING' && standingQty > 0) {
-          // ตั๋วยืน: บวก 400 ต่อตั๋ว
-          finalPaymentAmount = data.actualPaidAmount + standingQty * 400;
+          // ตั๋วยืน: บวก 300 ต่อตั๋ว
+          finalPaymentAmount = data.actualPaidAmount + standingQty * 300;
         } else if (
           (order.ticketType === 'RINGSIDE' || order.ticketType === 'STADIUM') &&
           sittingQty > 0
         ) {
-          // ตั๋วนั่ง: บวก 300 ต่อตั๋ว
-          finalPaymentAmount = data.actualPaidAmount + sittingQty * 300;
+          // ตั๋วนั่ง: บวก 400 ต่อตั๋ว
+          finalPaymentAmount = data.actualPaidAmount + sittingQty * 400;
         }
 
-        // อัปเดท payment entity พร้อมจำนวนเงินที่ปรับแล้ว (เฉพาะถ้าไม่เคยอัปเดต)
-        if (order.payment && !paymentAlreadyUpdated) {
+        // อัปเดท payment entity พร้อมจำนวนเงินที่ปรับแล้ว
+        if (order.payment) {
           await paymentRepo.update(order.payment.id, {
             amount: finalPaymentAmount,
             status: PaymentStatus.PAID,
@@ -384,39 +368,74 @@ export class OrderExportImportHelper {
               order.orderNumber || order.id
             }: ${data.actualPaidAmount} → ${finalPaymentAmount}`,
           );
-        } else if (order.payment && paymentAlreadyUpdated) {
-          changes.push('payment_already_paid_skip');
-          console.log(
-            `⚠️ Payment for order ${
-              order.orderNumber || order.id
-            } already PAID, skipping payment update`,
-          );
         }
 
-        // 🏆 อัปเดตค่าคอมมิชชั่นถ้ามีผู้แนะนำ
-        if (order.referrer) {
+        // 🏆 อัปเดตค่าคอมมิชชั่นถ้ามี referrerCode
+        if (order.referrerCode) {
+          console.log(
+            `💼 Processing commission for order ${order.orderNumber || order.id} with referrer code: ${order.referrerCode}`,
+          );
+
           // คำนวณค่าคอมมิชชั่นใหม่ตามประเภทตั๋ว
           let referrerCommission = 0;
           let standingCommission = 0;
 
           if (order.ticketType === 'STANDING') {
-            standingCommission = standingQty * 100; // ตั๋วยืน 100 บาทต่อใบ
+            // ตั๋วยืน: 300 บาทต่อตั๋ว
+            standingCommission = standingQty * 300;
             updates.standingCommission = standingCommission;
+            console.log(
+              `📊 Standing commission updated: ${standingQty} tickets × 300 = ${standingCommission} บาท`,
+            );
           } else if (
             order.ticketType === 'RINGSIDE' ||
             order.ticketType === 'STADIUM'
           ) {
-            referrerCommission = sittingQty * 150; // ตั๋วนั่ง 150 บาทต่อใบ
+            // ตั๋วนั่ง: 400 บาทต่อตั๋ว
+            referrerCommission = sittingQty * 400;
             updates.referrerCommission = referrerCommission;
+            console.log(
+              `📊 Referrer commission updated: ${sittingQty} tickets × 400 = ${referrerCommission} บาท`,
+            );
           }
 
-          changes.push('commission_updated');
+          // ❗ อัปเดท referrer entity ด้วย
+          if (referrerRepo && order.referrer?.id) {
+            try {
+              const currentReferrer = await referrerRepo.findOne({
+                where: { id: order.referrer.id },
+              });
+
+              if (currentReferrer) {
+                const totalCommissionToAdd =
+                  referrerCommission + standingCommission;
+                await referrerRepo.update(order.referrer.id, {
+                  totalCommission:
+                    (currentReferrer.totalCommission || 0) +
+                    totalCommissionToAdd,
+                  updatedAt: ThailandTimeHelper.now(),
+                });
+                changes.push('referrer_commission_updated');
+                console.log(
+                  `💰 Referrer total commission updated: +${totalCommissionToAdd} บาท`,
+                );
+              }
+            } catch (error) {
+              console.error(
+                `❌ Failed to update referrer commission: ${error.message}`,
+              );
+            }
+          }
+
+          changes.push('commission');
         }
 
         // 📝 บันทึก timestamp ของการ import เพื่อป้องกันการอัปเดตซ้ำ
         updates.lastImportProcessedAt = ThailandTimeHelper.now();
         updates.importProcessCount = (order.importProcessCount || 0) + 1;
         changes.push('import_timestamp_recorded');
+      } else {
+        changes.push('payment_amount_partial');
       }
     }
 
@@ -531,13 +550,154 @@ export class OrderExportImportHelper {
   }
 
   /**
+   * แปลง Thai headers เป็น English field names
+   */
+  private static mapThaiHeadersToEnglish(rawData: any[]): ExportOrderData[] {
+    const logger = new Logger('HeaderMapper');
+
+    // รองรับ header variations ที่อาจเกิดขึ้นใน Excel/CSV
+    const headerMapping = {
+      'Order ID': 'id',
+      'NO.': 'sequenceNumber',
+      ชื่อเอเย่นต์: 'referrerName',
+      RS: 'ringsideQty',
+      STD: 'standingQty',
+      CH: 'standingChildQty',
+      'ราคามวย RS': 'ringsidePrice',
+      'ราคามวย STD': 'standingPrice',
+      'ราคามวย CHI': 'standingChildPrice',
+      เสื้อ: 'shirtPrice',
+      'เสื้อ F': 'shirtFree',
+      เงินทัวร์: 'tourMoney',
+      เสื้อรวม: 'totalShirtPrice',
+      รวม: 'totalAmount',
+      ฟรี: 'freeAmount',
+      ยอดเงิน: 'actualPaidAmount',
+      'No. V/C': 'voucherNumber',
+      // เพิ่ม variations สำหรับ Excel
+      'ยอดเงิน ': 'actualPaidAmount', // มี space ต่อท้าย
+      ' ยอดเงิน': 'actualPaidAmount', // มี space ข้างหน้า
+      ' ยอดเงิน ': 'actualPaidAmount', // มี space ทั้งสองข้าง
+    };
+
+    // สร้าง normalized header mapping (trim spaces, lowercase)
+    const normalizedMapping = {};
+    Object.keys(headerMapping).forEach((key) => {
+      const normalizedKey = key.trim().toLowerCase();
+      normalizedMapping[normalizedKey] = headerMapping[key];
+    });
+
+    if (rawData.length === 0) {
+      logger.warn('⚠️ No raw data to process');
+      return [];
+    }
+
+    logger.log(`📋 Raw data sample (first row): ${JSON.stringify(rawData[0])}`);
+    logger.log(
+      `🗺️ Available headers in mapping: ${Object.keys(headerMapping)}`,
+    );
+
+    return rawData.map((row, index) => {
+      const mappedRow: any = {};
+
+      // Log first row headers for debugging
+      if (index === 0) {
+        logger.log(`📋 Input row headers: ${Object.keys(row)}`);
+      }
+
+      // Map Thai headers to English field names
+      Object.keys(row).forEach((thaiHeader) => {
+        const normalizedHeader = thaiHeader.trim().toLowerCase();
+        const englishField =
+          headerMapping[thaiHeader] || normalizedMapping[normalizedHeader];
+
+        if (englishField) {
+          let value = row[thaiHeader];
+
+          // Convert numeric fields
+          if (
+            [
+              'actualPaidAmount',
+              'totalAmount',
+              'ringsideQty',
+              'standingQty',
+              'standingChildQty',
+            ].includes(englishField)
+          ) {
+            value =
+              value === '' || value === null || value === undefined
+                ? 0
+                : Number(value);
+          }
+
+          // Convert time fields - empty strings should be null
+          if (englishField === 'pickupScheduledTime') {
+            value =
+              value === '' || value === null || value === undefined
+                ? null
+                : value;
+          }
+
+          mappedRow[englishField] = value;
+
+          // Log mapping for critical fields
+          if (englishField === 'actualPaidAmount' && index < 3) {
+            logger.log(
+              `💰 Mapped "${thaiHeader}" → "${englishField}": ${value}`,
+            );
+          }
+        } else {
+          // Log unmapped headers for debugging
+          if (index === 0) {
+            logger.warn(`⚠️ Unmapped header: "${thaiHeader}"`);
+          }
+        }
+      });
+
+      // Set required defaults for ExportOrderData interface
+      return {
+        orderNumber: mappedRow.id || '', // Use id as orderNumber for search
+        customerName: '',
+        customerPhone: '',
+        customerEmail: '',
+        ticketType: '',
+        quantity:
+          (mappedRow.ringsideQty || 0) +
+          (mappedRow.standingQty || 0) +
+          (mappedRow.standingChildQty || 0),
+        totalAmount: mappedRow.totalAmount || 0,
+        actualPaidAmount: mappedRow.actualPaidAmount || 0,
+        paymentAmountVerified: false,
+        status: '',
+        paymentMethod: '',
+        showDate: '',
+        hotelName: '',
+        hotelDistrict: '',
+        roomNumber: '',
+        adultCount: 0,
+        childCount: 0,
+        infantCount: 0,
+        voucherNumber: mappedRow.voucherNumber || '',
+        pickupScheduledTime: null,
+        bookerName: '',
+        includesPickup: false,
+        includesDropoff: false,
+        referrerCode: '',
+        referrerCommission: 0,
+        standingCommission: 0,
+        ...mappedRow,
+      } as ExportOrderData;
+    });
+  }
+
+  /**
    * Parse ไฟล์ CSV/Excel จาก buffer แล้วแปลงเป็น import data
    */
   static async parseFileBuffer(
     buffer: Buffer,
     mimeType: string,
     filename: string,
-  ): Promise<any[]> {
+  ): Promise<ExportOrderData[]> {
     const logger = new Logger('OrderExportImportHelper');
     logger.log(`📄 Parsing file: ${filename} (${mimeType})`);
 
@@ -558,8 +718,11 @@ export class OrderExportImportHelper {
         throw new Error(`Unsupported file type: ${mimeType}`);
       }
 
-      logger.log(`✅ Parsed ${parsedData.length} rows from file`);
-      return parsedData;
+      // Convert Thai headers to English field names
+      const mappedData = this.mapThaiHeadersToEnglish(parsedData);
+
+      logger.log(`✅ Parsed and mapped ${mappedData.length} rows from file`);
+      return mappedData;
     } catch (error) {
       logger.error(`❌ Error parsing file: ${error.message}`);
       throw new Error(`Failed to parse file: ${error.message}`);
@@ -601,34 +764,49 @@ export class OrderExportImportHelper {
    * Parse Excel buffer
    */
   private static async parseExcelBuffer(buffer: Buffer): Promise<any[]> {
-    const workbook = XLSX.read(buffer, { type: 'buffer' });
-    const sheetName = workbook.SheetNames[0];
-    const worksheet = workbook.Sheets[sheetName];
+    const logger = new Logger('ExcelParser');
 
-    // แปลงเป็น JSON
-    const jsonData = XLSX.utils.sheet_to_json(worksheet, {
-      header: 1,
-      defval: '',
-    });
-
-    if (jsonData.length === 0) {
-      throw new Error('ไฟล์ Excel ไม่มีข้อมูล');
-    }
-
-    // ใช้แถวแรกเป็น header
-    const headers = jsonData[0] as string[];
-    const rows = jsonData.slice(1) as any[][];
-
-    // แปลงเป็น object array
-    const result = rows.map((row) => {
-      const obj: any = {};
-      headers.forEach((header, index) => {
-        obj[header] = row[index] || '';
+    try {
+      const workbook = XLSX.read(buffer, {
+        type: 'buffer',
+        cellText: false,
+        cellDates: true,
       });
-      return obj;
-    });
 
-    return result;
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+
+      logger.log(`📊 Excel sheet name: ${sheetName}`);
+
+      // ใช้ sheet_to_json แทน header: 1 เพื่อให้ได้ object ที่สมบูรณ์
+      const jsonData = XLSX.utils.sheet_to_json(worksheet, {
+        defval: '',
+        raw: false, // แปลงทุกอย่างเป็น string
+      });
+
+      if (jsonData.length === 0) {
+        throw new Error('ไฟล์ Excel ไม่มีข้อมูล');
+      }
+
+      logger.log(
+        `📋 Excel headers from first row: ${Object.keys(jsonData[0])}`,
+      );
+      logger.log(`📊 Excel data rows: ${jsonData.length}`);
+
+      // Log first few rows for debugging
+      if (jsonData.length > 0) {
+        logger.log(`📋 First row data: ${JSON.stringify(jsonData[0])}`);
+      }
+      if (jsonData.length > 1) {
+        logger.log(`📋 Second row data: ${JSON.stringify(jsonData[1])}`);
+      }
+
+      logger.log(`✅ Parsed ${jsonData.length} rows from Excel`);
+      return jsonData;
+    } catch (error) {
+      logger.error(`❌ Excel parsing error: ${error.message}`);
+      throw new Error(`Failed to parse Excel file: ${error.message}`);
+    }
   }
 
   /**
@@ -641,6 +819,7 @@ export class OrderExportImportHelper {
     orderRepo: Repository<Order>,
     paymentRepo: Repository<Payment>,
     seatBookingRepo: Repository<SeatBooking>,
+    referrerRepo: Repository<Referrer>,
     userId: string,
   ): Promise<ImportUpdateResult> {
     try {
@@ -657,6 +836,7 @@ export class OrderExportImportHelper {
         orderRepo,
         paymentRepo,
         seatBookingRepo,
+        referrerRepo,
         userId,
       );
     } catch (error) {

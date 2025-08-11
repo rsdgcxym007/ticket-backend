@@ -46,7 +46,7 @@ export class OrderSeatManagementHelper {
     this.logger.log(`🔄 Changing seats for PENDING/BOOKED order ${order.id}`);
 
     const oldSeatIds = order.seatBookings?.map((b) => b.seat.id) || [];
-    const oldSeatCount = oldSeatIds.length;
+    // const oldSeatCount = oldSeatIds.length;
     const newSeatCount = newSeatIds.length;
 
     // Determine the show date to use for validation
@@ -151,7 +151,7 @@ export class OrderSeatManagementHelper {
 
     return {
       success: true,
-      message: `เปลี่ยนที่นั่งสำเร็จ จาก ${oldSeatCount} → ${newSeatCount} ที่นั่ง ยอดเงิน ฿${order.totalAmount} → ฿${newPricing.totalAmount}`,
+      message: `อัพเดทข้อมูลเสร็จสิ้น`,
       updatedOrder,
     };
   }
@@ -273,6 +273,11 @@ export class OrderSeatManagementHelper {
    * ตรวจสอบว่าสามารถเปลี่ยนที่นั่งได้หรือไม่
    */
   static validateSeatChangePermissions(user: User, order: Order): void {
+    // For development testing, allow all users to change seats
+    if (process.env.NODE_ENV === 'development') {
+      return;
+    }
+
     // Only staff and admin can change seats
     if (user.role !== UserRole.STAFF && user.role !== UserRole.ADMIN) {
       throw new BadRequestException(
@@ -285,11 +290,12 @@ export class OrderSeatManagementHelper {
       OrderStatus.PENDING,
       OrderStatus.BOOKED,
       OrderStatus.PAID,
+      OrderStatus.PARTIAL_ORDER, // เพิ่ม PARTIAL_ORDER เพื่อให้สามารถแก้ไขได้
     ];
 
     OrderValidationHelper.validateOrderStatusForChanges(order, allowedStatuses);
 
-    // Validate ticket type
-    OrderValidationHelper.validateTicketTypeForSeatChange(order.ticketType);
+    // ไม่ validate ticket type ที่นี่ เพราะอาจจะแค่อัพเดทข้อมูลอื่นๆ โดยไม่เปลี่ยนที่นั่ง
+    // จะ validate ใน logic ที่จัดการ seat changes จริงๆ แทน
   }
 }
