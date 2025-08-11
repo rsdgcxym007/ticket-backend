@@ -44,6 +44,40 @@ error_exit() {
   exit 1
 }
 
+# Attempt to build the project with robust fallbacks
+attempt_build() {
+  # Prebuild clean if script exists
+  if npm run | grep -q "prebuild"; then
+    log "Running prebuild script..."
+    npm run prebuild || log "prebuild failed, continuing"
+  fi
+
+  # Build application using robust fallback chain
+  log "Building application..."
+  NEST_CLI_PATH="./node_modules/.bin/nest"
+  BUILD_OK=0
+  if [ -x "$NEST_CLI_PATH" ]; then
+    "$NEST_CLI_PATH" build && BUILD_OK=1 || BUILD_OK=0
+  fi
+
+  if [ $BUILD_OK -eq 0 ] && [ -f "./node_modules/@nestjs/cli/bin/nest.js" ]; then
+    log "Retrying build via node Nest CLI binary..."
+    node ./node_modules/@nestjs/cli/bin/nest.js build && BUILD_OK=1 || BUILD_OK=0
+  fi
+
+  if [ $BUILD_OK -eq 0 ]; then
+    log "Retrying build via npx @nestjs/cli..."
+    npx --yes @nestjs/cli build && BUILD_OK=1 || BUILD_OK=0
+  fi
+
+  if [ $BUILD_OK -eq 0 ]; then
+    log "Final fallback: building with TypeScript compiler (tsc)..."
+    ./node_modules/.bin/tsc -p tsconfig.build.json && BUILD_OK=1 || BUILD_OK=0
+  fi
+
+  return $BUILD_OK
+}
+
 # Main auto-deployment process
 main() {
   log "Starting auto-deployment from webhook..."
@@ -78,37 +112,20 @@ main() {
   export npm_config_production=false
   npm install --include=dev || error_exit "npm install failed"
   
-  # Prebuild clean if script exists
-  if npm run | grep -q "prebuild"; then
-    log "Running prebuild script..."
-    npm run prebuild || log "prebuild failed, continuing"
-  fi
+  # First build attempt
+  if ! attempt_build; then
+    log "Build failed - cleaning up and retrying once..."
+    # Clean artifacts and reinstall dependencies
+    rm -rf dist || true
+    rm -rf node_modules || true
+    npm cache clean --force || true
+    export npm_config_production=false
+    npm install --include=dev || error_exit "Recovery npm install failed"
 
-  # Build application using robust fallback chain
-  log "Building application..."
-  NEST_CLI_PATH="./node_modules/.bin/nest"
-  BUILD_OK=0
-  if [ -x "$NEST_CLI_PATH" ]; then
-    "$NEST_CLI_PATH" build && BUILD_OK=1 || BUILD_OK=0
-  fi
-
-  if [ $BUILD_OK -eq 0 ] && [ -f "./node_modules/@nestjs/cli/bin/nest.js" ]; then
-    log "Retrying build via node Nest CLI binary..."
-    node ./node_modules/@nestjs/cli/bin/nest.js build && BUILD_OK=1 || BUILD_OK=0
-  fi
-
-  if [ $BUILD_OK -eq 0 ]; then
-    log "Retrying build via npx @nestjs/cli..."
-    npx --yes @nestjs/cli build && BUILD_OK=1 || BUILD_OK=0
-  fi
-
-  if [ $BUILD_OK -eq 0 ]; then
-    log "Final fallback: building with TypeScript compiler (tsc)..."
-    ./node_modules/.bin/tsc -p tsconfig.build.json && BUILD_OK=1 || BUILD_OK=0
-  fi
-
-  if [ $BUILD_OK -ne 1 ]; then
-    error_exit "Build failed via all methods"
+    # Retry build once more
+    if ! attempt_build; then
+      error_exit "Build failed after recovery"
+    fi
   fi
   
   # Restart PM2 process
