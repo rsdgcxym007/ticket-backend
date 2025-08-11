@@ -6,7 +6,7 @@
 set -e  # Exit on any error
 
 # Configuration
-PROJECT_DIR="/var/www/backend/ticket-backend"
+PROJECT_DIR="${PROJECT_DIR:-$(pwd)}"
 SCRIPTS_DIR="$PROJECT_DIR/scripts"
 BRANCH="feature/newfunction"
 PM2_APP_NAME="ticket-backend-prod"

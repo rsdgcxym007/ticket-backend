@@ -40,6 +40,7 @@ import { ScalabilityModule } from './scalability/scalability.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { StaffModule } from './staff/staff.module';
 
 // import { NotificationModule } from './notifications/notification.module';
 // import { UploadModule } from './upload/upload.module';
@@ -123,6 +124,7 @@ import { DashboardModule } from './dashboard/dashboard.module';
     ZoneModule,
     ReferrerModule,
     DashboardModule,
+    StaffModule,
     // ========================================
     // 🔧 FEATURE MODULES
     // ========================================

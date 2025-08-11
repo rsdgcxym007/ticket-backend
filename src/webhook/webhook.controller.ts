@@ -128,9 +128,13 @@ export class WebhookController {
     try {
       this.logger.log('Starting background deployment...');
 
-      const { stdout, stderr } = await execAsync(
-        '/var/www/backend/ticket-backend/scripts/webhook-deploy.sh',
-      );
+      // Get the current working directory or use environment variable
+      const projectDir = process.env.PROJECT_DIR || process.cwd();
+      const scriptPath = `${projectDir}/scripts/webhook-deploy.sh`;
+
+      this.logger.log(`Executing deployment script: ${scriptPath}`);
+
+      const { stdout, stderr } = await execAsync(scriptPath);
 
       if (stdout) this.logger.log(`Deployment output: ${stdout}`);
       if (stderr) this.logger.warn(`Deployment warnings: ${stderr}`);
