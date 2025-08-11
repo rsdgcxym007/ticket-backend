@@ -72,13 +72,44 @@ main() {
   chmod +x "$SCRIPTS_DIR"/*.sh 2>/dev/null || log "Warning: Could not set script permissions"
   
   # Install dependencies and build manually for webhook deployment
-  log "Installing dependencies..."
+  log "Installing dependencies (including devDependencies for build)..."
   npm cache clean --force || log "Cache clean failed"
-  npm install || error_exit "npm install failed"
+  # Ensure devDependencies are installed even if production env is set
+  export npm_config_production=false
+  npm install --include=dev || error_exit "npm install failed"
   
-  # Build application using npm script (recommended approach)
+  # Prebuild clean if script exists
+  if npm run | grep -q "prebuild"; then
+    log "Running prebuild script..."
+    npm run prebuild || log "prebuild failed, continuing"
+  fi
+
+  # Build application using robust fallback chain
   log "Building application..."
-  npm run build || error_exit "Build failed - npm run build failed"
+  NEST_CLI_PATH="./node_modules/.bin/nest"
+  BUILD_OK=0
+  if [ -x "$NEST_CLI_PATH" ]; then
+    "$NEST_CLI_PATH" build && BUILD_OK=1 || BUILD_OK=0
+  fi
+
+  if [ $BUILD_OK -eq 0 ] && [ -f "./node_modules/@nestjs/cli/bin/nest.js" ]; then
+    log "Retrying build via node Nest CLI binary..."
+    node ./node_modules/@nestjs/cli/bin/nest.js build && BUILD_OK=1 || BUILD_OK=0
+  fi
+
+  if [ $BUILD_OK -eq 0 ]; then
+    log "Retrying build via npx @nestjs/cli..."
+    npx --yes @nestjs/cli build && BUILD_OK=1 || BUILD_OK=0
+  fi
+
+  if [ $BUILD_OK -eq 0 ]; then
+    log "Final fallback: building with TypeScript compiler (tsc)..."
+    ./node_modules/.bin/tsc -p tsconfig.build.json && BUILD_OK=1 || BUILD_OK=0
+  fi
+
+  if [ $BUILD_OK -ne 1 ]; then
+    error_exit "Build failed via all methods"
+  fi
   
   # Restart PM2 process
   log "Restarting application..."
