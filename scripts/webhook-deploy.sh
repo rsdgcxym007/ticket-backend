@@ -1,7 +1,25 @@
 #!/bin/bash
 
 # Auto-deployment Webhook Handler for Ticket Backend
-# This  #  # Install dependencies and build manually for webhook deployment
+# This  #  #  # Install dependencies and build manually for webhook deployment
+  log "📦 Installing dependencies..."
+  npm cache clean --force || log "Cache clean failed"
+  npm install || error_exit "npm install failed"
+  
+  # Ensure @nestjs/cli is available for build
+  if [ ! -f "node_modules/.bin/nest" ]; then
+    log "🔧 Installing @nestjs/cli for build..."
+    npm install @nestjs/cli --save-dev --force || error_exit "@nestjs/cli install failed"
+  fi
+  
+  log "🛠️ Building application..."
+  # Use direct node_modules path to avoid npx issues
+  if [ -f "node_modules/.bin/nest" ]; then
+    ./node_modules/.bin/nest build || error_exit "Build failed"
+  else
+    # Fallback to global nest if available
+    nest build || error_exit "Build failed - NestJS CLI not found"
+  findencies and build manually for webhook deployment
   log "📦 Installing dependencies..."
   npm cache clean --force || log "Cache clean failed"
   npm install --include=dev || error_exit "npm install failed"tall dependencies and build manually for webhook deployment
