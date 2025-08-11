@@ -27,8 +27,18 @@ export class AuthController {
 
   @Post('login')
   @Throttle({ auth: { limit: 5, ttl: 900000 } }) // 5 login attempts per 15 minutes
-  async login(@Body() dto: LoginDto) {
-    const result = await this.authService.login(dto);
+  async login(@Body() dto: LoginDto, @Req() req: any) {
+    // รับ device และ network information
+    const deviceInfo = req.get('User-Agent') || 'Unknown Device';
+    const ipAddress = req.ip || req.connection?.remoteAddress || 'Unknown IP';
+    const userAgent = req.get('User-Agent');
+
+    const result = await this.authService.login(
+      dto,
+      deviceInfo,
+      ipAddress,
+      userAgent,
+    );
     return ApiResponseHelper.success(result, 'Login successful');
   }
 
@@ -87,5 +97,36 @@ export class AuthController {
       req.user,
       'Profile retrieved successfully',
     );
+  }
+
+  // Logout from current device
+  @UseGuards(JwtAuthGuard)
+  @Post('logout')
+  async logout(@Req() req: any) {
+    const tokenId = req.session?.tokenId;
+    if (tokenId) {
+      await this.authService.logout(tokenId);
+    }
+    return ApiResponseHelper.success(null, 'Logout successful');
+  }
+
+  // Logout from all devices
+  @UseGuards(JwtAuthGuard)
+  @Post('logout-all')
+  async logoutAll(@Req() req: any) {
+    const userId = req.user?.id || req.user?.userId;
+    if (userId) {
+      await this.authService.logoutAll(userId);
+    }
+    return ApiResponseHelper.success(null, 'Logged out from all devices');
+  }
+
+  // Get active sessions
+  @UseGuards(JwtAuthGuard)
+  @Get('sessions')
+  async getSessions(@Req() req: any) {
+    const userId = req.user?.id || req.user?.userId;
+    // Note: SessionService needs to be injected in controller if needed
+    return ApiResponseHelper.success([], 'Active sessions retrieved');
   }
 }
