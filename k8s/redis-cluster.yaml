@@ -1,0 +1,117 @@
+# ==================================
+# 🔴 REDIS CLUSTER CONFIGURATION
+# Enterprise Redis Cluster for Phase 5.3
+# ==================================
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-cluster-config
+  namespace: ticket-system
+data:
+  redis.conf: |
+    cluster-enabled yes
+    cluster-config-file /data/nodes.conf
+    cluster-node-timeout 15000
+    cluster-announce-ip ${POD_IP}
+    cluster-announce-port 6379
+    cluster-announce-bus-port 16379
+    
+    # Memory management
+    maxmemory 512mb
+    maxmemory-policy allkeys-lru
+    
+    # Persistence
+    save 900 1
+    save 300 10
+    save 60 10000
+    
+    # Performance
+    tcp-keepalive 300
+    timeout 0
+    
+    # Security
+    requirepass ${REDIS_PASSWORD}
+    masterauth ${REDIS_PASSWORD}
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis-cluster
+  namespace: ticket-system
+spec:
+  serviceName: redis-cluster-service
+  replicas: 6
+  selector:
+    matchLabels:
+      app: redis-cluster
+  template:
+    metadata:
+      labels:
+        app: redis-cluster
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        command:
+          - redis-server
+          - /etc/redis/redis.conf
+        env:
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: redis-secret
+              key: password
+        ports:
+        - containerPort: 6379
+          name: client
+        - containerPort: 16379
+          name: gossip
+        volumeMounts:
+        - name: redis-config
+          mountPath: /etc/redis
+        - name: redis-data
+          mountPath: /data
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+      volumes:
+      - name: redis-config
+        configMap:
+          name: redis-cluster-config
+  volumeClaimTemplates:
+  - metadata:
+      name: redis-data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 10Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-cluster-service
+  namespace: ticket-system
+spec:
+  type: ClusterIP
+  clusterIP: None
+  selector:
+    app: redis-cluster
+  ports:
+  - port: 6379
+    targetPort: 6379
+    name: client
+  - port: 16379
+    targetPort: 16379
+    name: gossip

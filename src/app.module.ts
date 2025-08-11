@@ -23,15 +23,23 @@ import { ReferrerModule } from './referrer/referrer.module';
 
 import { PerformanceModule } from './performance/performance.module';
 import { TasksModule } from './tasks/tasks.module';
+import { WebhookModule } from './webhook/webhook.module';
 
 // ========================================
 // 🔧 FEATURE MODULES
 // ========================================
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AuditModule } from './audit/audit.module';
-import { ConfigModule as ConfigAppModule } from './config/config.module';
 import { ApiIntegrationModule } from './api-integration/api-integration.module';
-import { StaffModule } from './staff/staff.module';
+import { ApiGatewayModule } from './gateway/api-gateway.module';
+import { ScalabilityModule } from './scalability/scalability.module';
+
+// ========================================
+// 🎮 MAIN CONTROLLERS & SERVICES
+// ========================================
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+import { DashboardModule } from './dashboard/dashboard.module';
 
 // import { NotificationModule } from './notifications/notification.module';
 // import { UploadModule } from './upload/upload.module';
@@ -45,9 +53,6 @@ import { StaffModule } from './staff/staff.module';
 // ========================================
 // 🛠️ SERVICES & CONTROLLERS
 // ========================================
-import { AppController } from './app.controller';
-import { AppService } from './app.service';
-import { DashboardModule } from './dashboard/dashboard.module';
 
 @Module({
   imports: [
@@ -123,11 +128,12 @@ import { DashboardModule } from './dashboard/dashboard.module';
     // ========================================
     AnalyticsModule,
     AuditModule,
-    ConfigAppModule,
+    ApiGatewayModule,
     PerformanceModule,
     TasksModule,
     ApiIntegrationModule,
-    StaffModule,
+    ScalabilityModule,
+    WebhookModule,
 
     // NotificationModule,
     // UploadModule,

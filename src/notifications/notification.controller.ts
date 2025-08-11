@@ -13,6 +13,7 @@ import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
 import { NotificationService } from './notification.service';
 import { success } from '../common/responses';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { Throttle } from '@nestjs/throttler';
 
 @ApiTags('Notifications - ระบบแจ้งเตือน')
 @Controller('notifications')
@@ -89,6 +90,7 @@ export class NotificationController {
   }
 
   @Post('/promotional')
+  @Throttle({ email: { limit: 10, ttl: 3600000 } }) // 10 promotional emails per hour
   @ApiOperation({
     summary: 'ส่งการแจ้งเตือนโปรโมชั่น (Admin)',
     description: 'ส่งการแจ้งเตือนโปรโมชั่นให้ผู้ใช้ทั้งหมด',

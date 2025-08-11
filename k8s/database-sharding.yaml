@@ -1,0 +1,297 @@
+# ==================================
+# 🗄️ DATABASE SHARDING CONFIGURATION
+# PostgreSQL Cluster with Read Replicas
+# ==================================
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-config
+  namespace: ticket-system
+data:
+  postgresql.conf: |
+    # Connection and Authentication
+    listen_addresses = '*'
+    port = 5432
+    max_connections = 200
+    
+    # Memory Configuration
+    shared_buffers = 256MB
+    effective_cache_size = 1GB
+    work_mem = 4MB
+    maintenance_work_mem = 64MB
+    
+    # WAL Configuration for Replication
+    wal_level = replica
+    max_wal_senders = 10
+    max_replication_slots = 10
+    
+    # Performance
+    random_page_cost = 1.1
+    effective_io_concurrency = 200
+    
+    # Logging
+    log_destination = 'stderr'
+    logging_collector = on
+    log_directory = 'pg_log'
+    log_filename = 'postgresql-%Y-%m-%d_%H%M%S.log'
+    log_statement = 'all'
+    log_min_duration_statement = 1000
+    
+  pg_hba.conf: |
+    # TYPE  DATABASE        USER            ADDRESS                 METHOD
+    local   all             all                                     trust
+    host    all             all             127.0.0.1/32            md5
+    host    all             all             ::1/128                 md5
+    host    replication     replicator      0.0.0.0/0               md5
+    host    all             all             0.0.0.0/0               md5
+
+---
+# ==================================
+# PRIMARY DATABASE (SHARD 1)
+# ==================================
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres-primary
+  namespace: ticket-system
+spec:
+  serviceName: postgres-primary-service
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres-primary
+      role: primary
+  template:
+    metadata:
+      labels:
+        app: postgres-primary
+        role: primary
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:15-alpine
+        env:
+        - name: POSTGRES_DB
+          value: "ticket_system_shard1"
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: username
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: password
+        - name: POSTGRES_REPLICATION_USER
+          value: "replicator"
+        - name: POSTGRES_REPLICATION_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: replication-password
+        ports:
+        - containerPort: 5432
+          name: postgres
+        volumeMounts:
+        - name: postgres-config
+          mountPath: /etc/postgresql
+        - name: postgres-data
+          mountPath: /var/lib/postgresql/data
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+      volumes:
+      - name: postgres-config
+        configMap:
+          name: postgres-config
+  volumeClaimTemplates:
+  - metadata:
+      name: postgres-data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 50Gi
+
+---
+# ==================================
+# READ REPLICA 1
+# ==================================
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres-replica-1
+  namespace: ticket-system
+spec:
+  serviceName: postgres-replica-1-service
+  replicas: 2
+  selector:
+    matchLabels:
+      app: postgres-replica-1
+      role: replica
+  template:
+    metadata:
+      labels:
+        app: postgres-replica-1
+        role: replica
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:15-alpine
+        env:
+        - name: PGUSER
+          value: "replicator"
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: replication-password
+        - name: POSTGRES_MASTER_SERVICE
+          value: "postgres-primary-service"
+        command:
+          - /bin/bash
+          - -c
+          - |
+            # Wait for primary to be ready
+            until pg_isready -h $POSTGRES_MASTER_SERVICE -p 5432; do
+              echo "Waiting for primary database..."
+              sleep 2
+            done
+            
+            # Create base backup from primary
+            pg_basebackup -h $POSTGRES_MASTER_SERVICE -D /var/lib/postgresql/data -U replicator -v -P -W
+            
+            # Configure as replica
+            echo "standby_mode = 'on'" >> /var/lib/postgresql/data/recovery.conf
+            echo "primary_conninfo = 'host=$POSTGRES_MASTER_SERVICE port=5432 user=replicator'" >> /var/lib/postgresql/data/recovery.conf
+            
+            # Start PostgreSQL
+            exec postgres
+        ports:
+        - containerPort: 5432
+          name: postgres
+        volumeMounts:
+        - name: postgres-data
+          mountPath: /var/lib/postgresql/data
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+  volumeClaimTemplates:
+  - metadata:
+      name: postgres-data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 20Gi
+
+---
+# ==================================
+# SERVICES
+# ==================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-primary-service
+  namespace: ticket-system
+spec:
+  selector:
+    app: postgres-primary
+    role: primary
+  ports:
+  - port: 5432
+    targetPort: 5432
+  type: ClusterIP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-replica-1-service
+  namespace: ticket-system
+spec:
+  selector:
+    app: postgres-replica-1
+    role: replica
+  ports:
+  - port: 5432
+    targetPort: 5432
+  type: ClusterIP
+
+---
+# ==================================
+# PGBOUNCER FOR CONNECTION POOLING
+# ==================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pgbouncer
+  namespace: ticket-system
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: pgbouncer
+  template:
+    metadata:
+      labels:
+        app: pgbouncer
+    spec:
+      containers:
+      - name: pgbouncer
+        image: pgbouncer/pgbouncer:latest
+        env:
+        - name: DATABASES_HOST
+          value: "postgres-primary-service"
+        - name: DATABASES_PORT
+          value: "5432"
+        - name: DATABASES_USER
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: username
+        - name: DATABASES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: password
+        - name: POOL_MODE
+          value: "transaction"
+        - name: MAX_CLIENT_CONN
+          value: "1000"
+        - name: DEFAULT_POOL_SIZE
+          value: "25"
+        ports:
+        - containerPort: 5432
+          name: pgbouncer
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "200m"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pgbouncer-service
+  namespace: ticket-system
+spec:
+  selector:
+    app: pgbouncer
+  ports:
+  - port: 5432
+    targetPort: 5432
+  type: ClusterIP
