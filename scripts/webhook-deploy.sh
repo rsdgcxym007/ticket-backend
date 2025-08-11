@@ -46,33 +46,64 @@ error_exit() {
 
 # Attempt to build the project with robust fallbacks
 attempt_build() {
+  log "🔨 เริ่มต้นกระบวนการ build..."
+  notify "🔨 Starting build process..."
+  
   # Prebuild clean if script exists
   if npm run | grep -q "prebuild"; then
-    log "Running prebuild script..."
-    npm run prebuild || log "prebuild failed, continuing"
+    log "🧹 Running prebuild script..."
+    notify "🧹 Cleaning previous build..."
+    npm run prebuild || log "⚠️ prebuild failed, continuing"
   fi
 
   # Build application using robust fallback chain
-  log "Building application..."
+  log "📦 Building application with NestJS CLI..."
+  notify "📦 Building application..."
   NEST_CLI_PATH="./node_modules/.bin/nest"
   BUILD_OK=0
+  
   if [ -x "$NEST_CLI_PATH" ]; then
+    log "✅ Using local NestJS CLI..."
     "$NEST_CLI_PATH" build && BUILD_OK=1 || BUILD_OK=0
+    if [ $BUILD_OK -eq 1 ]; then
+      log "✅ Build successful with local NestJS CLI!"
+      notify "✅ Build completed successfully!"
+    fi
   fi
 
   if [ $BUILD_OK -eq 0 ] && [ -f "./node_modules/@nestjs/cli/bin/nest.js" ]; then
-    log "Retrying build via node Nest CLI binary..."
+    log "🔄 Retrying build via node Nest CLI binary..."
+    notify "🔄 Trying alternative build method..."
     node ./node_modules/@nestjs/cli/bin/nest.js build && BUILD_OK=1 || BUILD_OK=0
+    if [ $BUILD_OK -eq 1 ]; then
+      log "✅ Build successful with node CLI!"
+      notify "✅ Build completed with fallback method!"
+    fi
   fi
 
   if [ $BUILD_OK -eq 0 ]; then
-    log "Retrying build via npx @nestjs/cli..."
+    log "🔄 Retrying build via npx @nestjs/cli..."
+    notify "🔄 Trying npx build method..."
     npx --yes @nestjs/cli build && BUILD_OK=1 || BUILD_OK=0
+    if [ $BUILD_OK -eq 1 ]; then
+      log "✅ Build successful with npx!"
+      notify "✅ Build completed with npx!"
+    fi
   fi
 
   if [ $BUILD_OK -eq 0 ]; then
-    log "Final fallback: building with TypeScript compiler (tsc)..."
+    log "🔄 Final fallback: building with TypeScript compiler (tsc)..."
+    notify "🔄 Using TypeScript compiler as final attempt..."
     ./node_modules/.bin/tsc -p tsconfig.build.json && BUILD_OK=1 || BUILD_OK=0
+    if [ $BUILD_OK -eq 1 ]; then
+      log "✅ Build successful with TypeScript compiler!"
+      notify "✅ Build completed with TypeScript compiler!"
+    fi
+  fi
+
+  if [ $BUILD_OK -eq 0 ]; then
+    log "❌ All build methods failed!"
+    notify "❌ BUILD FAILED - All methods exhausted"
   fi
 
   return $BUILD_OK
@@ -80,17 +111,20 @@ attempt_build() {
 
 # Main auto-deployment process
 main() {
-  log "Starting auto-deployment from webhook..."
-  notify "Auto-deployment triggered by git push"
+  log "🚀 Starting auto-deployment from webhook..."
+  notify "🚀 Auto-deployment triggered by git push"
   
   # Change to project directory
+  log "📁 Changing to project directory: $PROJECT_DIR"
   cd "$PROJECT_DIR" || error_exit "Failed to change to project directory: $PROJECT_DIR"
   
   # Get current commit before pull
   OLD_COMMIT=$(git log -1 --pretty=format:"%h - %s" 2>/dev/null || echo "unknown")
+  log "📝 Current commit: $OLD_COMMIT"
   
   # Pull latest changes
-  log "Pulling latest changes..."
+  log "⬇️ Pulling latest changes from $BRANCH..."
+  notify "⬇️ Pulling latest changes..."
   git fetch origin || error_exit "Failed to fetch from origin"
   git reset --hard origin/$BRANCH || error_exit "Failed to reset to origin/$BRANCH"
   
@@ -98,54 +132,88 @@ main() {
   NEW_COMMIT=$(git log -1 --pretty=format:"%h - %s" 2>/dev/null || echo "unknown")
   
   # Show what changed
-  log "Changes detected:"
-  log "   Old: $OLD_COMMIT"
-  log "   New: $NEW_COMMIT"
+  log "📋 Changes detected:"
+  log "   📝 Old: $OLD_COMMIT"
+  log "   📝 New: $NEW_COMMIT"
+  notify "📋 Updated to commit: $NEW_COMMIT"
   
   # Make scripts executable (in case they changed)
-  chmod +x "$SCRIPTS_DIR"/*.sh 2>/dev/null || log "Warning: Could not set script permissions"
+  chmod +x "$SCRIPTS_DIR"/*.sh 2>/dev/null || log "⚠️ Warning: Could not set script permissions"
   
   # Install dependencies and build manually for webhook deployment
-  log "Installing dependencies (including devDependencies for build)..."
-  npm cache clean --force || log "Cache clean failed"
+  log "📦 Installing dependencies (including devDependencies for build)..."
+  notify "📦 Installing dependencies..."
+  npm cache clean --force || log "⚠️ Cache clean failed"
   # Ensure devDependencies are installed even if production env is set
   export npm_config_production=false
   npm install --include=dev || error_exit "npm install failed"
+  log "✅ Dependencies installed successfully!"
+  notify "✅ Dependencies installed!"
   
   # First build attempt
+  log "🚀 Starting first build attempt..."
+  notify "🚀 First build attempt..."
   if ! attempt_build; then
-    log "Build failed - cleaning up and retrying once..."
+    log "⚠️ Build failed - cleaning up and retrying once..."
+    notify "⚠️ Build failed - starting recovery process..."
     # Clean artifacts and reinstall dependencies
+    log "🧹 Cleaning dist directory..."
     rm -rf dist || true
+    log "🧹 Cleaning node_modules..."
     rm -rf node_modules || true
+    log "🧹 Cleaning npm cache..."
     npm cache clean --force || true
+    log "📦 Reinstalling dependencies..."
+    notify "📦 Reinstalling dependencies for recovery..."
     export npm_config_production=false
     npm install --include=dev || error_exit "Recovery npm install failed"
+    log "✅ Recovery dependencies installed!"
 
     # Retry build once more
+    log "🔄 Starting recovery build attempt..."
+    notify "🔄 Recovery build attempt..."
     if ! attempt_build; then
       error_exit "Build failed after recovery"
     fi
   fi
   
+  log "✅ Build process completed successfully!"
+  notify "✅ Build process completed!"
+  
   # Restart PM2 process
-  log "Restarting application..."
-  pm2 stop "$PM2_APP_NAME" 2>/dev/null || log "No running process to stop"
+  log "🔄 Restarting application with PM2..."
+  notify "🔄 Restarting application..."
+  pm2 stop "$PM2_APP_NAME" 2>/dev/null || log "ℹ️ No running process to stop"
   
   # Check if we're in production environment
   if [[ "$PROJECT_DIR" == "/var/www/backend/ticket-backend" ]]; then
     # Production environment
+    log "🚀 Starting production environment..."
+    notify "🚀 Starting in production mode..."
     pm2 start ecosystem.config.js --env production || error_exit "PM2 start failed"
+    log "✅ Production application started!"
   else
     # Development environment - start with simpler config
+    log "🚀 Starting development environment..."
+    notify "🚀 Starting in development mode..."
     pm2 start dist/main.js --name "$PM2_APP_NAME" || error_exit "PM2 start failed"
+    log "✅ Development application started!"
   fi
   
-  pm2 save || log "PM2 save failed"
+  pm2 save || log "⚠️ PM2 save failed"
+  log "💾 PM2 configuration saved!"
+  
+  # Show PM2 status
+  log "📊 Current PM2 status:"
+  pm2 status
   
   # Success notification with commit info
-  notify "[SUCCESS] Auto-deployment completed successfully! New commit: $NEW_COMMIT"
-  log "[SUCCESS] Auto-deployment completed successfully!"
+  notify "🎉 [SUCCESS] Auto-deployment completed successfully! New commit: $NEW_COMMIT"
+  log "🎉 [SUCCESS] Auto-deployment completed successfully!"
+  log "📋 Deployment Summary:"
+  log "   📝 Old commit: $OLD_COMMIT"
+  log "   📝 New commit: $NEW_COMMIT"
+  log "   🕐 Completed at: $(date +'%Y-%m-%d %H:%M:%S')"
 }
 
 # Run main function
