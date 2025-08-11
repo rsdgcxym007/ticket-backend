@@ -652,9 +652,25 @@ export class OrderService {
     },
     userId: string,
   ): Promise<{ success: boolean; message: string; updatedOrder?: any }> {
+    const logger = LoggingHelper.createContextLogger('OrderService', {
+      operation: 'changeSeats',
+      orderId: id,
+      userId,
+    });
+
     try {
+      logger.logWithContext('info', 'Starting changeSeats operation', {
+        orderId: id,
+        updateDataKeys: Object.keys(updateData),
+        hasPaymentAmount: updateData.paymentAmount !== undefined,
+        hasSeatIds: updateData.seatIds !== undefined,
+        hasNewSeatNumbers: updateData.newSeatNumbers !== undefined,
+      });
+
+      // 1. Validate user permissions
       const user = await this.userRepo.findOne({ where: { id: userId } });
       if (!user) {
+        logger.logWithContext('error', 'User not found', { userId });
         return {
           success: false,
           message: 'ไม่พบผู้ใช้',
@@ -662,12 +678,14 @@ export class OrderService {
         };
       }
 
+      // 2. Load order with all necessary relations
       const order = await this.orderRepo.findOne({
         where: { id },
         relations: ['seatBookings', 'seatBookings.seat', 'referrer', 'payment'],
       });
 
       if (!order) {
+        logger.logWithContext('error', 'Order not found', { orderId: id });
         return {
           success: false,
           message: 'ไม่พบออเดอร์',
@@ -675,10 +693,24 @@ export class OrderService {
         };
       }
 
-      // Only staff and admin can change seats - use helper
+      logger.logWithContext('info', 'Order loaded successfully', {
+        orderId: order.id,
+        orderStatus: order.status,
+        ticketType: order.ticketType,
+        hasPayment: !!order.payment,
+        paymentStatus: order.payment?.status,
+        currentSeatCount: order.seatBookings?.length || 0,
+      });
+
+      // 3. Validate permissions for seat changes
       try {
         OrderSeatManagementHelper.validateSeatChangePermissions(user, order);
       } catch (error) {
+        logger.logWithContext('error', 'Permission validation failed', {
+          error: error.message,
+          userRole: user.role,
+          orderId: id,
+        });
         return {
           success: false,
           message: error.message,
@@ -686,353 +718,476 @@ export class OrderService {
         };
       }
 
-      // ตรวจสอบเงื่อนไขการอัพเดทตาม payment status
-      const isPaymentPaid = order.payment?.status === PaymentStatus.PAID;
-      const isSeatedTicket =
-        order.ticketType === TicketType.RINGSIDE ||
-        order.ticketType === TicketType.STADIUM;
-
-      // ตรวจสอบเงื่อนไขการเปลี่ยนที่นั่งสำหรับ PAID orders
-      let filteredUpdateData = { ...updateData };
-      let seatLimitMessage = '';
-
-      if (isPaymentPaid && isSeatedTicket) {
-        // ตั๋วนั่งที่ PAID แล้ว: ตัดจำนวนที่นั่งถ้าเกินและกรองข้อมูลที่อนุญาต
-
-        // Extract seat numbers first for checking
-        const originalSeatNumbers =
-          updateData.newSeatNumbers || updateData.seatIds || [];
-
-        // ตัดจำนวนที่นั่งถ้าเกินจำนวนที่ซื้อมา
-        const currentSeatCount = order.seatBookings?.length || 0;
-        if (originalSeatNumbers.length > currentSeatCount) {
-          const limitedSeatNumbers = originalSeatNumbers.slice(
-            0,
-            currentSeatCount,
-          );
-          filteredUpdateData.newSeatNumbers = limitedSeatNumbers;
-          filteredUpdateData.seatIds = limitedSeatNumbers;
-          seatLimitMessage = ` (ตัดจำนวนที่นั่งเหลือ ${currentSeatCount} ที่ตามที่ซื้อมา)`;
-        }
-
-        // กรองข้อมูลที่อนุญาตเท่านั้น (เฉพาะที่นั่งและวันที่แสดง)
-        const allowedKeys = ['seatIds', 'newSeatNumbers', 'newShowDate'];
-        filteredUpdateData = Object.keys(filteredUpdateData)
-          .filter((key) => allowedKeys.includes(key))
-          .reduce((obj, key) => {
-            obj[key] = filteredUpdateData[key];
-            return obj;
-          }, {});
-      }
-
-      // Extract seat numbers from filteredUpdateData (support both seatIds and newSeatNumbers for backward compatibility)
-      const newSeatNumbers =
-        filteredUpdateData.newSeatNumbers || filteredUpdateData.seatIds || [];
-
-      // Convert seat numbers to seat IDs - use helper
-      const newSeatIds = await OrderValidationHelper.convertSeatNumbersToIds(
-        newSeatNumbers,
-        this.seatRepo,
-      );
-
-      // Get current seat count
-      const currentSeatCount = order.seatBookings?.length || 0;
-      const newSeatCount = newSeatIds.length;
-
-      // สร้าง updateFields object สำหรับการอัพเดทข้อมูลเพิ่มเติม
+      // 4. Handle payment and data updates first (for all cases)
+      let shouldUpdatePaymentStatus = false;
       const updateFields: any = {
         updatedAt: ThailandTimeHelper.now(),
         updatedBy: userId,
       };
 
-      // อัพเดทข้อมูลลูกค้าถ้ามีการส่งมา
-      if (filteredUpdateData.newCustomerName !== undefined) {
-        updateFields.customerName = filteredUpdateData.newCustomerName;
-      }
-      if (filteredUpdateData.newCustomerPhone !== undefined) {
-        updateFields.customerPhone = filteredUpdateData.newCustomerPhone;
-      }
-      if (filteredUpdateData.newCustomerEmail !== undefined) {
-        updateFields.customerEmail = filteredUpdateData.newCustomerEmail;
-      }
-      if (filteredUpdateData.newShowDate !== undefined) {
-        updateFields.showDate = filteredUpdateData.newShowDate;
-      }
-      if (filteredUpdateData.newSource !== undefined) {
-        updateFields.source = filteredUpdateData.newSource;
-      }
-      if (filteredUpdateData.hotelName !== undefined) {
-        updateFields.hotelName = filteredUpdateData.hotelName;
-      }
-      if (filteredUpdateData.hotelDistrict !== undefined) {
-        updateFields.hotelDistrict = filteredUpdateData.hotelDistrict;
-      }
-      if (filteredUpdateData.roomNumber !== undefined) {
-        updateFields.roomNumber = filteredUpdateData.roomNumber;
-      }
-      if (filteredUpdateData.adultCount !== undefined) {
-        updateFields.adultCount = filteredUpdateData.adultCount;
-      }
-      if (filteredUpdateData.childCount !== undefined) {
-        updateFields.childCount = filteredUpdateData.childCount;
-      }
-      if (filteredUpdateData.infantCount !== undefined) {
-        updateFields.infantCount = filteredUpdateData.infantCount;
-      }
-      if (filteredUpdateData.voucherNumber !== undefined) {
-        updateFields.voucherNumber = filteredUpdateData.voucherNumber;
-      }
-      if (filteredUpdateData.pickupScheduledTime !== undefined) {
-        updateFields.pickupScheduledTime =
-          filteredUpdateData.pickupScheduledTime;
-      }
-      if (filteredUpdateData.bookerName !== undefined) {
-        updateFields.bookerName = filteredUpdateData.bookerName;
-      }
-      if (filteredUpdateData.includesPickup !== undefined) {
-        updateFields.includesPickup = filteredUpdateData.includesPickup;
-      }
-      if (filteredUpdateData.includesDropoff !== undefined) {
-        updateFields.includesDropoff = filteredUpdateData.includesDropoff;
-      }
-      if (filteredUpdateData.requiresPickup !== undefined) {
-        updateFields.requiresPickup = filteredUpdateData.requiresPickup;
-      }
-      if (filteredUpdateData.requiresDropoff !== undefined) {
-        updateFields.requiresDropoff = filteredUpdateData.requiresDropoff;
-      }
-      if (filteredUpdateData.pickupHotel !== undefined) {
-        updateFields.pickupHotel = filteredUpdateData.pickupHotel;
-      }
-      if (filteredUpdateData.dropoffLocation !== undefined) {
-        updateFields.dropoffLocation = filteredUpdateData.dropoffLocation;
-      }
-      if (filteredUpdateData.pickupTime !== undefined) {
-        updateFields.pickupTime = filteredUpdateData.pickupTime;
-      }
-      if (filteredUpdateData.dropoffTime !== undefined) {
-        updateFields.dropoffTime = filteredUpdateData.dropoffTime;
-      }
-      if (filteredUpdateData.voucherCode !== undefined) {
-        updateFields.voucherCode = filteredUpdateData.voucherCode;
-      }
-      if (filteredUpdateData.referenceNo !== undefined) {
-        updateFields.referenceNo = filteredUpdateData.referenceNo;
-      }
-      if (filteredUpdateData.specialRequests !== undefined) {
-        updateFields.specialRequests = filteredUpdateData.specialRequests;
-      }
+      // Map all update data fields
+      this.mapUpdateDataToFields(updateData, updateFields);
 
-      // จัดการ referrer ถ้ามีการส่ง newReferrerCode มา
-      let newReferrerCommission = 0;
-      let newStandingCommission = 0;
+      // Handle referrer updates
+      await this.handleReferrerUpdates(order, updateData, updateFields, logger);
 
-      if (filteredUpdateData.newReferrerCode !== undefined) {
-        if (filteredUpdateData.newReferrerCode) {
-          const referrer = await this.referrerRepo.findOne({
-            where: { code: filteredUpdateData.newReferrerCode },
-          });
-          if (referrer) {
-            updateFields.referrerId = referrer.id;
+      // Handle payment updates (ทำก่อนเสมอ)
+      shouldUpdatePaymentStatus = await this.handlePaymentUpdates(
+        order,
+        updateData,
+        updateFields,
+        logger,
+      );
 
-            // ตรวจสอบว่าเป็นออเดอร์ที่ payment ไม่ใช่ PAID และ paymentAmount เท่ากับ totalAmount
-            if (
-              !isPaymentPaid &&
-              filteredUpdateData.paymentAmount !== undefined
-            ) {
-              const paymentAmount =
-                typeof filteredUpdateData.paymentAmount === 'string'
-                  ? parseFloat(filteredUpdateData.paymentAmount)
-                  : filteredUpdateData.paymentAmount;
+      // Update order in database with basic data first
+      logger.logWithContext('info', 'Updating order basic data', {
+        orderId: order.id,
+        updateFieldKeys: Object.keys(updateFields),
+        shouldUpdatePaymentStatus,
+      });
 
-              // ตรวจสอบว่า paymentAmount เท่ากับ totalAmount หรือไม่
-              if (Math.abs(paymentAmount - order.totalAmount) < 0.01) {
-                // คำนวณ commission ตามประเภทตั๋ว
-                if (isSeatedTicket) {
-                  // ตั๋วนั่ง: referrerCommission 400 ต่อที่นั่ง
-                  const seatCount = order.quantity || 0;
-                  newReferrerCommission = seatCount * 400;
-                } else {
-                  // ตั๋วยืน: standingCommission 300 ต่อตั๋ว (ไม่ว่าเด็กหรือผู้ใหญ่)
-                  const standingAdultQty = order.standingAdultQty || 0;
-                  const standingChildQty = order.standingChildQty || 0;
-                  const totalStandingTickets =
-                    standingAdultQty + standingChildQty;
-                  newStandingCommission = totalStandingTickets * 300;
-                }
+      await this.orderRepo.update(order.id, updateFields);
 
-                // อัพเดท commission ใน updateFields
-                updateFields.referrerCommission = newReferrerCommission;
-                updateFields.standingCommission = newStandingCommission;
-              }
-            }
-          }
-        } else {
-          updateFields.referrerId = null;
-          // ถ้าลบ referrer ให้ reset commission เป็น 0
-          updateFields.referrerCommission = 0;
-          updateFields.standingCommission = 0;
-        }
-      }
-
-      // จัดการ paymentAmount และตรวจสอบสถานะการชำระเงิน
-      let shouldUpdatePaymentStatus = false;
-      if (filteredUpdateData.paymentAmount !== undefined) {
-        const paymentAmount =
-          typeof filteredUpdateData.paymentAmount === 'string'
-            ? parseFloat(filteredUpdateData.paymentAmount)
-            : filteredUpdateData.paymentAmount;
-
-        // อัพเดท payment.amount
-        if (order.payment) {
-          await this.paymentRepo.update(order.payment.id, {
-            amount: paymentAmount,
-            updatedAt: ThailandTimeHelper.now(),
-          });
-        } else {
-          // สร้าง payment record ใหม่ถ้ายังไม่มี
-          const newPayment = this.paymentRepo.create({
-            amount: paymentAmount,
-            status: PaymentStatus.PENDING,
-            method: order.paymentMethod || PaymentMethod.CASH,
-            createdAt: ThailandTimeHelper.now(),
-            updatedAt: ThailandTimeHelper.now(),
-          });
-          const savedPayment = await this.paymentRepo.save(newPayment);
-
-          // อัพเดต order ให้ลิงค์กับ payment ใหม่
-          await this.orderRepo.update(order.id, {
-            payment: savedPayment,
-          });
-        }
-
-        // ตรวจสอบว่า paymentAmount เท่ากับ totalAmount หรือไม่
-        if (Math.abs(paymentAmount - order.totalAmount) < 0.01) {
-          // ใช้ tolerance สำหรับเลขทศนิยม
-          shouldUpdatePaymentStatus = true;
-          updateFields.status = OrderStatus.PAID;
-        }
-      }
-
-      // อัพเดทข้อมูล order พื้นฐาน
-      await this.orderRepo.update(id, updateFields);
-
-      // อัพเดท payment status ถ้าจำเป็น
+      // Update payment status if needed
       if (shouldUpdatePaymentStatus && order.payment) {
+        logger.logWithContext('info', 'Updating payment status to PAID');
         await this.paymentRepo.update(order.payment.id, {
           status: PaymentStatus.PAID,
           updatedAt: ThailandTimeHelper.now(),
         });
       }
 
-      // Handle different order statuses for seat changes
-      if (newSeatNumbers.length > 0) {
-        switch (order.status) {
-          case OrderStatus.PENDING:
-          case OrderStatus.BOOKED:
-            return await OrderSeatManagementHelper.changePendingBookedSeats(
-              order,
-              newSeatIds,
-              userId,
-              user,
-              this.orderRepo,
-              this.seatBookingRepo,
-              this.seatRepo,
-              this.referrerRepo,
-              this.seatBookingService,
-              this.auditHelperService,
-              this.findById.bind(this),
-              filteredUpdateData.newReferrerCode,
-              filteredUpdateData.newCustomerName,
-              filteredUpdateData.newCustomerPhone,
-              filteredUpdateData.newCustomerEmail,
-              filteredUpdateData.newShowDate,
-            );
+      // 5. Determine operation type and handle accordingly
+      const hasSeatsToChange =
+        (updateData.seatIds && updateData.seatIds.length > 0) ||
+        (updateData.newSeatNumbers && updateData.newSeatNumbers.length > 0);
 
-          case OrderStatus.PAID:
-            return await OrderSeatManagementHelper.changePaidSeats(
-              order,
-              newSeatIds,
-              userId,
-              user,
-              currentSeatCount,
-              newSeatCount,
-              this.orderRepo,
-              this.seatBookingRepo,
-              this.seatRepo,
-              this.auditHelperService,
-              this.findById.bind(this),
-              filteredUpdateData.newShowDate,
-            );
+      if (hasSeatsToChange) {
+        // Handle seat changes for seated tickets
+        logger.logWithContext(
+          'info',
+          'Processing seat changes after data updates',
+        );
+        return await this.handleSeatChanges(
+          order,
+          updateData,
+          user,
+          userId,
+          logger,
+        );
+      } else {
+        // Handle data updates only (no seat changes)
+        logger.logWithContext('info', 'Processing data updates only');
 
-          default:
-            // ถ้าไม่มีการเปลี่ยนที่นั่งแต่มีการอัพเดทข้อมูลอื่น ๆ
-            break;
+        // Create audit log
+        await this.auditHelperService.auditOrderAction(
+          AuditAction.UPDATE,
+          order.id,
+          userId,
+          {
+            ...updateFields,
+            paymentAmount: updateData.paymentAmount,
+            statusChanged: shouldUpdatePaymentStatus,
+            operationType: 'dataUpdateOnly',
+          },
+        );
+
+        // Fetch and return updated order
+        const updatedOrder = await this.findById(order.id);
+
+        let message = 'อัพเดทข้อมูลสำเร็จ';
+        if (shouldUpdatePaymentStatus) {
+          message = 'อัพเดทข้อมูลสำเร็จและเปลี่ยนสถานะเป็น PAID';
         }
+
+        logger.logWithContext('info', 'Data update completed successfully', {
+          orderId: order.id,
+          message,
+        });
+
+        return {
+          success: true,
+          message,
+          updatedOrder,
+        };
       }
+    } catch (error) {
+      logger.logWithContext('error', 'changeSeats operation failed', {
+        error: error.message,
+        stack: error.stack,
+      });
 
-      // Create audit log สำหรับการอัพเดท
-      await this.auditHelperService.auditOrderAction(
-        AuditAction.UPDATE,
-        id,
-        userId,
-        {
-          ...updateFields,
-          paymentAmount: filteredUpdateData.paymentAmount,
-          statusChanged: shouldUpdatePaymentStatus,
-          newReferrerCode: filteredUpdateData.newReferrerCode,
-          commissionUpdated:
-            newReferrerCommission > 0 || newStandingCommission > 0,
-          newReferrerCommission,
-          newStandingCommission,
-          filteredData:
-            isPaymentPaid && isSeatedTicket
-              ? 'ตัดข้อมูลที่ไม่อนุญาต'
-              : undefined,
-        },
-      );
-
-      // คืนค่าผลลัพธ์
-      const updatedOrder = await this.findById(id);
-
-      // สร้าง message ตามการเปลี่ยนแปลงที่เกิดขึ้น
-      let message = 'อัพเดทข้อมูลสำเร็จ';
-
-      if (shouldUpdatePaymentStatus) {
-        message = 'อัพเดทข้อมูลสำเร็จและเปลี่ยนสถานะเป็น PAID';
-      }
-
-      if (newReferrerCommission > 0 || newStandingCommission > 0) {
-        const commissionInfo = [];
-        if (newReferrerCommission > 0) {
-          commissionInfo.push(
-            `คอมมิชชั่นที่นั่ง: ${newReferrerCommission} บาท`,
-          );
-        }
-        if (newStandingCommission > 0) {
-          commissionInfo.push(`คอมมิชชั่นยืน: ${newStandingCommission} บาท`);
-        }
-        message += ` และอัพเดทคอมมิชชั่น (${commissionInfo.join(', ')})`;
-      }
-
-      // เพิ่ม seatLimitMessage ถ้ามี
-      if (seatLimitMessage) {
-        message += seatLimitMessage;
-      }
-
-      return {
-        success: true,
-        message,
-        updatedOrder,
-      };
-    } catch (err: any) {
-      this.logger.error('Change seats failed:', err);
       return {
         success: false,
-        message: `เปลี่ยนที่นั่งล้มเหลว: ${err?.message || 'เกิดข้อผิดพลาด'}`,
+        message: `อัพเดทข้อมูลล้มเหลว: ${error?.message || 'เกิดข้อผิดพลาด'}`,
         updatedOrder: null,
       };
     }
+  }
+
+  /**
+   * Handle seat changes for seated tickets
+   */
+  private async handleSeatChanges(
+    order: any,
+    updateData: any,
+    user: any,
+    userId: string,
+    logger: any,
+  ): Promise<{ success: boolean; message: string; updatedOrder?: any }> {
+    // Validate ticket type for seat changes
+    if (order.ticketType === TicketType.STANDING) {
+      logger.logWithContext(
+        'error',
+        'Attempted seat change on standing ticket',
+        {
+          orderId: order.id,
+          ticketType: order.ticketType,
+        },
+      );
+
+      return {
+        success: false,
+        message: 'ไม่สามารถเปลี่ยนที่นั่งสำหรับตั๋วแบบยืนได้',
+        updatedOrder: null,
+      };
+    }
+
+    // Extract and validate seat identifiers (could be seat numbers or IDs)
+    const newSeatIdentifiers =
+      updateData.newSeatNumbers || updateData.seatIds || [];
+
+    logger.logWithContext('info', 'Processing seat change request', {
+      newSeatIdentifiers,
+      currentSeatCount: order.seatBookings?.length || 0,
+      orderStatus: order.status,
+    });
+
+    // Convert seat identifiers to seat IDs
+    let newSeatIds: string[] = [];
+    if (newSeatIdentifiers.length > 0) {
+      try {
+        // Check if the first identifier looks like a UUID (seat ID) or seat number
+        const firstIdentifier = newSeatIdentifiers[0];
+        const isUuid =
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+            firstIdentifier,
+          );
+
+        if (isUuid) {
+          // Assume all are seat IDs, validate they exist
+          const seats = await this.seatRepo.find({
+            where: { id: In(newSeatIdentifiers) },
+            select: ['id', 'seatNumber'],
+          });
+
+          if (seats.length !== newSeatIdentifiers.length) {
+            const foundSeatIds = seats.map((seat) => seat.id);
+            const missingSeatIds = newSeatIdentifiers.filter(
+              (id) => !foundSeatIds.includes(id),
+            );
+            throw new BadRequestException(
+              `ไม่พบที่นั่งที่มี ID: ${missingSeatIds.join(', ')}`,
+            );
+          }
+
+          newSeatIds = seats.map((seat) => seat.id);
+        } else {
+          // Assume all are seat numbers, convert to IDs
+          newSeatIds = await OrderValidationHelper.convertSeatNumbersToIds(
+            newSeatIdentifiers,
+            this.seatRepo,
+          );
+        }
+      } catch (error) {
+        logger.logWithContext('error', 'Seat identifier conversion failed', {
+          newSeatIdentifiers,
+          error: error.message,
+        });
+
+        return {
+          success: false,
+          message: `ไม่สามารถแปลงข้อมูลที่นั่งได้: ${error.message}`,
+          updatedOrder: null,
+        };
+      }
+    }
+
+    // Handle seat changes based on order status
+    const currentSeatCount = order.seatBookings?.length || 0;
+    const newSeatCount = newSeatIds.length;
+
+    // ตรวจสอบว่าเป็นการเปลี่ยนที่นั่งจริงๆ หรือเป็นการอัพเดทข้อมูลเดิม
+    const currentSeatIds =
+      order.seatBookings?.map(
+        (booking) => booking.seat?.seatNumber || booking.seatId,
+      ) || [];
+    const isActualSeatChange =
+      newSeatIds.length !== currentSeatIds.length ||
+      !newSeatIds.every((seatId) => currentSeatIds.includes(seatId));
+
+    logger.logWithContext('info', 'Analyzing seat change requirements', {
+      orderStatus: order.status,
+      currentSeatCount,
+      newSeatCount,
+      currentSeatIds,
+      newSeatIds,
+      isActualSeatChange,
+    });
+
+    // ถ้าไม่ใช่การเปลี่ยนที่นั่งจริงๆ แค่อัพเดทข้อมูลเดิม ให้ skip seat management helper
+    if (!isActualSeatChange) {
+      logger.logWithContext(
+        'info',
+        'No actual seat changes detected, completing data update',
+      );
+
+      // Create audit log for data update with seat information
+      await this.auditHelperService.auditOrderAction(
+        AuditAction.UPDATE,
+        order.id,
+        userId,
+        {
+          paymentAmount: updateData.paymentAmount,
+          operationType: 'dataUpdateWithSeats',
+          seatIds: newSeatIds,
+        },
+      );
+
+      // Fetch and return updated order
+      const updatedOrder = await this.findById(order.id);
+
+      return {
+        success: true,
+        message: 'อัพเดทข้อมูลสำเร็จ',
+        updatedOrder,
+      };
+    }
+
+    logger.logWithContext(
+      'info',
+      'Delegating to seat management helper for actual seat changes',
+      {
+        orderStatus: order.status,
+        currentSeatCount,
+        newSeatCount,
+      },
+    );
+
+    switch (order.status) {
+      case OrderStatus.PENDING:
+      case OrderStatus.BOOKED:
+      case OrderStatus.PARTIAL_ORDER:
+        return await OrderSeatManagementHelper.changePendingBookedSeats(
+          order,
+          newSeatIds,
+          userId,
+          user,
+          this.orderRepo,
+          this.seatBookingRepo,
+          this.seatRepo,
+          this.referrerRepo,
+          this.seatBookingService,
+          this.auditHelperService,
+          this.findById.bind(this),
+          updateData.newReferrerCode,
+          updateData.newCustomerName,
+          updateData.newCustomerPhone,
+          updateData.newCustomerEmail,
+          updateData.newShowDate,
+        );
+
+      case OrderStatus.PAID:
+        return await OrderSeatManagementHelper.changePaidSeats(
+          order,
+          newSeatIds,
+          userId,
+          user,
+          currentSeatCount,
+          newSeatCount,
+          this.orderRepo,
+          this.seatBookingRepo,
+          this.seatRepo,
+          this.auditHelperService,
+          this.findById.bind(this),
+          updateData.newShowDate,
+        );
+
+      default:
+        logger.logWithContext(
+          'error',
+          'Invalid order status for seat changes',
+          {
+            orderStatus: order.status,
+            orderId: order.id,
+          },
+        );
+
+        return {
+          success: false,
+          message: `ไม่สามารถเปลี่ยนที่นั่งได้ในสถานะ ${order.status}`,
+          updatedOrder: null,
+        };
+    }
+  }
+
+  /**
+   * Map update data to database fields
+   */
+  private mapUpdateDataToFields(updateData: any, updateFields: any): void {
+    const fieldMappings = {
+      newCustomerName: 'customerName',
+      newCustomerPhone: 'customerPhone',
+      newCustomerEmail: 'customerEmail',
+      newShowDate: 'showDate',
+      newSource: 'source',
+      hotelName: 'hotelName',
+      hotelDistrict: 'hotelDistrict',
+      roomNumber: 'roomNumber',
+      adultCount: 'adultCount',
+      childCount: 'childCount',
+      infantCount: 'infantCount',
+      voucherNumber: 'voucherNumber',
+      pickupScheduledTime: 'pickupScheduledTime',
+      bookerName: 'bookerName',
+      includesPickup: 'includesPickup',
+      includesDropoff: 'includesDropoff',
+      requiresPickup: 'requiresPickup',
+      requiresDropoff: 'requiresDropoff',
+      pickupHotel: 'pickupHotel',
+      dropoffLocation: 'dropoffLocation',
+      pickupTime: 'pickupTime',
+      dropoffTime: 'dropoffTime',
+      voucherCode: 'voucherCode',
+      referenceNo: 'referenceNo',
+      specialRequests: 'specialRequests',
+    };
+
+    for (const [sourceKey, targetKey] of Object.entries(fieldMappings)) {
+      if (updateData[sourceKey] !== undefined) {
+        updateFields[targetKey] = updateData[sourceKey];
+      }
+    }
+  }
+
+  /**
+   * Handle referrer updates and commission calculations
+   */
+  private async handleReferrerUpdates(
+    order: any,
+    updateData: any,
+    updateFields: any,
+    logger: any,
+  ): Promise<void> {
+    if (updateData.newReferrerCode === undefined) {
+      return;
+    }
+
+    logger.logWithContext('info', 'Processing referrer updates', {
+      newReferrerCode: updateData.newReferrerCode,
+      currentReferrerId: order.referrerId,
+    });
+
+    if (
+      updateData.newReferrerCode &&
+      updateData.newReferrerCode.trim() !== ''
+    ) {
+      const referrer = await this.referrerRepo.findOne({
+        where: { code: updateData.newReferrerCode },
+      });
+
+      if (referrer) {
+        updateFields.referrerId = referrer.id;
+        logger.logWithContext('info', 'Referrer found and linked', {
+          referrerId: referrer.id,
+          referrerCode: referrer.code,
+        });
+      } else {
+        logger.logWithContext('warn', 'Referrer not found', {
+          referrerCode: updateData.newReferrerCode,
+        });
+      }
+    } else {
+      // Remove referrer
+      updateFields.referrerId = null;
+      updateFields.referrerCommission = 0;
+      updateFields.standingCommission = 0;
+
+      logger.logWithContext('info', 'Referrer removed and commissions reset');
+    }
+  }
+
+  /**
+   * Handle payment updates and status changes
+   */
+  private async handlePaymentUpdates(
+    order: any,
+    updateData: any,
+    updateFields: any,
+    logger: any,
+  ): Promise<boolean> {
+    if (
+      updateData.paymentAmount === undefined ||
+      updateData.paymentAmount === null ||
+      updateData.paymentAmount === ''
+    ) {
+      return false;
+    }
+
+    const paymentAmount =
+      typeof updateData.paymentAmount === 'string'
+        ? parseFloat(updateData.paymentAmount)
+        : updateData.paymentAmount;
+
+    logger.logWithContext('info', 'Processing payment updates', {
+      originalValue: updateData.paymentAmount,
+      parsedValue: paymentAmount,
+      orderTotalAmount: order.totalAmount,
+      hasExistingPayment: !!order.payment,
+    });
+
+    // Update or create payment record
+    if (order.payment) {
+      await this.paymentRepo.update(order.payment.id, {
+        amount: paymentAmount,
+        updatedAt: ThailandTimeHelper.now(),
+      });
+    } else {
+      const newPayment = this.paymentRepo.create({
+        amount: paymentAmount,
+        status: PaymentStatus.PENDING,
+        method: order.paymentMethod || PaymentMethod.CASH,
+        createdAt: ThailandTimeHelper.now(),
+        updatedAt: ThailandTimeHelper.now(),
+      });
+
+      const savedPayment = await this.paymentRepo.save(newPayment);
+
+      await this.orderRepo.update(order.id, {
+        payment: savedPayment,
+      });
+
+      order.payment = savedPayment;
+
+      logger.logWithContext('info', 'New payment record created and linked', {
+        paymentId: savedPayment.id,
+        amount: paymentAmount,
+      });
+    }
+
+    // Check if payment amount matches total amount (should update status to PAID)
+    const amountMatches = Math.abs(paymentAmount - order.totalAmount) < 0.01;
+
+    if (amountMatches) {
+      updateFields.status = OrderStatus.PAID;
+      logger.logWithContext(
+        'info',
+        'Payment amount matches total, updating status to PAID',
+      );
+      return true;
+    }
+
+    return false;
   }
   async getOrderStats(): Promise<any> {
     const [
@@ -1163,7 +1318,11 @@ export class OrderService {
     OrderValidationHelper.validateOrderAccess(user, order, 'UPDATE');
 
     // Use helper for status validation
-    const allowedStatuses = [OrderStatus.PENDING, OrderStatus.BOOKED];
+    const allowedStatuses = [
+      OrderStatus.PENDING,
+      OrderStatus.BOOKED,
+      OrderStatus.PARTIAL_ORDER,
+    ];
     if (user.role !== UserRole.ADMIN) {
       OrderValidationHelper.validateOrderStatusForChanges(
         order,
@@ -2369,6 +2528,7 @@ export class OrderService {
         this.orderRepo,
         this.paymentRepo,
         this.seatBookingRepo,
+        this.referrerRepo,
         userId,
       );
       return result;
@@ -2393,6 +2553,7 @@ export class OrderService {
         this.orderRepo,
         this.paymentRepo,
         this.seatBookingRepo,
+        this.referrerRepo,
         userId,
       );
       return result;
@@ -2503,6 +2664,7 @@ export class OrderService {
         this.orderRepo,
         this.paymentRepo,
         this.seatBookingRepo,
+        this.referrerRepo,
         userId,
         taskId,
       );

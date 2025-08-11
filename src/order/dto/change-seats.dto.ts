@@ -1,4 +1,10 @@
-import { IsArray, IsOptional, IsString, IsDateString } from 'class-validator';
+import {
+  IsArray,
+  IsOptional,
+  IsString,
+  IsDateString,
+  IsNumber,
+} from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class ChangeSeatsDto {
@@ -54,4 +60,14 @@ export class ChangeSeatsDto {
   @IsOptional()
   @IsDateString()
   newShowDate?: string;
+
+  @ApiProperty({
+    description:
+      'จำนวนเงินที่ชำระเพิ่มเติม (ถ้าต้องการสร้างหรืออัพเดท payment record)',
+    example: 1800,
+    required: false,
+  })
+  @IsOptional()
+  @IsNumber()
+  paymentAmount?: number;
 }

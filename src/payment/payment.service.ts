@@ -50,9 +50,9 @@ export class PaymentService {
     const previouslyPaid = Number(order.actualPaidAmount || 0);
     const totalAfterPayment = previouslyPaid + paidAmount;
 
-    // ตรวจสอบยอดเงินที่ส่งเข้ามา
-    if (paidAmount <= 0) {
-      throw new BadRequestException('ยอดเงินที่ชำระต้องมากกว่า 0');
+    // ตรวจสอบยอดเงินที่ส่งเข้ามา (อนุญาตให้ส่ง 0 ได้)
+    if (paidAmount < 0) {
+      throw new BadRequestException('ยอดเงินที่ชำระต้องไม่น้อยกว่า 0');
     }
 
     if (totalAfterPayment > totalRequired) {
@@ -344,10 +344,6 @@ export class PaymentService {
    */
   async payStandingTicket(dto: CreatePaymentDto, user: User) {
     const logger = LoggingHelper.createContextLogger('PaymentService');
-    logger.log(
-      `🎫 Processing standing ticket payment for order: ${dto.orderId} by user: ${user.id}`,
-    );
-
     try {
       const order = await this.orderRepo.findOne({
         where: { id: dto.orderId },
@@ -384,10 +380,6 @@ export class PaymentService {
       // ใช้ยอดเงินที่ส่งมา หรือยอด default จาก order.total
       const amount = dto.amount ?? Number(order.total ?? 0);
 
-      logger.log(
-        `🎫 Processing standing ticket payment: Order ${order.orderNumber}, Amount: ${amount}, Total Required: ${order.total}, Adult: ${order.standingAdultQty}, Child: ${order.standingChildQty}`,
-      );
-
       const savedPayment = await this.handlePayment(
         order,
         amount,
@@ -397,10 +389,6 @@ export class PaymentService {
         standingCommission,
         'PaymentService.payStandingTicket',
         'STANDING',
-      );
-
-      logger.log(
-        `✅ Standing ticket payment completed: Order ${order.orderNumber}, Payment ${savedPayment.id}, Status: ${savedPayment.status}`,
       );
 
       return savedPayment;
