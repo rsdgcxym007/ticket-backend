@@ -50,7 +50,7 @@ show_dashboard() {
   
   # Health Check
   echo -e "${BLUE}🏥 Health Check:${NC}"
-  response=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:4001/health || echo "000")
+  response=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:4000/health || echo "000")
   if [ "$response" = "200" ]; then
     echo -e "${GREEN}✅ Application is healthy (HTTP $response)${NC}"
   else
@@ -112,7 +112,7 @@ show_performance() {
   
   # Network connections
   echo -e "${BLUE}Network Connections:${NC}"
-  netstat -tuln | grep :4001 || echo "No connections on port 4001"
+  netstat -tuln | grep :4000 || echo "No connections on port 4000"
 }
 
 show_deployment_history() {
@@ -145,9 +145,9 @@ health_check() {
   # Application endpoint
   echo -e "${BLUE}Testing Application Endpoints:${NC}"
   endpoints=(
-    "http://localhost:4001/health"
-    "http://localhost:4001/api/docs"
-    "http://localhost:4001/webhook/test"
+    "http://localhost:4000/health"
+    "http://localhost:4000/api/docs"
+    "http://localhost:4000/webhook/test"
   )
   
   for endpoint in "${endpoints[@]}"; do

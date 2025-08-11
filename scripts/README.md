@@ -113,7 +113,7 @@ Scripts use these default configurations:
 - **Project Directory:** `/var/www/ticket-backend`
 - **PM2 App Name:** `ticket-backend-prod`
 - **Default Branch:** `feature/newfunction`
-- **Port:** `4001`
+- **Port:** `4000`
 
 ## Requirements
 

@@ -10,11 +10,11 @@ module.exports = {
       exec_mode: 'fork',
       env: {
         NODE_ENV: 'production',
-        PORT: 4001,
+        PORT: 4000,
       },
       env_production: {
         NODE_ENV: 'production',
-        PORT: 4001,
+        PORT: 4000,
         // Database Configuration
         DATABASE_HOST: '43.229.133.51',
         DATABASE_PORT: 5432,

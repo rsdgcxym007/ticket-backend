@@ -38,7 +38,7 @@ chmod +x scripts/*.sh
 ./scripts/deploy.sh full
 
 # ตรวจสอบว่า webhook endpoint ทำงาน
-curl -X POST http://localhost:4001/webhook/test
+curl -X POST http://localhost:4000/webhook/test
 ```
 
 ### 2. GitHub Webhook Setup
@@ -80,10 +80,10 @@ Code Push → Webhook → Validation → Auto-Deploy → Notification
 ### ทดสอบ webhook endpoint:
 ```bash
 # Test endpoint
-curl -X POST http://localhost:4001/webhook/test
+curl -X POST http://localhost:4000/webhook/test
 
 # Test deployment webhook (manual)
-curl -X POST http://localhost:4001/webhook/deploy \
+curl -X POST http://localhost:4000/webhook/deploy \
   -H "Content-Type: application/json" \
   -d '{
     "repository": {"name": "ticket-backend"},
@@ -122,7 +122,7 @@ journalctl -u your-app-service
 
 1. **ตรวจสอบ webhook endpoint:**
    ```bash
-   curl -X POST http://localhost:4001/webhook/test
+   curl -X POST http://localhost:4000/webhook/test
    ```
 
 2. **ตรวจสอบ script permissions:**

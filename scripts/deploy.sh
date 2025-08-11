@@ -114,7 +114,7 @@ full_deploy() {
   
   # Health check
   sleep 10
-  response=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:4001/health || echo "000")
+  response=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:4000/health || echo "000")
   if [ "$response" != "200" ]; then
     error_exit "Health check failed (HTTP $response)"
   fi
@@ -156,7 +156,7 @@ local_deploy() {
   
   # Health check
   sleep 5
-  response=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:4001/health || echo "000")
+  response=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:4000/health || echo "000")
   if [ "$response" = "200" ]; then
     log "✅ Health check passed"
   else
@@ -164,8 +164,8 @@ local_deploy() {
   fi
   
   log "✅ Local deployment completed!"
-  log "🌐 Application: http://localhost:4001"
-  log "📚 API Docs: http://localhost:4001/api/docs"
+  log "🌐 Application: http://localhost:4000"
+  log "📚 API Docs: http://localhost:4000/api/docs"
 }
 
 # VPS server setup
