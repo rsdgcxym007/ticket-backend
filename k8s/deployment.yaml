@@ -1,0 +1,254 @@
+# ==================================
+# 🚀 PHASE 5.3: KUBERNETES DEPLOYMENT
+# Scalable microservices deployment
+# ==================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ticket-backend-scalable
+  namespace: ticket-system
+  labels:
+    app: ticket-backend
+    version: v5.3
+    tier: backend
+spec:
+  # ==================================
+  # Scaling Configuration
+  # ==================================
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 2
+  
+  selector:
+    matchLabels:
+      app: ticket-backend
+      version: v5.3
+  
+  template:
+    metadata:
+      labels:
+        app: ticket-backend
+        version: v5.3
+        tier: backend
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "4000"
+        prometheus.io/path: "/metrics"
+    
+    spec:
+      # ==================================
+      # Security Context
+      # ==================================
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+      
+      # ==================================
+      # Container Configuration
+      # ==================================
+      containers:
+      - name: ticket-backend
+        image: ticket-backend-scalable:5.3.0
+        imagePullPolicy: IfNotPresent
+        
+        ports:
+        - containerPort: 4000
+          name: http
+          protocol: TCP
+        
+        # ==================================
+        # Environment Variables
+        # ==================================
+        env:
+        - name: NODE_ENV
+          value: "production"
+        - name: PORT
+          value: "4000"
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: ticket-db-secret
+              key: database-url
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              name: redis-secret
+              key: redis-url
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: jwt-secret
+              key: secret
+        
+        # ==================================
+        # Resource Limits
+        # ==================================
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        
+        # ==================================
+        # Health Checks
+        # ==================================
+        livenessProbe:
+          httpGet:
+            path: /api/v1/health
+            port: 4000
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+        
+        readinessProbe:
+          httpGet:
+            path: /api/v1/health
+            port: 4000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 3
+          successThreshold: 1
+          failureThreshold: 3
+        
+        # ==================================
+        # Startup Probe
+        # ==================================
+        startupProbe:
+          httpGet:
+            path: /api/v1/health
+            port: 4000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          successThreshold: 1
+          failureThreshold: 30
+      
+      # ==================================
+      # Pod Configuration
+      # ==================================
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+      
+      # Node selection
+      nodeSelector:
+        kubernetes.io/arch: amd64
+      
+      # Tolerations for node scheduling
+      tolerations:
+      - key: "node.kubernetes.io/memory-pressure"
+        operator: "Exists"
+        effect: "NoSchedule"
+
+---
+# ==================================
+# 🔄 HORIZONTAL POD AUTOSCALER
+# ==================================
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ticket-backend-hpa
+  namespace: ticket-system
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ticket-backend-scalable
+  
+  minReplicas: 3
+  maxReplicas: 50
+  
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 15
+      - type: Pods
+        value: 4
+        periodSeconds: 15
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 60
+      selectPolicy: Min
+
+---
+# ==================================
+# 🌐 SERVICE
+# ==================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: ticket-backend-service
+  namespace: ticket-system
+  labels:
+    app: ticket-backend
+    version: v5.3
+spec:
+  type: ClusterIP
+  selector:
+    app: ticket-backend
+    version: v5.3
+  ports:
+  - name: http
+    port: 80
+    targetPort: 4000
+    protocol: TCP
+
+---
+# ==================================
+# 🔀 INGRESS
+# ==================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ticket-backend-ingress
+  namespace: ticket-system
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/rate-limit-requests-per-second: "100"
+    nginx.ingress.kubernetes.io/rate-limit-burst-multiplier: "5"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  tls:
+  - hosts:
+    - api.ticketsystem.com
+    secretName: ticket-api-tls
+  rules:
+  - host: api.ticketsystem.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: ticket-backend-service
+            port:
+              number: 80

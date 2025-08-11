@@ -18,6 +18,7 @@ import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { ApiTags } from '@nestjs/swagger';
 import { ApiResponseHelper } from '../common/utils';
+import { Throttle } from '@nestjs/throttler';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -25,12 +26,14 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('login')
+  @Throttle({ auth: { limit: 5, ttl: 900000 } }) // 5 login attempts per 15 minutes
   async login(@Body() dto: LoginDto) {
     const result = await this.authService.login(dto);
     return ApiResponseHelper.success(result, 'Login successful');
   }
 
   @Post('register')
+  @Throttle({ auth: { limit: 3, ttl: 900000 } }) // 3 registration attempts per 15 minutes
   async register(@Body() dto: RegisterDto) {
     const result = await this.authService.register(dto);
     return ApiResponseHelper.success(result, 'Registration successful');

@@ -19,6 +19,7 @@ import {
   ApiBearerAuth,
 } from '@nestjs/swagger';
 import { ThailandTimeHelper } from '../common/utils/thailand-time.helper';
+import { Throttle } from '@nestjs/throttler';
 
 @ApiTags('📱 Mobile API')
 @Controller('mobile')
@@ -31,6 +32,7 @@ export class MobileController {
    * 🏠 หน้าหลักแอปมือถือ
    */
   @Get('home')
+  @Throttle({ default: { limit: 50, ttl: 60000 } }) // 50 requests per minute
   @ApiOperation({
     summary: 'ข้อมูลหน้าหลักแอปมือถือ',
     description:
@@ -110,6 +112,7 @@ export class MobileController {
    * 🎫 โซนที่นั่งที่พร้อมใช้งาน
    */
   @Get('zones/available')
+  @Throttle({ default: { limit: 30, ttl: 60000 } }) // 30 requests per minute for zone data
   @ApiOperation({
     summary: 'โซนที่นั่งที่พร้อมจอง',
     description:
@@ -261,6 +264,7 @@ export class MobileController {
    * 👤 ออเดอร์ของผู้ใช้
    */
   @Get('orders')
+  @Throttle({ default: { limit: 20, ttl: 60000 } }) // 20 requests per minute for order data
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({
@@ -512,6 +516,7 @@ export class MobileController {
    * 📝 อัปเดตโปรไฟล์ผู้ใช้
    */
   @Put('profile')
+  @Throttle({ default: { limit: 10, ttl: 60000 } }) // 10 profile updates per minute
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({
@@ -559,6 +564,7 @@ export class MobileController {
    * 🔔 การตั้งค่าการแจ้งเตือน
    */
   @Post('notifications/settings')
+  @Throttle({ default: { limit: 5, ttl: 60000 } }) // 5 notification updates per minute
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({

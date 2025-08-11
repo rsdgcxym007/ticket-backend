@@ -14,10 +14,12 @@ lerna-debug.log*
 
 # OS
 .DS_Store
+Thumbs.db
 
 # Tests
 /coverage
 /.nyc_output
+/test-results
 
 # IDEs and editors
 /.idea
@@ -44,9 +46,10 @@ lerna-debug.log*
 .env.*.local
 .env.backup.*
 
-# Environment files (keep templates only)
-# .env.example should be committed
-# .env.prod should be committed as template
+# Keep template environment files
+!.env.development
+!.env.production
+!.env.example
 
 # temp directory
 .temp
@@ -60,6 +63,24 @@ pids
 
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+
+# PM2 logs
+logs/
+pm2-logs/
+
+# Uploads directory (except README)
+uploads/*
+!uploads/README.md
+!uploads/.gitkeep
+
+# Database dumps
+*.sql
+*.dump
+
+# Backup files
+*.bak
+*.backup
+*.old
 
 # Deployment files
 deployment/
@@ -77,5 +98,20 @@ deployment.tar.gz
 # SSL certificates
 ssl/
 *.crt
-*.key
 *.pem
+
+# Package manager lockfiles (keep package-lock.json but ignore others)
+yarn.lock
+pnpm-lock.yaml
+
+# Fonts - Keep fonts directory but ignore specific font files if too large
+# fonts/*.ttf
+# fonts/*.otf
+# !fonts/README.md
+
+# Keep k8s configs but ignore secrets
+k8s/secrets/
+k8s/*-secret.yaml
+
+# Ignore compiled documentation
+docs/generated/
