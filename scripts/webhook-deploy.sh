@@ -94,7 +94,16 @@ main() {
   # Restart PM2 process
   log "Restarting application..."
   pm2 stop "$PM2_APP_NAME" 2>/dev/null || log "No running process to stop"
-  pm2 start ecosystem.config.js --env production || error_exit "PM2 start failed"
+  
+  # Check if we're in production environment
+  if [[ "$PROJECT_DIR" == "/var/www/backend/ticket-backend" ]]; then
+    # Production environment
+    pm2 start ecosystem.config.js --env production || error_exit "PM2 start failed"
+  else
+    # Development environment - start with simpler config
+    pm2 start dist/main.js --name "$PM2_APP_NAME" || error_exit "PM2 start failed"
+  fi
+  
   pm2 save || log "PM2 save failed"
   
   # Success notification with commit info
