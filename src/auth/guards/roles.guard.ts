@@ -34,8 +34,9 @@ export class RolesGuard implements CanActivate {
     }
 
     if (!user.role) {
-      this.logger.warn('User role not found in request');
-      return false;
+      // ตั้งค่า default role เป็น USER ถ้าไม่พบ
+      user.role = UserRole.USER;
+      this.logger.warn('User role not found, setting default role to USER');
     }
 
     // Debug logging

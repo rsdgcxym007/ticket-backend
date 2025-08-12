@@ -34,19 +34,33 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
       const request = context.switchToHttp().getRequest();
       console.log('User in request after JWT validation:', request.user);
 
+      // เพิ่ม default role ถ้าไม่มีให้ RolesGuard ใช้งาน
+      if (request.user && !request.user.role) {
+        request.user.role = 'USER'; // ตั้งค่า default role
+        console.log('✅ Set default role for user:', {
+          id: request.user.id,
+          userId: request.user.userId,
+          role: request.user.role,
+        });
+      }
+
       // ถ้า sessionService ไม่ available ให้ยอมรับเฉพาะ JWT validation จาก parent guard
       if (!this.sessionService) {
         this.logger.warn(
           'SessionService not available, skipping session validation',
         );
-        console.log('=== JwtAuthGuard canActivate END (no session service) ===');
+        console.log(
+          '=== JwtAuthGuard canActivate END (no session service) ===',
+        );
         return true;
       }
 
       // 🚨 TEMPORARY: ปิดการใช้งาน session validation ชั่วคราว
       console.log('⚠️ TEMPORARY: Skipping session validation for debugging');
       this.logger.warn('TEMPORARY: Session validation disabled for debugging');
-      console.log('=== JwtAuthGuard canActivate END (session validation disabled) ===');
+      console.log(
+        '=== JwtAuthGuard canActivate END (session validation disabled) ===',
+      );
       return true;
 
       // ตรวจสอบ session
@@ -79,10 +93,12 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
           tokenId,
           tokenHash,
         );
-        
+
         if (!session) {
           console.log('❌ Session not found or expired');
-          this.logger.warn(`Session not found or expired for tokenId: ${tokenId}`);
+          this.logger.warn(
+            `Session not found or expired for tokenId: ${tokenId}`,
+          );
           // แทนที่จะ throw error ให้ทำการ revoke token แล้วส่ง 401
           throw new UnauthorizedException('Session expired or invalid');
         }
@@ -97,16 +113,19 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
         return true;
       } catch (sessionError) {
         console.log('❌ Session validation failed:', sessionError.message);
-        this.logger.error(`Session validation failed: ${sessionError.message}`, {
-          tokenId,
-          error: sessionError,
-        });
-        
+        this.logger.error(
+          `Session validation failed: ${sessionError.message}`,
+          {
+            tokenId,
+            error: sessionError,
+          },
+        );
+
         // ตรวจสอบว่าเป็น UnauthorizedException หรือไม่
         if (sessionError instanceof UnauthorizedException) {
           throw sessionError;
         }
-        
+
         // สำหรับ error อื่น ๆ ให้ log แล้วส่ง 401
         throw new UnauthorizedException('Session validation failed');
       }
@@ -116,12 +135,12 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
         error,
         stack: error.stack,
       });
-      
+
       // ถ้าเป็น UnauthorizedException ให้ผ่านต่อไป
       if (error instanceof UnauthorizedException) {
         throw error;
       }
-      
+
       // สำหรับ error อื่น ๆ
       throw new UnauthorizedException('Authentication failed');
     }

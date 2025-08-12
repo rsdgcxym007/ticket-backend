@@ -33,7 +33,50 @@ sudo ./deploy.sh vps
 - Git branch support
 - PM2 management
 
-### 2. `manage.sh` - Application Management
+### 2. `webhook-deploy.sh` - 🔄 Auto-Deployment Script
+**Main auto-deployment script** with comprehensive error handling.
+
+**Usage:**
+```bash
+./webhook-deploy.sh
+```
+
+**Features:**
+- ✅ Enhanced error handling and recovery
+- ✅ Multiple fallback strategies for npm/build failures  
+- ✅ Timeout protection for all operations
+- ✅ Discord notifications (optional)
+- ✅ Smart PM2 restart handling
+
+### 3. `safe-restart.sh` - 🛡️ Safe PM2 Restart
+Advanced PM2 restart with multiple fallback strategies.
+
+**Usage:**
+```bash
+./safe-restart.sh [app_name] [project_dir]
+```
+
+**Features:**
+- ✅ 4-tier fallback strategy for PM2 operations
+- ✅ Timeout protection to prevent hanging
+- ✅ Force cleanup for unresponsive PM2 processes
+- ✅ Application health verification
+
+### 4. `quick-deploy.sh` - ⚡ Manual Deployment with Debug
+Manual deployment with verbose debugging output.
+
+**Usage:**
+```bash
+./quick-deploy.sh
+```
+
+**Features:**
+- ✅ Verbose logging for troubleshooting
+- ✅ Before/after status comparison
+- ✅ Deploy log saving
+- ✅ Interrupt handling
+
+### 5. `manage.sh` - Application Management
 Complete PM2 and application lifecycle management.
 
 **Usage:**

@@ -46,6 +46,12 @@ import { ScheduleModule } from '@nestjs/schedule';
     RolesGuard,
   ],
   controllers: [AuthController],
-  exports: [AuthService, SessionService, JwtAuthGuard, RolesGuard],
+  exports: [
+    AuthService,
+    SessionService,
+    JwtAuthGuard,
+    RolesGuard,
+    TypeOrmModule, // ✅ Export TypeOrmModule เพื่อให้โมดูลอื่นใช้ User repository ได้
+  ],
 })
 export class AuthModule {}

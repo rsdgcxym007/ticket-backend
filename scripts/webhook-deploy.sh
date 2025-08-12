@@ -41,7 +41,32 @@ notify() {
 error_exit() {
   echo -e "${RED}[ERROR]${NC} $1" >&2
   notify "AUTO-DEPLOYMENT FAILED: $1"
+  
+  # Show PM2 status for debugging
+  log "📊 PM2 status for debugging:"
+  pm2 status || true
+  pm2 logs --lines 10 || true
+  
   exit 1
+}
+
+# Check if PM2 is responsive
+check_pm2_health() {
+  log "🔍 Checking PM2 health..."
+  
+  if ! command -v pm2 >/dev/null 2>&1; then
+    log "❌ PM2 not found in PATH"
+    return 1
+  fi
+  
+  # Test PM2 responsiveness with timeout
+  if timeout 10 pm2 list >/dev/null 2>&1; then
+    log "✅ PM2 is responsive"
+    return 0
+  else
+    log "⚠️ PM2 appears unresponsive"
+    return 1
+  fi
 }
 
 # Check for common npm corruption issues
@@ -94,6 +119,18 @@ check_npm_health() {
 attempt_build() {
   log "🔨 เริ่มต้นกระบวนการ build..."
   notify "🔨 Starting build process..."
+  
+  # Clean previous build directory first
+  log "🗑️ Cleaning previous build artifacts..."
+  if [ -d "dist" ]; then
+    rm -rf dist || {
+      log "⚠️ Failed to remove dist directory, trying with sudo..."
+      sudo rm -rf dist || log "⚠️ Could not remove dist directory"
+    }
+    log "✅ Previous build artifacts cleaned"
+  else
+    log "ℹ️ No previous build artifacts found"
+  fi
   
   # Prebuild clean if script exists
   if npm run | grep -q "prebuild"; then
@@ -298,32 +335,76 @@ main() {
   log "✅ Build process completed successfully!"
   notify "✅ Build process completed!"
   
-  # Restart PM2 process
-  log "🔄 Restarting application with PM2..."
-  notify "🔄 Restarting application..."
-  pm2 stop "$PM2_APP_NAME" 2>/dev/null || log "ℹ️ No running process to stop"
-  
-  # Check if we're in production environment
-  if [[ "$PROJECT_DIR" == "/var/www/backend/ticket-backend" ]]; then
-    # Production environment
-    log "🚀 Starting production environment..."
-    notify "🚀 Starting in production mode..."
-    pm2 start ecosystem.config.js --env production || error_exit "PM2 start failed"
-    log "✅ Production application started!"
-  else
-    # Development environment - start with simpler config
-    log "🚀 Starting development environment..."
-    notify "🚀 Starting in development mode..."
-    pm2 start dist/main.js --name "$PM2_APP_NAME" || error_exit "PM2 start failed"
-    log "✅ Development application started!"
+  # Check PM2 health before attempting restart
+  if ! check_pm2_health; then
+    log "⚠️ PM2 health check failed - attempting to recover..."
+    
+    # Try to restart PM2 daemon
+    log "🔄 Restarting PM2 daemon..."
+    pm2 kill || true
+    sleep 3
+    pm2 ping || log "⚠️ PM2 ping failed after restart"
   fi
   
-  pm2 save || log "⚠️ PM2 save failed"
+  # Restart PM2 process using safe restart script
+  log "🔄 Restarting application with safe restart script..."
+  notify "🔄 Restarting application..."
+  
+  # Use our safe restart script
+  if [[ -f "$SCRIPTS_DIR/safe-restart.sh" ]]; then
+    chmod +x "$SCRIPTS_DIR/safe-restart.sh"
+    if "$SCRIPTS_DIR/safe-restart.sh" "$PM2_APP_NAME" "$PROJECT_DIR"; then
+      log "✅ Safe restart completed successfully!"
+      notify "✅ Application restarted successfully!"
+    else
+      error_exit "Safe restart failed"
+    fi
+  else
+    # Fallback to manual restart with enhanced timeouts
+    log "⚠️ Safe restart script not found, using fallback method..."
+    
+    # Stop existing process with timeout
+    log "⏹️ Stopping existing PM2 process..."
+    if timeout 10 pm2 list 2>/dev/null | grep -q "$PM2_APP_NAME"; then
+      timeout 30 pm2 stop "$PM2_APP_NAME" || {
+        log "⚠️ Stop timeout - force deleting process..."
+        timeout 15 pm2 delete "$PM2_APP_NAME" 2>/dev/null || true
+      }
+    else
+      log "ℹ️ No running process found"
+    fi
+    
+    # Wait for cleanup
+    sleep 3
+    
+    # Start application with timeout
+    log "🚀 Starting application..."
+    if [[ "$PROJECT_DIR" == "/var/www/backend/ticket-backend" ]]; then
+      # Production environment
+      notify "🚀 Starting in production mode..."
+      timeout 60 pm2 start ecosystem.config.js --env production || {
+        log "❌ Production start failed, trying fallback..."
+        NODE_ENV=production timeout 60 pm2 start dist/main.js --name "$PM2_APP_NAME" || error_exit "All start methods failed"
+      }
+    else
+      # Development environment
+      notify "🚀 Starting in development mode..."
+      timeout 60 pm2 start dist/main.js --name "$PM2_APP_NAME" || {
+        log "❌ Development start failed, trying with node..."
+        timeout 60 pm2 start "node dist/main.js" --name "$PM2_APP_NAME" || error_exit "All start methods failed"
+      }
+    fi
+    
+    log "✅ Application started successfully!"
+  fi
+  
+  # Save PM2 configuration with timeout
+  timeout 10 pm2 save || log "⚠️ PM2 save timeout or failed"
   log "💾 PM2 configuration saved!"
   
-  # Show PM2 status
+  # Show PM2 status with timeout
   log "📊 Current PM2 status:"
-  pm2 status
+  timeout 10 pm2 status || log "⚠️ PM2 status timeout"
   
   # Success notification with commit info
   notify "🎉 [SUCCESS] Auto-deployment completed successfully! New commit: $NEW_COMMIT"
@@ -332,7 +413,30 @@ main() {
   log "   📝 Old commit: $OLD_COMMIT"
   log "   📝 New commit: $NEW_COMMIT"
   log "   🕐 Completed at: $(date +'%Y-%m-%d %H:%M:%S')"
+  
+  # Final health check
+  log "🔍 Performing final health check..."
+  sleep 5
+  
+  if timeout 10 pm2 status | grep -q "$PM2_APP_NAME.*online"; then
+    log "✅ Application is running successfully!"
+    notify "✅ Final verification: Application is healthy and running!"
+  else
+    log "⚠️ Warning: Application may not be running properly"
+    notify "⚠️ Warning: Final health check failed - please verify manually"
+    timeout 10 pm2 logs "$PM2_APP_NAME" --lines 5 || true
+  fi
 }
+
+# Handle script termination gracefully
+cleanup() {
+  log "🧹 Cleaning up on script termination..."
+  # Don't exit with error on cleanup
+  exit 0
+}
+
+# Set up signal handlers
+trap cleanup SIGINT SIGTERM
 
 # Run main function
 main "$@"
