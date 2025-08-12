@@ -14,7 +14,7 @@ export PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/sbin:$HOME/
 PROJECT_DIR="${PROJECT_DIR:-/var/www/backend/ticket-backend}"
 BRANCH="${BRANCH:-feature/newfunction}"
 DISCORD_WEBHOOK="${DISCORD_WEBHOOK:-https://discord.com/api/webhooks/1404715794205511752/H4H1Q-aJ2B1LwSpKxHYP7rt4tCWA0p10339NN5Gy71fhwXvFjcfSQKXNl9Xdj60ks__l}"
-GITHUB_WEBHOOK_URL="${GITHUB_WEBHOOK_URL:-http://43.229.133.51:4100/hooks/deploy-backend-master}"
+GITHUB_WEBHOOK_URL="${GITHUB_WEBHOOK_URL:-http://43.229.133.51:4400/hooks/deploy-backend-master}"
 
 # Colors for output
 RED='\033[0;31m'
