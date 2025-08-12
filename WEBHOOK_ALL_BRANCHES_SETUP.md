@@ -51,7 +51,7 @@ Replace your existing hook configuration with this one to support all branches:
 
 Update your GitHub webhook URL to:
 ```
-http://43.229.133.51:4100/hooks/deploy-backend-all-branches
+http://43.229.133.51:4200/hooks/deploy-backend-all-branches
 ```
 
 ### 5. Testing
@@ -59,7 +59,7 @@ http://43.229.133.51:4100/hooks/deploy-backend-all-branches
 Test with any branch:
 ```bash
 # Test webhook manually
-curl -X POST http://43.229.133.51:4100/hooks/deploy-backend-all-branches \
+curl -X POST http://43.229.133.51:4200/hooks/deploy-backend-all-branches \
   -H "Content-Type: application/json" \
   -d '{"ref": "refs/heads/feature/newfunction"}'
 
