@@ -3,12 +3,23 @@
 # Main Deploy Script for Webhook Integration
 # Called by webhook from /etc/webhook/hooks.json
 # Path: /var/www/backend/ticket-backend/deploy.sh
+# Supports any branch deployment
 
 set -euo pipefail
 
+# Extract branch from webhook argument if provided
+WEBHOOK_REF="${1:-}"
+if [[ "$WEBHOOK_REF" =~ ^refs/heads/(.+)$ ]]; then
+  BRANCH_FROM_WEBHOOK="${BASH_REMATCH[1]}"
+else
+  BRANCH_FROM_WEBHOOK=""
+fi
+
 # Configuration
 PROJECT_DIR="${PROJECT_DIR:-/var/www/backend/ticket-backend}"
-BRANCH="${BRANCH:-feature/newfunction}"  # Use feature/newfunction to match current development
+# Use branch from webhook, current git branch, or default
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "feature/newfunction")
+BRANCH="${BRANCH_FROM_WEBHOOK:-${BRANCH:-$CURRENT_BRANCH}}"
 DISCORD_WEBHOOK="${DISCORD_WEBHOOK:-https://discord.com/api/webhooks/1404715794205511752/H4H1Q-aJ2B1LwSpKxHYP7rt4tCWA0p10339NN5Gy71fhwXvFjcfSQKXNl9Xdj60ks__l}"
 
 # Colors for output
