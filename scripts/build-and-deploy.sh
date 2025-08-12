@@ -8,8 +8,8 @@ set -e  # Exit on any error
 # Discord webhook URL
 DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/1404715794205511752/H4H1Q-aJ2B1LwSpKxHYP7rt4tCWA0p10339NN5Gy71fhwXvFjcfSQKXNl9Xdj60ks__l"
 
-# Webhook notification URL
-WEBHOOK_URL="http://43.229.133.51:4000/api/v1/webhook/v1/deploy"
+# Webhook notification URL (Fixed: removed /v1 from path)
+WEBHOOK_URL="http://43.229.133.51:4000/api/v1/webhook/deploy"
 
 echo "🚀 Starting build and deployment process..."
 
@@ -125,8 +125,36 @@ if ! command_exists npm; then
     exit 1
 fi
 
-print_status "Step 1: Installing dependencies..."
-npm ci --production=false
+print_status "Step 1: Cleaning and installing dependencies..."
+
+# Clean npm cache and node_modules to fix corruption issues
+print_status "Cleaning npm cache and node_modules..."
+npm cache clean --force 2>/dev/null || true
+rm -rf node_modules/
+rm -f package-lock.json
+
+# Reinstall dependencies with retry logic
+print_status "Installing dependencies (attempt 1/3)..."
+if ! npm install --production=false --no-audit --no-fund; then
+    print_warning "First attempt failed, retrying..."
+    sleep 2
+    
+    print_status "Installing dependencies (attempt 2/3)..."
+    if ! npm install --production=false --no-audit --no-fund; then
+        print_warning "Second attempt failed, trying with legacy peer deps..."
+        sleep 2
+        
+        print_status "Installing dependencies (attempt 3/3)..."
+        if ! npm install --production=false --no-audit --no-fund --legacy-peer-deps; then
+            print_error "All npm install attempts failed"
+            send_discord_notification "❌ Deployment failed: npm install failed" "15158332" "Failed"
+            send_webhook_notification "failed" "❌ Deployment failed: npm install failed"
+            exit 1
+        fi
+    fi
+fi
+
+print_success "Dependencies installed successfully"
 
 print_status "Step 2: Cleaning previous build..."
 rm -rf dist/

@@ -33,6 +33,43 @@ print_warning() {
     echo -e "${YELLOW}⚠️  AUTO-DEPLOY: $1${NC}"
 }
 
+# Cleanup function for emergency recovery
+cleanup_and_recovery() {
+    print_warning "🚨 EMERGENCY CLEANUP: Starting recovery procedures..."
+    
+    cd "$PROJECT_DIR" || return 1
+    
+    # Kill any hanging npm processes
+    print_status "Killing hanging npm/node processes..."
+    pkill -f npm || true
+    pkill -f node || true
+    
+    # Remove corrupted node_modules
+    if [ -d "node_modules" ]; then
+        print_status "Removing corrupted node_modules..."
+        rm -rf node_modules
+    fi
+    
+    # Clear npm cache
+    print_status "Clearing npm cache..."
+    npm cache clean --force || true
+    
+    # Reset git to clean state
+    print_status "Resetting git to clean state..."
+    git reset --hard HEAD || true
+    git clean -fd || true
+    
+    # Stop any running PM2 processes
+    print_status "Stopping PM2 processes..."
+    pm2 stop all || true
+    pm2 delete all || true
+    
+    print_success "Emergency cleanup completed"
+}
+
+# Trap for emergency cleanup on script interruption
+trap 'cleanup_and_recovery; exit 1' INT TERM
+
 # Function to send notification to our webhook endpoint (which handles Discord)
 send_notification() {
     local status="$1"
@@ -113,38 +150,57 @@ fi
 
 print_success "Code updated successfully"
 
-print_status "Step 2: Installing dependencies..."
-if ! npm ci --production=false; then
-    print_error "Failed to install dependencies"
-    send_notification "failed" "npm install failed"
+print_status "Step 2: Running comprehensive build and deployment..."
+# Use the more robust build-and-deploy script instead of basic npm commands
+if [ -f "scripts/build-and-deploy.sh" ]; then
+    print_status "Using build-and-deploy.sh for robust deployment..."
+    chmod +x scripts/build-and-deploy.sh
+    SKIP_NOTIFICATIONS=true ./scripts/build-and-deploy.sh
+else
+    print_warning "build-and-deploy.sh not found, falling back to basic build..."
+    
+    print_status "Installing dependencies..."
+    if ! npm ci --production=false; then
+        print_error "Failed to install dependencies"
+        send_notification "failed" "npm install failed"
+        exit 1
+    fi
+
+    print_status "Building application..."
+    if ! npm run build; then
+        print_error "Build failed"
+        send_notification "failed" "Build process failed"
+        exit 1
+    fi
+
+    # Verify the build
+    if [ ! -f "dist/main.js" ]; then
+        print_error "Build verification failed: dist/main.js not found"
+        send_notification "failed" "Build verification failed"
+        exit 1
+    fi
+
+    print_success "Build completed successfully"
+
+    print_status "Restarting application with PM2..."
+    pm2 stop ticket-backend-prod 2>/dev/null || true
+    pm2 delete ticket-backend-prod 2>/dev/null || true
+    pm2 start ecosystem.config.js --env production
+
+# Wait for PM2 to stabilize
+sleep 5
+
+print_status "Step 3: Checking deployment status..."
+# Check PM2 status
+pm2 list | grep ticket-backend-prod > /dev/null
+if [ $? -eq 0 ]; then
+    print_success "Application is running successfully"
+    send_notification "success" "🎉 Auto-deployment completed successfully! Application is online."
+else
+    print_error "Application failed to start"
+    send_notification "failed" "Application failed to start after deployment"
     exit 1
 fi
-
-print_status "Step 3: Building application..."
-if ! npm run build; then
-    print_error "Build failed"
-    send_notification "failed" "Build process failed"
-    exit 1
-fi
-
-# Verify the build
-if [ ! -f "dist/main.js" ]; then
-    print_error "Build verification failed: dist/main.js not found"
-    send_notification "failed" "Build verification failed"
-    exit 1
-fi
-
-print_success "Build completed successfully"
-
-print_status "Step 4: Restarting application with PM2..."
-
-# Set timeout for PM2 operations
-export PM2_KILL_TIMEOUT=30000
-
-# First, try graceful restart
-print_status "Attempting graceful restart..."
-if timeout 60s pm2 restart ticket-backend-prod 2>/dev/null; then
-    print_success "PM2 restart successful"
 else
     print_warning "Graceful restart failed, attempting force restart..."
     
