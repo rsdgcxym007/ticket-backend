@@ -5,6 +5,11 @@
 
 set -euo pipefail
 
+# Ensure pm2 and node are on PATH for non-interactive shells
+export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" || true
+export PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/sbin:$HOME/.npm-global/bin:$HOME/bin:$PATH"
+
 # Configuration (override via env if needed)
 PROJECT_DIR="${PROJECT_DIR:-/var/www/backend/ticket-backend}"
 BRANCH="${BRANCH:-feature/newfunction}"
@@ -34,6 +39,7 @@ notify() {
 cd "$PROJECT_DIR" || { notify "❌ [Backend] Failed to access project directory"; error "Cannot cd to $PROJECT_DIR"; exit 1; }
 
 log "Starting self-contained auto-deployment on branch $BRANCH"
+notify "🚀 [Backend] Auto-deploy started (branch: $BRANCH)"
 
 # Ensure git repo exists
 if [ ! -d .git ]; then

@@ -180,28 +180,13 @@ export class WebhookController {
       const projectDir =
         process.env.PROJECT_DIR || '/var/www/backend/ticket-backend';
 
-      // Try simple scripts in order of preference
-      const simpleV2ScriptPath = `${projectDir}/scripts/simple-webhook-deploy-v2.sh`;
-      const simpleScriptPath = `${projectDir}/scripts/simple-webhook-deploy.sh`;
-      const complexScriptPath = `${projectDir}/scripts/webhook-deploy.sh`;
-
+      // Always use the single self-contained script as requested
+      const scriptPath = `${projectDir}/scripts/webhook-deploy.sh`;
       const fs = require('fs');
-      let scriptPath = simpleV2ScriptPath;
-
-      if (fs.existsSync(simpleV2ScriptPath)) {
-        this.logger.log('Using simple-webhook-deploy-v2.sh (recommended)');
-        scriptPath = simpleV2ScriptPath;
-      } else if (fs.existsSync(simpleScriptPath)) {
-        this.logger.log('Using simple-webhook-deploy.sh');
-        scriptPath = simpleScriptPath;
-      } else if (fs.existsSync(complexScriptPath)) {
-        this.logger.log('Fallback to webhook-deploy.sh');
-        scriptPath = complexScriptPath;
-      } else {
-        throw new Error('No deployment script found');
+      if (!fs.existsSync(scriptPath)) {
+        throw new Error(`Deployment script not found: ${scriptPath}`);
       }
-
-      this.logger.log(`Executing: ${scriptPath}`);
+      this.logger.log(`Executing single-file deploy: ${scriptPath}`);
 
       // Make sure script is executable
       await execAsync(`chmod +x ${scriptPath}`);
