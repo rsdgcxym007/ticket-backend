@@ -8,8 +8,8 @@ set -e  # Exit on any error
 # Discord webhook URL
 DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/1404715794205511752/H4H1Q-aJ2B1LwSpKxHYP7rt4tCWA0p10339NN5Gy71fhwXvFjcfSQKXNl9Xdj60ks__l"
 
-# Webhook notification URL (port updated to 4100)
-WEBHOOK_URL="http://43.229.133.51:4100/api/v1/webhook/deploy"
+# Webhook notification URL (updated to new endpoint)
+WEBHOOK_URL="http://43.229.133.51:4100/hooks/deploy-backend-master"
 
 echo "🚀 Starting build and deployment process..."
 
@@ -133,47 +133,65 @@ npm cache clean --force 2>/dev/null || true
 rm -rf node_modules/
 rm -f package-lock.json
 
-# Reinstall dependencies with retry logic
-print_status "Installing dependencies (attempt 1/3)..."
-if ! npm install --production=false --no-audit --no-fund; then
-    print_warning "First attempt failed, retrying..."
+# Use npm ci (clean install) with retry logic for better reliability
+print_status "📦 Installing dependencies with npm ci (attempt 1/3)..."
+if ! npm ci --production=false; then
+    print_warning "🔄 npm ci failed, cleaning and retrying..."
+    npm cache clean --force 2>/dev/null || true
     sleep 2
     
-    print_status "Installing dependencies (attempt 2/3)..."
-    if ! npm install --production=false --no-audit --no-fund; then
-        print_warning "Second attempt failed, trying with legacy peer deps..."
+    print_status "📦 Installing dependencies with npm ci (attempt 2/3)..."
+    if ! npm ci --production=false; then
+        print_warning "🔄 npm ci failed again, trying npm install with legacy flags..."
         sleep 2
         
-        print_status "Installing dependencies (attempt 3/3)..."
+        print_status "📦 Installing dependencies with npm install (attempt 3/3)..."
         if ! npm install --production=false --no-audit --no-fund --legacy-peer-deps; then
-            print_error "All npm install attempts failed"
-            send_discord_notification "❌ Deployment failed: npm install failed" "15158332" "Failed"
-            send_webhook_notification "failed" "❌ Deployment failed: npm install failed"
+            print_error "❌ ALL DEPENDENCY INSTALLATION ATTEMPTS FAILED"
+            print_error "   • npm ci failed (attempts 1-2)"
+            print_error "   • npm install --legacy-peer-deps failed (attempt 3)"
+            send_discord_notification "❌ Deployment failed: All npm install attempts failed" "15158332" "Failed"
+            send_webhook_notification "failed" "❌ Deployment failed: All npm install attempts failed"
             exit 1
+        else
+            print_success "✅ Dependencies installed successfully with npm install (legacy mode)"
         fi
+    else
+        print_success "✅ Dependencies installed successfully with npm ci (attempt 2)"
     fi
+else
+    print_success "✅ Dependencies installed successfully with npm ci (attempt 1)"
 fi
-
-print_success "Dependencies installed successfully"
 
 print_status "Step 2: Cleaning previous build..."
 rm -rf dist/
 rm -f tsconfig.build.tsbuildinfo
 
 print_status "Step 3: Building the application..."
-npm run build
+if ! npm run build; then
+    print_error "❌ BUILD FAILED"
+    print_error "   • npm run build command failed"
+    print_warning "🔍 Checking TypeScript compilation issues..."
+    npx tsc --noEmit || true
+    send_discord_notification "❌ Build failed during npm run build" "15158332" "Failed"
+    send_webhook_notification "failed" "❌ Build failed during npm run build"
+    exit 1
+else
+    print_success "✅ Application built successfully"
+fi
 
 # Verify the build was successful
 if [ ! -f "dist/main.js" ]; then
-    print_error "Build failed: dist/main.js not found"
-    print_warning "Checking TypeScript compilation issues..."
-    npx tsc --noEmit
-    send_discord_notification "❌ Build failed: dist/main.js not found" "15158332" "Failed"
-    send_webhook_notification "failed" "❌ Build failed: dist/main.js not found"
+    print_error "❌ BUILD VERIFICATION FAILED"
+    print_error "   • dist/main.js not found after build"
+    print_warning "🔍 Checking build directory contents..."
+    ls -la dist/ 2>/dev/null || echo "dist/ directory not found"
+    send_discord_notification "❌ Build verification failed: dist/main.js not found" "15158332" "Failed"
+    send_webhook_notification "failed" "❌ Build verification failed: dist/main.js not found"
     exit 1
+else
+    print_success "✅ Build verification passed - dist/main.js exists"
 fi
-
-print_success "Build completed successfully"
 
 print_status "Step 4: Verifying build files..."
 echo "Build files:"

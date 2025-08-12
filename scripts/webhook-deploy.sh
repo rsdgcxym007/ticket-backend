@@ -79,16 +79,20 @@ fi
 # Step 1: Install dependencies first (as requested)
 log "Step 1: Installing dependencies (npm ci --production=false)"
 if ! npm ci --production=false; then
-  warn "npm ci failed — cleaning cache and retrying with npm install --legacy-peer-deps"
+  warn "❌ npm ci failed — cleaning cache and retrying with npm install --legacy-peer-deps"
   npm cache clean --force || true
+  sleep 2
   if ! npm install --legacy-peer-deps; then
-    notify "❌ [Backend] npm ci failed"
-    notify_github "failed" "npm install failed"
-    error "npm install failed"
+    notify "❌ [Backend] ALL DEPENDENCY INSTALLATION FAILED"
+    notify_github "failed" "npm ci and npm install both failed"
+    error "❌ DEPENDENCY INSTALLATION FAILED (both npm ci and npm install failed)"
     exit 1
+  else
+    success "✅ Dependencies installed with npm install --legacy-peer-deps (fallback)"
   fi
+else
+  success "✅ Dependencies installed with npm ci"
 fi
-success "Dependencies installed successfully"
 
 # Step 2: Call deploy.sh deploy (pull code → npm ci again → build → restart PM2)
 log "Step 2: Calling deploy.sh deploy"
@@ -112,18 +116,60 @@ else
   
   # npm ci again
   log "Running npm ci again..."
-  npm ci --production=false || { notify_github "failed" "second npm ci failed"; exit 1; }
+  if ! npm ci --production=false; then
+    warn "Second npm ci failed, trying npm install"
+    if ! npm install --production=false --legacy-peer-deps; then
+      notify_github "failed" "second npm ci and npm install both failed"
+      error "❌ Second dependency installation failed"
+      exit 1
+    else
+      success "✅ Second dependencies installed with npm install"
+    fi
+  else
+    success "✅ Second dependencies installed with npm ci"
+  fi
   
   # Build
   log "Building application..."
-  npm run build || { notify_github "failed" "build failed"; exit 1; }
+  if ! npm run build; then
+    notify_github "failed" "build failed"
+    error "❌ BUILD FAILED during npm run build"
+    exit 1
+  else
+    success "✅ Application built successfully"
+  fi
+  
+  # Verify build
+  if [ ! -f dist/main.js ]; then
+    notify_github "failed" "build verification failed - dist/main.js missing"
+    error "❌ BUILD VERIFICATION FAILED - dist/main.js not found"
+    exit 1
+  else
+    success "✅ Build verification passed - dist/main.js exists"
+  fi
   
   # Restart PM2
   log "Restarting PM2..."
   if pm2 list | grep -q "ticket-backend-prod"; then
-    pm2 restart ticket-backend-prod || pm2 start ecosystem.config.js --env production
+    if pm2 restart ticket-backend-prod; then
+      success "✅ PM2 restarted successfully"
+    else
+      warn "PM2 restart failed, trying fresh start"
+      pm2 start ecosystem.config.js --env production || {
+        notify_github "failed" "PM2 start failed"
+        error "❌ PM2 START FAILED"
+        exit 1
+      }
+      success "✅ PM2 started fresh successfully"
+    fi
   else
-    pm2 start ecosystem.config.js --env production
+    if pm2 start ecosystem.config.js --env production; then
+      success "✅ PM2 started successfully"
+    else
+      notify_github "failed" "PM2 start failed"
+      error "❌ PM2 START FAILED"
+      exit 1
+    fi
   fi
 fi
 
@@ -131,15 +177,22 @@ sleep 3
 
 # Step 3: Verify and respond to GitHub
 log "Step 3: Verifying deployment and responding to GitHub"
+sleep 3
 if pm2 list | grep -q "ticket-backend-prod.*online"; then
   COMMIT=$(git log -1 --pretty=format:"%h - %s by %an")
-  notify "✅ [Backend] Deploy success: $COMMIT"
-  notify_github "success" "Deployment completed successfully: $COMMIT"
-  success "Deployment completed successfully: $COMMIT"
+  notify "✅ [Backend] DEPLOYMENT SUCCESS: $COMMIT"
+  notify_github "success" "✅ Deployment completed successfully: $COMMIT"
+  success "🎉 DEPLOYMENT COMPLETED SUCCESSFULLY: $COMMIT"
+  success "   • Dependencies: ✅ Installed"
+  success "   • Code: ✅ Updated to latest"
+  success "   • Build: ✅ Completed"
+  success "   • PM2: ✅ Online"
+  success "   • Notifications: ✅ Sent"
   exit 0
 else
-  notify "❌ [Backend] Application failed to start after deploy"
-  notify_github "failed" "Application failed to start after deployment"
-  error "PM2 application not online"
+  notify "❌ [Backend] DEPLOYMENT FAILED - Application not online"
+  notify_github "failed" "❌ Application failed to start after deployment"
+  error "❌ DEPLOYMENT FAILED - PM2 application not online"
+  error "   Please check: pm2 logs ticket-backend-prod"
   exit 1
 fi
