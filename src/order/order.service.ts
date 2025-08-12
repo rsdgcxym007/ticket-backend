@@ -45,6 +45,7 @@ import {
   LoggingHelper,
   ErrorHandlingHelper,
 } from '../common/utils';
+import { DateFormatterHelper } from '../utils/date-formatter.helper';
 
 // ========================================
 // 🔧 SERVICES
@@ -1446,6 +1447,9 @@ export class OrderService {
 
       // คำนวณสรุปข้อมูล ใช้ OrderPricingHelper
       const summary = OrderPricingHelper.calculateOrdersSummary(orders);
+      console.log('orders', orders);
+
+      console.log('dqwdqwdkqwdlkqwldjqwldjlqwdjqwldjlqw');
 
       // เตรียมข้อมูลสำหรับ export
       const exportOrders = orders.map((order) => ({
@@ -1465,12 +1469,8 @@ export class OrderService {
         purchaseType: order.purchaseType || OrderPurchaseType.ONSITE,
         attendanceStatus: order.attendanceStatus || 'PENDING',
         paymentMethod: order.paymentMethod || PaymentMethod.CASH,
-        showDate: order.showDate
-          ? new Date(order.showDate).toISOString().split('T')[0]
-          : '-',
-        createdAt: order.createdAt
-          ? new Date(order.createdAt).toISOString()
-          : '-',
+        showDate: DateFormatterHelper.formatDateSafely(order.showDate),
+        createdAt: DateFormatterHelper.formatDateTimeSafely(order.createdAt),
         createdByName: order.createdByName || '-',
         referrerCode: order.referrerCode || '-',
         referrerCommission: order.referrerCommission || 0,
@@ -1721,12 +1721,12 @@ export class OrderService {
         ) {
           // ถ้า paymentAmount มากกว่า totalAmount ให้ลบค่าเสื้อ
           if (order.ticketType === 'STANDING') {
-            // ตั๋วยืน: ลบ 400 ต่อตั๋ว
-            const standingDeduction = (stdQty + stdchQty) * 400;
+            // ตั๋วยืน: ลบ 300 ต่อตั๋ว
+            const standingDeduction = (stdQty + stdchQty) * 300;
             paymentAmount = grossPaymentAmount - standingDeduction;
           } else {
-            // ตั๋วนั่ง (RINGSIDE/STADIUM): ลบ 300 ต่อตั๋ว
-            const sittingDeduction = rsQty * 300;
+            // ตั๋วนั่ง (RINGSIDE/STADIUM): ลบ 400 ต่อตั๋ว
+            const sittingDeduction = rsQty * 400;
             paymentAmount = grossPaymentAmount - sittingDeduction;
           }
         }
@@ -1838,12 +1838,12 @@ export class OrderService {
         ) {
           // ถ้า paymentAmount มากกว่า totalAmount ให้ลบค่าเสื้อ
           if (order.ticketType === 'STANDING') {
-            // ตั๋วยืน: ลบ 400 ต่อตั๋ว
-            const standingDeduction = (stdQty + stdchQty) * 400;
+            // ตั๋วยืน: ลบ 300 ต่อตั๋ว
+            const standingDeduction = (stdQty + stdchQty) * 300;
             orderPaymentAmount = grossOrderPayment - standingDeduction;
           } else {
-            // ตั๋วนั่ง (RINGSIDE/STADIUM): ลบ 300 ต่อตั๋ว
-            const sittingDeduction = rsQty * 300;
+            // ตั๋วนั่ง (RINGSIDE/STADIUM): ลบ 400 ต่อตั๋ว
+            const sittingDeduction = rsQty * 400;
             orderPaymentAmount = grossOrderPayment - sittingDeduction;
           }
         }
@@ -2209,12 +2209,12 @@ export class OrderService {
         ) {
           // ถ้า paymentAmount มากกว่า totalAmount ให้ลบค่าเสื้อ
           if (order.ticketType === 'STANDING') {
-            // ตั๋วยืน: ลบ 400 ต่อตั๋ว
-            const standingDeduction = (stdQty + stdchQty) * 400;
+            // ตั๋วยืน: ลบ 300 ต่อตั๋ว
+            const standingDeduction = (stdQty + stdchQty) * 300;
             paymentAmount = grossPaymentAmount - standingDeduction;
           } else {
-            // ตั๋วนั่ง (RINGSIDE/STADIUM): ลบ 300 ต่อตั๋ว
-            const sittingDeduction = rsQty * 300;
+            // ตั๋วนั่ง (RINGSIDE/STADIUM): ลบ 400 ต่อตั๋ว
+            const sittingDeduction = rsQty * 400;
             paymentAmount = grossPaymentAmount - sittingDeduction;
           }
         }
@@ -2474,12 +2474,12 @@ export class OrderService {
         ) {
           // ถ้า paymentAmount มากกว่า totalAmount ให้ลบค่าเสื้อ
           if (order.ticketType === 'STANDING') {
-            // ตั๋วยืน: ลบ 400 ต่อตั๋ว
-            const standingDeduction = (stdQty + stdchQty) * 400;
+            // ตั๋วยืน: ลบ 300 ต่อตั๋ว
+            const standingDeduction = (stdQty + stdchQty) * 300;
             paymentAmount = grossPaymentAmount - standingDeduction;
           } else {
-            // ตั๋วนั่ง (RINGSIDE/STADIUM): ลบ 300 ต่อตั๋ว
-            const sittingDeduction = rsQty * 300;
+            // ตั๋วนั่ง (RINGSIDE/STADIUM): ลบ 400 ต่อตั๋ว
+            const sittingDeduction = rsQty * 400;
             paymentAmount = grossPaymentAmount - sittingDeduction;
           }
         }

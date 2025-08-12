@@ -313,17 +313,24 @@ export class OrderExportImportHelper {
       return changes;
     }
 
-    // อัปเดท actualPaidAmount (ยกเลิก logic skip กรณี equal amounts)
-    // เพราะผู้ใช้อาจต้องการ import ข้อมูลที่แก้ไขใหม่
-    if (
-      data.actualPaidAmount !== undefined &&
-      data.actualPaidAmount !== order.actualPaidAmount
-    ) {
-      updates.actualPaidAmount = data.actualPaidAmount;
+    // ✅ อัปเดท actualPaidAmount เสมอ (ไม่ว่าจะเท่าไหร่ก็ต้องอัพเดท)
+    if (data.actualPaidAmount !== undefined) {
+      // 🎯 ถ้าใส่เกินยอดเต็ม ให้ตั้งเป็นยอดเต็มของออเดอร์
+      let adjustedPaymentAmount = data.actualPaidAmount;
+
+      if (data.actualPaidAmount > data.totalAmount) {
+        console.log(
+          `⚠️ Payment amount ${data.actualPaidAmount} exceeds total amount ${data.totalAmount}, adjusting to total amount`,
+        );
+        adjustedPaymentAmount = data.totalAmount;
+      }
+
+      // อัพเดท actualPaidAmount ใน order
+      updates.actualPaidAmount = adjustedPaymentAmount;
       changes.push('payment_amount');
 
-      // 🔥 โลจิกใหม่: ถ้า paymentAmount เท่ากับ totalAmount ให้ทำการอัปเดต
-      if (data.actualPaidAmount === data.totalAmount) {
+      // 🔥 โลจิกใหม่: ถ้า adjustedPaymentAmount เท่ากับ totalAmount ให้ทำการอัปเดต
+      if (adjustedPaymentAmount === data.totalAmount) {
         updates.paymentAmountVerified = true;
         changes.push('payment_verified');
 
@@ -333,7 +340,7 @@ export class OrderExportImportHelper {
 
         // 💰 คำนวณ payment amount ที่ต้องบันทึกใน payment entity
         // (เพิ่มค่าเสื้อกลับเข้าไป - ตรงข้ามกับตอน export)
-        let finalPaymentAmount = data.actualPaidAmount;
+        let finalPaymentAmount = adjustedPaymentAmount;
 
         // คำนวณจำนวนตั๋วแต่ละประเภท
         const standingQty =
@@ -366,7 +373,7 @@ export class OrderExportImportHelper {
           console.log(
             `💰 Updated payment amount for order ${
               order.orderNumber || order.id
-            }: ${data.actualPaidAmount} → ${finalPaymentAmount}`,
+            }: ${data.actualPaidAmount} → ${finalPaymentAmount} (adjusted: ${adjustedPaymentAmount})`,
           );
         }
 
@@ -435,6 +442,23 @@ export class OrderExportImportHelper {
         updates.importProcessCount = (order.importProcessCount || 0) + 1;
         changes.push('import_timestamp_recorded');
       } else {
+        // 💰 กรณีที่ไม่เท่ากับ total amount แต่ก็ต้องอัปเดท payment entity
+        if (order.payment) {
+          await paymentRepo.update(order.payment.id, {
+            amount: adjustedPaymentAmount,
+            status:
+              adjustedPaymentAmount > 0
+                ? PaymentStatus.PARTIAL
+                : PaymentStatus.PENDING,
+            updatedAt: ThailandTimeHelper.now(),
+          });
+          changes.push('payment_entity_partial');
+          console.log(
+            `💰 Updated partial payment amount for order ${
+              order.orderNumber || order.id
+            }: ${adjustedPaymentAmount}`,
+          );
+        }
         changes.push('payment_amount_partial');
       }
     }
