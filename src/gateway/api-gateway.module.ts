@@ -1,4 +1,9 @@
-import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
+import {
+  Module,
+  NestModule,
+  MiddlewareConsumer,
+  RequestMethod,
+} from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ApiGatewayController } from './api-gateway.controller';
 import { ApiGatewayService } from './api-gateway.service';
@@ -30,15 +35,17 @@ export class ApiGatewayModule implements NestModule {
     consumer
       .apply(ApiVersioningMiddleware)
       .exclude('gateway/*path')
-      .forRoutes('*');
+      .forRoutes({ path: '*path', method: RequestMethod.ALL });
 
     // Apply rate limiting middleware to all routes
-    consumer.apply(AdvancedRateLimitMiddleware).forRoutes('*');
+    consumer
+      .apply(AdvancedRateLimitMiddleware)
+      .forRoutes({ path: '*path', method: RequestMethod.ALL });
 
     // Apply request transformation middleware to all API routes
     consumer
       .apply(RequestTransformationMiddleware)
       .exclude('gateway/*path', 'health', 'docs', 'api-docs')
-      .forRoutes('*');
+      .forRoutes({ path: '*path', method: RequestMethod.ALL });
   }
 }

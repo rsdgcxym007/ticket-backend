@@ -5,15 +5,41 @@
 Fixed legacy route pattern warnings in NestJS application:
 
 ```
-WARN [LegacyRouteConverter] Unsupported route path: "/api/v1/gateway/(.*)". 
+WARN [LegacyRouteConverter] Unsupported route path: "/api/v1/*". 
 In previous versions, the symbols ?, *, and + were used to denote optional 
 or repeating path parameters. The latest version of "path-to-regexp" now 
 requires the use of named parameters.
 ```
 
-## ✅ **Changes Made**
+## ✅ **Final Fix Applied**
 
 ### **File:** `src/gateway/api-gateway.module.ts`
+
+**Updated imports:**
+```typescript
+import { Module, NestModule, MiddlewareConsumer, RequestMethod } from '@nestjs/common';
+```
+
+**Updated middleware configuration:**
+```typescript
+configure(consumer: MiddlewareConsumer) {
+  // Apply API versioning middleware to all routes except gateway itself
+  consumer
+    .apply(ApiVersioningMiddleware)
+    .exclude('gateway/*path')
+    .forRoutes({ path: '*path', method: RequestMethod.ALL });
+
+  // Apply rate limiting middleware to all routes
+  consumer.apply(AdvancedRateLimitMiddleware)
+    .forRoutes({ path: '*path', method: RequestMethod.ALL });
+
+  // Apply request transformation middleware to all API routes
+  consumer
+    .apply(RequestTransformationMiddleware)
+    .exclude('gateway/*path', 'health', 'docs', 'api-docs')
+    .forRoutes({ path: '*path', method: RequestMethod.ALL });
+}
+```
 
 **Before (Legacy Pattern):**
 ```typescript
