@@ -22,6 +22,7 @@
     "seed:zone": "ts-node src/scripts/zone.seed.ts",
     "seed:seat": "ts-node src/scripts/seat-from-zone.seed.ts",
     "seed:admin": "ts-node src/scripts/create-admin.ts",
+    "generate:jwt-secrets": "echo '🔐 JWT_SECRET:' && openssl rand -base64 64 && echo '🔐 JWT_REFRESH_SECRET:' && openssl rand -base64 64",
     "typeorm": "typeorm-ts-node-commonjs",
     "migration:generate": "npm run typeorm -- migration:generate src/migrations/migration -d src/config/database.config.ts",
     "migration:run": "npm run typeorm -- migration:run -d src/config/database.config.ts",
