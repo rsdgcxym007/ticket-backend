@@ -62,7 +62,10 @@ import { StaffModule } from './staff/staff.module';
     // ========================================
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: ['.env.local', '.env'],
+      envFilePath:
+        process.env.NODE_ENV === 'production'
+          ? ['.env.local', '.env.production', '.env']
+          : ['.env.local', '.env.development', '.env'],
       cache: true,
     }),
 
