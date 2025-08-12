@@ -2,7 +2,7 @@
 # Universal Deployment Script for Ticket Backend
 # Supports multiple deployment modes and environments
 
-DISCORD_WEBHOOK="https://discord.com/api/webhooks/1401766190879215697/2YJq7JXqFqLBOCCWxTDi9tGe4AgzhNL4ctVeBi7Br5ejUzYAyAhm_4_TKnymqUDJY2c4"
+DISCORD_WEBHOOK="https://discord.com/api/webhooks/1404715794205511752/H4H1Q-aJ2B1LwSpKxHYP7rt4tCWA0p10339NN5Gy71fhwXvFjcfSQKXNl9Xdj60ks__l"
 
 # Colors
 RED='\033[0;31m'
@@ -42,6 +42,8 @@ show_usage() {
   echo "  full          Full deployment with backup"
   echo "  vps           VPS server setup"
   echo "  local         Local build and start"
+  echo "  monitoring    Setup monitoring system only"
+  echo "  monitor-status Check monitoring system status"
   echo ""
   echo "Options:"
   echo "  --no-backup   Skip backup creation"
@@ -50,9 +52,11 @@ show_usage() {
   echo ""
   echo "Examples:"
   echo "  $0 quick                    # Quick deployment"
-  echo "  $0 full                     # Full deployment"
+  echo "  $0 full                     # Full deployment with monitoring check"
   echo "  $0 local                    # Local development"
-  echo "  $0 vps                      # VPS setup"
+  echo "  $0 vps                      # VPS setup with monitoring"
+  echo "  sudo $0 monitoring          # Setup monitoring system only"
+  echo "  $0 monitor-status           # Check monitoring status"
 }
 
 # Quick deployment
@@ -192,9 +196,15 @@ vps_setup() {
   # Install PM2
   npm install -g pm2 || error_exit "PM2 installation failed"
   
+  # Install monitoring dependencies
+  apt install -y jq curl htop || log "Failed to install monitoring dependencies"
+  
   # Create application directory
   mkdir -p "$PROJECT_DIR"
   chown -R $USER:$USER "$PROJECT_DIR"
+  
+  # Setup monitoring scripts
+  setup_monitoring_system
   
   # Setup database
   sudo -u postgres psql -c "CREATE USER boxing_user WITH PASSWORD 'Password123!';" 2>/dev/null || log "User already exists"
@@ -231,12 +241,56 @@ for arg in "$@"; do
 done
 
 # Main execution
+# Setup monitoring system
+setup_monitoring_system() {
+  log "🔧 Setting up monitoring system..."
+  
+  # Make scripts executable
+  chmod +x "$PROJECT_DIR/scripts/monitor.sh"
+  chmod +x "$PROJECT_DIR/scripts/auto-restart.sh"
+  
+  # Copy systemd service files
+  cp "$PROJECT_DIR/scripts/ticket-monitor.service" /etc/systemd/system/
+  cp "$PROJECT_DIR/scripts/ticket-auto-restart.service" /etc/systemd/system/
+  
+  # Reload systemd and enable services
+  systemctl daemon-reload
+  systemctl enable ticket-monitor.service
+  systemctl enable ticket-auto-restart.service
+  
+  # Start services
+  systemctl start ticket-monitor.service
+  systemctl start ticket-auto-restart.service
+  
+  log "✅ Monitoring system installed and started"
+  notify "📊 [Monitoring System] Resource monitoring and auto-restart services are now active"
+}
+
+# Check monitoring system status
+check_monitoring_status() {
+  log "📊 Checking monitoring system status..."
+  
+  if systemctl is-active --quiet ticket-monitor.service; then
+    log "✅ Resource monitor service is running"
+  else
+    log "❌ Resource monitor service is not running"
+  fi
+  
+  if systemctl is-active --quiet ticket-auto-restart.service; then
+    log "✅ Auto-restart service is running"
+  else
+    log "❌ Auto-restart service is not running"
+  fi
+}
+
+# Main execution
 case "$MODE" in
   quick)
     quick_deploy
     ;;
   full)
     full_deploy
+    check_monitoring_status
     ;;
   local)
     local_deploy
@@ -246,6 +300,15 @@ case "$MODE" in
       error_exit "VPS setup requires root privileges. Run with sudo."
     fi
     vps_setup
+    ;;
+  monitoring)
+    if [ "$EUID" -ne 0 ]; then 
+      error_exit "Monitoring setup requires root privileges. Run with sudo."
+    fi
+    setup_monitoring_system
+    ;;
+  monitor-status)
+    check_monitoring_status
     ;;
   *)
     show_usage

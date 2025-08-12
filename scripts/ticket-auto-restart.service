@@ -1,0 +1,21 @@
+[Unit]
+Description=Ticket Backend Auto-Restart Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/var/www/backend/ticket-backend
+ExecStart=/var/www/backend/ticket-backend/scripts/auto-restart.sh
+Restart=always
+RestartSec=30
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ticket-auto-restart
+
+# Environment variables
+Environment=NODE_ENV=production
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+
+[Install]
+WantedBy=multi-user.target

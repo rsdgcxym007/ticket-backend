@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Comprehensive Monitoring Script for Ticket Backend
-# Provides real-time monitoring and log viewing capabilities
+# Provides real-time monitoring, alerting, and log viewing capabilities
 
 # Colors
 RED='\033[0;31m'
@@ -14,6 +14,15 @@ NC='\033[0m'
 # Configuration
 PM2_APP_NAME="ticket-backend-prod"
 LOG_LINES=50
+DISCORD_WEBHOOK="https://discord.com/api/webhooks/1404715794205511752/H4H1Q-aJ2B1LwSpKxHYP7rt4tCWA0p10339NN5Gy71fhwXvFjcfSQKXNl9Xdj60ks__l"
+CPU_THRESHOLD=50
+MEMORY_THRESHOLD=50
+DISK_THRESHOLD=80
+ALERT_COOLDOWN=300  # 5 minutes cooldown between alerts
+ALERT_FILE="/tmp/monitor_alerts"
+
+# Create alert file if not exists
+touch "$ALERT_FILE"
 
 show_usage() {
   echo -e "${CYAN}📊 Ticket Backend Monitoring Tools${NC}"
@@ -29,11 +38,275 @@ show_usage() {
   echo "  deployment    Show deployment history"
   echo "  health        Health check and status"
   echo "  watch         Watch logs in real-time"
+  echo "  alert         Start resource monitoring with alerts"
+  echo "  test-alert    Send test alert to Discord"
   echo ""
   echo "Examples:"
   echo "  $0 dashboard              # Show monitoring dashboard"
   echo "  $0 logs                   # Show recent logs"
   echo "  $0 watch                  # Watch logs real-time"
+  echo "  $0 alert                  # Start resource monitoring"
+  echo "  $0 test-alert             # Test Discord notification"
+}
+
+# Get system information
+get_cpu_usage() {
+    if command -v top >/dev/null 2>&1; then
+        # For Linux/Ubuntu
+        top -bn1 | grep "Cpu(s)" | awk '{print $2}' | sed 's/%us,//' 2>/dev/null || \
+        top -bn1 | grep "%Cpu" | awk '{print $2}' | sed 's/%us,//' 2>/dev/null || \
+        # Alternative method
+        top -bn1 | grep -i cpu | awk 'NR==1{print $2}' | sed 's/%us,//' 2>/dev/null || \
+        # Using iostat if available
+        iostat -c 1 1 | tail -1 | awk '{print 100-$6}' 2>/dev/null || \
+        # Using sar if available
+        sar 1 1 | tail -1 | awk '{print 100-$8}' 2>/dev/null || \
+        # Fallback to vmstat
+        vmstat 1 2 | tail -1 | awk '{print 100-$15}' 2>/dev/null || \
+        echo "0"
+    else
+        echo "0"
+    fi
+}
+
+get_memory_usage() {
+    if command -v free >/dev/null 2>&1; then
+        free | grep Mem | awk '{printf "%.1f", ($3/$2) * 100.0}'
+    else
+        # Fallback for systems without free command
+        cat /proc/meminfo | awk '
+        /MemTotal/ {total = $2}
+        /MemAvailable/ {available = $2}
+        END {
+            used = total - available
+            printf "%.1f", (used/total) * 100.0
+        }' 2>/dev/null || echo "0"
+    fi
+}
+
+get_disk_usage() {
+    df / | tail -1 | awk '{print $5}' | sed 's/%//' 2>/dev/null || echo "0"
+}
+
+get_pm2_status() {
+    if command -v pm2 >/dev/null 2>&1; then
+        pm2 jlist | jq -r ".[] | select(.name==\"$PM2_APP_NAME\") | .pm2_env.status" 2>/dev/null || echo "unknown"
+    else
+        echo "pm2_not_installed"
+    fi
+}
+
+get_pm2_memory() {
+    if command -v pm2 >/dev/null 2>&1; then
+        pm2 jlist | jq -r ".[] | select(.name==\"$PM2_APP_NAME\") | .monit.memory" 2>/dev/null | \
+        awk '{printf "%.1f", $1/1024/1024}' || echo "0"
+    else
+        echo "0"
+    fi
+}
+
+get_pm2_cpu() {
+    if command -v pm2 >/dev/null 2>&1; then
+        pm2 jlist | jq -r ".[] | select(.name==\"$PM2_APP_NAME\") | .monit.cpu" 2>/dev/null || echo "0"
+    else
+        echo "0"
+    fi
+}
+
+# Check if alert should be sent (cooldown mechanism)
+should_alert() {
+    local alert_type="$1"
+    local current_time=$(date +%s)
+    local last_alert=$(grep "^$alert_type:" "$ALERT_FILE" 2>/dev/null | cut -d: -f2)
+    
+    if [ -z "$last_alert" ]; then
+        return 0
+    fi
+    
+    local time_diff=$((current_time - last_alert))
+    if [ $time_diff -gt $ALERT_COOLDOWN ]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Record alert time
+record_alert() {
+    local alert_type="$1"
+    local current_time=$(date +%s)
+    
+    # Remove old alert record for this type
+    grep -v "^$alert_type:" "$ALERT_FILE" > "${ALERT_FILE}.tmp" 2>/dev/null || true
+    mv "${ALERT_FILE}.tmp" "$ALERT_FILE" 2>/dev/null || true
+    
+    # Add new alert record
+    echo "$alert_type:$current_time" >> "$ALERT_FILE"
+}
+
+# Send Discord notification
+send_alert() {
+    local message="$1"
+    local level="$2"
+    
+    case $level in
+        "critical")
+            emoji="🚨"
+            color="15158332"  # Red
+            ;;
+        "warning")
+            emoji="⚠️"
+            color="16776960"  # Yellow
+            ;;
+        "info")
+            emoji="ℹ️"
+            color="3447003"   # Blue
+            ;;
+        *)
+            emoji="📊"
+            color="3447003"
+            ;;
+    esac
+    
+    local timestamp=$(date '+%Y-%m-%d %H:%M:%S %Z')
+    local hostname=$(hostname)
+    
+    # Create rich embed for Discord
+    local payload=$(cat <<EOF
+{
+    "embeds": [
+        {
+            "title": "$emoji Server Monitor Alert",
+            "description": "$message",
+            "color": $color,
+            "fields": [
+                {
+                    "name": "Server",
+                    "value": "$hostname",
+                    "inline": true
+                },
+                {
+                    "name": "Time",
+                    "value": "$timestamp",
+                    "inline": true
+                }
+            ],
+            "footer": {
+                "text": "Ticket Backend Monitoring System"
+            }
+        }
+    ]
+}
+EOF
+)
+    
+    curl -H "Content-Type: application/json" \
+         -X POST \
+         -d "$payload" \
+         "$DISCORD_WEBHOOK" \
+         --silent 2>/dev/null || true
+}
+
+# Resource monitoring function
+monitor_resources() {
+    local cpu_usage
+    local memory_usage
+    local disk_usage
+    local pm2_status
+    local pm2_memory
+    local pm2_cpu
+    
+    echo -e "${BLUE}[$(date '+%Y-%m-%d %H:%M:%S')]${NC} Checking system resources..."
+    
+    # Get all metrics
+    cpu_usage=$(get_cpu_usage)
+    memory_usage=$(get_memory_usage)
+    disk_usage=$(get_disk_usage)
+    pm2_status=$(get_pm2_status)
+    pm2_memory=$(get_pm2_memory)
+    pm2_cpu=$(get_pm2_cpu)
+    
+    # Remove decimal points for comparison
+    cpu_int=$(echo "$cpu_usage" | cut -d. -f1)
+    memory_int=$(echo "$memory_usage" | cut -d. -f1)
+    disk_int=$(echo "$disk_usage" | cut -d. -f1)
+    
+    # Display current status
+    echo -e "${GREEN}System Resources:${NC}"
+    echo -e "  CPU Usage: ${cpu_usage}%"
+    echo -e "  Memory Usage: ${memory_usage}%"
+    echo -e "  Disk Usage: ${disk_usage}%"
+    echo -e "  PM2 App Status: ${pm2_status}"
+    echo -e "  PM2 App Memory: ${pm2_memory} MB"
+    echo -e "  PM2 App CPU: ${pm2_cpu}%"
+    
+    # Check thresholds and send alerts
+    local alerts_sent=0
+    
+    # CPU Alert
+    if [ "$cpu_int" -gt "$CPU_THRESHOLD" ]; then
+        if should_alert "cpu"; then
+            send_alert "🔥 **HIGH CPU USAGE DETECTED**\n\nCurrent CPU usage: **${cpu_usage}%**\nThreshold: ${CPU_THRESHOLD}%\n\nPM2 App CPU: ${pm2_cpu}%" "critical"
+            record_alert "cpu"
+            alerts_sent=1
+            echo -e "${RED}ALERT: CPU usage is ${cpu_usage}% (threshold: ${CPU_THRESHOLD}%)${NC}"
+        fi
+    fi
+    
+    # Memory Alert
+    if [ "$memory_int" -gt "$MEMORY_THRESHOLD" ]; then
+        if should_alert "memory"; then
+            send_alert "💾 **HIGH MEMORY USAGE DETECTED**\n\nCurrent Memory usage: **${memory_usage}%**\nThreshold: ${MEMORY_THRESHOLD}%\n\nPM2 App Memory: ${pm2_memory} MB" "critical"
+            record_alert "memory"
+            alerts_sent=1
+            echo -e "${RED}ALERT: Memory usage is ${memory_usage}% (threshold: ${MEMORY_THRESHOLD}%)${NC}"
+        fi
+    fi
+    
+    # Disk Alert
+    if [ "$disk_int" -gt "$DISK_THRESHOLD" ]; then
+        if should_alert "disk"; then
+            send_alert "💿 **HIGH DISK USAGE DETECTED**\n\nCurrent Disk usage: **${disk_usage}%**\nThreshold: ${DISK_THRESHOLD}%" "warning"
+            record_alert "disk"
+            alerts_sent=1
+            echo -e "${YELLOW}ALERT: Disk usage is ${disk_usage}% (threshold: ${DISK_THRESHOLD}%)${NC}"
+        fi
+    fi
+    
+    # PM2 Status Alert
+    if [ "$pm2_status" != "online" ]; then
+        if should_alert "pm2_status"; then
+            send_alert "🔴 **PM2 APPLICATION DOWN**\n\nApplication: ${PM2_APP_NAME}\nStatus: **${pm2_status}**\n\nPlease check the application immediately!" "critical"
+            record_alert "pm2_status"
+            alerts_sent=1
+            echo -e "${RED}ALERT: PM2 app ${PM2_APP_NAME} is ${pm2_status}${NC}"
+        fi
+    fi
+    
+    if [ $alerts_sent -eq 0 ]; then
+        echo -e "${GREEN}All systems operating within normal parameters${NC}"
+    fi
+}
+
+# Start continuous monitoring
+start_alert_monitoring() {
+    echo -e "${BLUE}Starting continuous resource monitoring...${NC}"
+    echo -e "${BLUE}Thresholds: CPU=${CPU_THRESHOLD}%, Memory=${MEMORY_THRESHOLD}%, Disk=${DISK_THRESHOLD}%${NC}"
+    echo -e "${BLUE}Press Ctrl+C to stop${NC}"
+    echo ""
+    
+    while true; do
+        monitor_resources
+        echo ""
+        sleep 60  # Check every minute
+    done
+}
+
+# Test alert function
+test_alert() {
+    echo "Sending test alert to Discord..."
+    send_alert "🧪 **Test Alert**\n\nThis is a test notification from the monitoring system.\n\nIf you receive this message, the alert system is working correctly!" "info"
+    echo "Test alert sent!"
 }
 
 show_dashboard() {
@@ -218,6 +491,12 @@ case "$1" in
     ;;
   watch)
     watch_logs
+    ;;
+  alert)
+    start_alert_monitoring
+    ;;
+  test-alert)
+    test_alert
     ;;
   *)
     show_usage

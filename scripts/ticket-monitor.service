@@ -1,0 +1,21 @@
+[Unit]
+Description=Ticket Backend Resource Monitor
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/var/www/backend/ticket-backend
+ExecStart=/var/www/backend/ticket-backend/scripts/monitor.sh alert
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ticket-monitor
+
+# Environment variables
+Environment=NODE_ENV=production
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+
+[Install]
+WantedBy=multi-user.target
