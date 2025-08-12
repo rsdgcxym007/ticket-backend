@@ -217,22 +217,32 @@ export class AuthService {
     const email = emails?.[0]?.value || '';
     const avatar = photos?.[0]?.value || '';
 
-    let user = await this.authRepo.findOne({
+    let auth = await this.authRepo.findOne({
       where: { providerId: id, provider },
     });
 
-    if (!user) {
-      user = this.authRepo.create({
+    if (!auth) {
+      // สร้าง User record ก่อน
+      const newUser = this.userRepo.create({
+        email,
+        name: displayName,
+        role: 'user',
+      });
+      const savedUser = await this.userRepo.save(newUser);
+
+      // จากนั้นสร้าง Auth record พร้อม userId
+      auth = this.authRepo.create({
         providerId: id,
         provider,
         email,
         displayName,
         avatar,
+        userId: savedUser.id, // เพิ่ม userId
       });
-      await this.authRepo.save(user);
+      await this.authRepo.save(auth);
     }
 
-    const payload = { sub: user.id, role: user.role };
+    const payload = { sub: auth.id, role: auth.role };
     return this.jwtService.sign(payload);
   }
 
@@ -272,6 +282,7 @@ export class AuthService {
         displayName: savedUser.name,
         provider: 'manual',
         providerId: savedUser.id,
+        userId: savedUser.id, // เพิ่ม userId ที่ถูกต้อง
         role: savedUser.role,
       });
       await this.authRepo.save(auth);
