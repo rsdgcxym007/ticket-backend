@@ -118,14 +118,20 @@ export class WebhookController {
       // }
 
       // Validate webhook payload (GitHub/GitLab format)
-      if (!payload.repository || !payload.commits) {
+      // Allow internal server requests with minimal payload
+      const isInternalRequest = clientIp === '43.229.133.51' || 
+                               clientIp.includes('127.0.0.1') || 
+                               clientIp.includes('::1');
+      
+      if (!isInternalRequest && (!payload.repository || !payload.commits)) {
         this.logger.warn(`Invalid webhook payload from IP: ${clientIp}`);
         return { status: 'error', message: 'Invalid payload' };
       }
 
-      const repoName = payload.repository.name;
-      const branch = payload.ref?.replace('refs/heads/', '') || 'unknown';
-      const commits = payload.commits?.length || 0;
+      const repoName = payload.repository?.name || 'ticket-backend';
+      const branch = payload.ref?.replace('refs/heads/', '') || 
+                    (isInternalRequest ? 'feature/newfunction' : 'unknown');
+      const commits = payload.commits?.length || (isInternalRequest ? 1 : 0);
 
       this.logger.log(
         `Webhook from ${repoName}, branch: ${branch}, commits: ${commits}, IP: ${clientIp}`,
@@ -141,7 +147,7 @@ export class WebhookController {
       }
 
       // Log deployment initiation
-      this.logger.log(`Initiating deployment for ${repoName}:${branch}`);
+      this.logger.log(`🚀 Initiating deployment for ${repoName}:${branch} (${isInternalRequest ? 'internal' : 'external'} request)`);
 
       // Execute deployment script in background
       this.executeDeployment();
