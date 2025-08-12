@@ -151,6 +151,7 @@ export class QRCodeService {
   }
 
   /**
+   *
    * 🔍 ตรวจสอบ QR Code
    */
   async validateQRCode(encryptedQRData: string): Promise<QRValidationResult> {
