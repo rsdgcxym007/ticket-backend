@@ -411,11 +411,11 @@ export class OrderService {
           const standingChildQty = updatedOrder.standingChildQty || 0;
           const ringsideQty =
             updatedOrder.ticketType === TicketType.RINGSIDE
-              ? updatedOrder.quantity || 0
+              ? updatedOrder.quantity || updatedOrder.seatBookings.length || 0
               : 0;
           const stadiumQty =
             updatedOrder.ticketType === TicketType.STADIUM
-              ? updatedOrder.quantity || 0
+              ? updatedOrder.quantity || updatedOrder.seatBookings.length || 0
               : 0;
 
           const rsQty = ringsideQty + stadiumQty;
