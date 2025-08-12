@@ -27,12 +27,50 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+PURPLE='\033[0;35m'
+CYAN='\033[0;36m'
 NC='\033[0m'
 
-log()    { echo -e "${BLUE}🚀 DEPLOY: $*${NC}"; }
-success(){ echo -e "${GREEN}✅ DEPLOY: $*${NC}"; }
-warn()   { echo -e "${YELLOW}⚠️  DEPLOY: $*${NC}"; }
-error()  { echo -e "${RED}❌ DEPLOY: $*${NC}"; }
+# Enhanced logging functions with timestamp and step tracking
+STEP_NUMBER=0
+get_timestamp() { date '+%Y-%m-%d %H:%M:%S'; }
+
+log()    { 
+  echo -e "${BLUE}[$(get_timestamp)] 🚀 DEPLOY: $*${NC}"
+  echo "[$(get_timestamp)] INFO: $*" >> /tmp/deploy.log 2>/dev/null || true
+}
+
+success(){ 
+  echo -e "${GREEN}[$(get_timestamp)] ✅ DEPLOY: $*${NC}"
+  echo "[$(get_timestamp)] SUCCESS: $*" >> /tmp/deploy.log 2>/dev/null || true
+}
+
+warn()   { 
+  echo -e "${YELLOW}[$(get_timestamp)] ⚠️  DEPLOY: $*${NC}"
+  echo "[$(get_timestamp)] WARNING: $*" >> /tmp/deploy.log 2>/dev/null || true
+}
+
+error()  { 
+  echo -e "${RED}[$(get_timestamp)] ❌ DEPLOY: $*${NC}"
+  echo "[$(get_timestamp)] ERROR: $*" >> /tmp/deploy.log 2>/dev/null || true
+}
+
+step() {
+  STEP_NUMBER=$((STEP_NUMBER + 1))
+  echo -e "${PURPLE}[$(get_timestamp)] 📋 STEP $STEP_NUMBER: $*${NC}"
+  echo "[$(get_timestamp)] STEP $STEP_NUMBER: $*" >> /tmp/deploy.log 2>/dev/null || true
+}
+
+substep() {
+  echo -e "${CYAN}[$(get_timestamp)]   └─ $*${NC}"
+  echo "[$(get_timestamp)] SUBSTEP: $*" >> /tmp/deploy.log 2>/dev/null || true
+}
+
+log_command() {
+  local cmd="$1"
+  substep "Executing: $cmd"
+  echo "[$(get_timestamp)] COMMAND: $cmd" >> /tmp/deploy.log 2>/dev/null || true
+}
 
 notify() {
   local msg="$1"
@@ -48,17 +86,31 @@ export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
 export PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/sbin:$HOME/.npm-global/bin:$HOME/bin:$PATH"
 
 # Go to project directory
+step "Initializing deployment environment"
+substep "Webhook reference: ${WEBHOOK_REF:-'none'}"
+substep "Branch from webhook: ${BRANCH_FROM_WEBHOOK:-'none'}"
+substep "Current git branch: $CURRENT_BRANCH"
+substep "Target deployment branch: $BRANCH"
+substep "Project directory: $PROJECT_DIR"
+
+substep "Changing to project directory"
+log_command "cd $PROJECT_DIR"
 cd "$PROJECT_DIR" || { 
+  error "Cannot access project directory: $PROJECT_DIR"
   notify "❌ [Backend] Failed to access project directory $PROJECT_DIR"; 
-  error "Cannot cd to $PROJECT_DIR"; 
   exit 1; 
 }
+success "Successfully changed to project directory"
 
-log "🚀 Deploy script started from webhook (branch: $BRANCH)"
+step "Starting deployment process"
+log "Deploy script started from webhook (branch: $BRANCH)"
 notify "🚀 [Backend] Deploy started from webhook (branch: $BRANCH)"
 
 # Ensure git repo exists
+step "Verifying git repository"
+substep "Checking for .git directory"
 if [ ! -d .git ]; then
+  error "Not a git repository: $PROJECT_DIR"
   notify "❌ [Backend] Not a git repo at $PROJECT_DIR"
   error "Not a git repository: $PROJECT_DIR"
   exit 1

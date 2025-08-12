@@ -11,6 +11,10 @@ DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/1404715794205511752/H4H1Q-
 # Webhook notification URL (updated to port 4200)
 WEBHOOK_URL="http://43.229.133.51:4200/hooks/deploy-backend-master"
 
+# Enhanced logging with timestamp and step tracking
+STEP_NUMBER=0
+get_timestamp() { date '+%Y-%m-%d %H:%M:%S'; }
+
 echo "🚀 Starting build and deployment process..."
 
 # Function to check if a command exists
@@ -18,21 +22,42 @@ command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
-# Function to print colored output
+# Enhanced logging functions with timestamp and step tracking
 print_status() {
-    echo -e "\033[1;34m$1\033[0m"
+    echo -e "\033[1;34m[$(get_timestamp)] 📋 $1\033[0m"
+    echo "[$(get_timestamp)] INFO: $1" >> /tmp/build-deploy.log 2>/dev/null || true
 }
 
 print_success() {
-    echo -e "\033[1;32m✅ $1\033[0m"
+    echo -e "\033[1;32m[$(get_timestamp)] ✅ $1\033[0m"
+    echo "[$(get_timestamp)] SUCCESS: $1" >> /tmp/build-deploy.log 2>/dev/null || true
 }
 
 print_error() {
-    echo -e "\033[1;31m❌ $1\033[0m"
+    echo -e "\033[1;31m[$(get_timestamp)] ❌ $1\033[0m"
+    echo "[$(get_timestamp)] ERROR: $1" >> /tmp/build-deploy.log 2>/dev/null || true
 }
 
 print_warning() {
-    echo -e "\033[1;33m⚠️  $1\033[0m"
+    echo -e "\033[1;33m[$(get_timestamp)] ⚠️  $1\033[0m"
+    echo "[$(get_timestamp)] WARNING: $1" >> /tmp/build-deploy.log 2>/dev/null || true
+}
+
+step() {
+    STEP_NUMBER=$((STEP_NUMBER + 1))
+    echo -e "\033[1;35m[$(get_timestamp)] 📋 STEP $STEP_NUMBER: $1\033[0m"
+    echo "[$(get_timestamp)] STEP $STEP_NUMBER: $1" >> /tmp/build-deploy.log 2>/dev/null || true
+}
+
+substep() {
+    echo -e "\033[1;36m[$(get_timestamp)]   └─ $1\033[0m"
+    echo "[$(get_timestamp)] SUBSTEP: $1" >> /tmp/build-deploy.log 2>/dev/null || true
+}
+
+log_command() {
+    local cmd="$1"
+    substep "Executing: $cmd"
+    echo "[$(get_timestamp)] COMMAND: $cmd" >> /tmp/build-deploy.log 2>/dev/null || true
 }
 
 # Function to send Discord notification
@@ -100,84 +125,118 @@ send_webhook_notification() {
 }
 
 # Check if we're in the right directory
+step "Validating project environment"
+substep "Checking for package.json in current directory"
+
 if [ ! -f "package.json" ]; then
     print_error "package.json not found. Please run this script from the project root."
     send_discord_notification "❌ Deployment failed: package.json not found" "15158332" "Failed"
     exit 1
 fi
+print_success "Found package.json - project root confirmed"
 
 # Send deployment start notification
+step "Initializing deployment process"
 send_discord_notification "🚀 Starting deployment process..." "16776960" "In Progress"
 send_webhook_notification "started" "🚀 Starting deployment process..."
 
 # Check if node and npm are available
+step "Verifying system requirements"
+substep "Checking Node.js availability"
 if ! command_exists node; then
     print_error "Node.js is not installed or not in PATH"
     send_discord_notification "❌ Deployment failed: Node.js not found" "15158332" "Failed"
     send_webhook_notification "failed" "❌ Deployment failed: Node.js not found"
     exit 1
 fi
+NODE_VERSION=$(node --version)
+print_success "Node.js found: $NODE_VERSION"
 
+substep "Checking npm availability"
 if ! command_exists npm; then
     print_error "npm is not installed or not in PATH"
     send_discord_notification "❌ Deployment failed: npm not found" "15158332" "Failed"
     send_webhook_notification "failed" "❌ Deployment failed: npm not found"
     exit 1
 fi
+NPM_VERSION=$(npm --version)
+print_success "npm found: $NPM_VERSION"
+fi
 
-print_status "Step 1: Cleaning and installing dependencies..."
+step "Installing dependencies"
 
 # Clean npm cache and node_modules to fix corruption issues
-print_status "Cleaning npm cache and node_modules..."
+substep "Cleaning npm cache and node_modules"
+log_command "npm cache clean --force"
 npm cache clean --force 2>/dev/null || true
+
+substep "Removing node_modules directory"
+log_command "rm -rf node_modules/"
 rm -rf node_modules/
+
+substep "Removing package-lock.json (if exists)"
+log_command "rm -f package-lock.json"
 rm -f package-lock.json
 
 # Use npm install with retry logic for maximum compatibility
-print_status "📦 Installing dependencies with npm install (attempt 1/3)..."
+substep "Installing dependencies with npm install (attempt 1/3)"
+log_command "npm install --production=false --no-audit --no-fund"
 if ! npm install --production=false --no-audit --no-fund; then
-    print_warning "🔄 First npm install failed, cleaning cache and retrying..."
+    print_warning "First npm install failed, cleaning cache and retrying..."
+    
+    substep "Cleaning npm cache again"
+    log_command "npm cache clean --force"
     npm cache clean --force 2>/dev/null || true
     sleep 2
     
-    print_status "📦 Installing dependencies with npm install (attempt 2/3)..."
+    substep "Installing dependencies with npm install (attempt 2/3)"
+    log_command "npm install --production=false --no-audit --no-fund"
     if ! npm install --production=false --no-audit --no-fund; then
-        print_warning "🔄 Second attempt failed, trying with legacy peer deps..."
+        print_warning "Second attempt failed, trying with legacy peer deps...")
         sleep 2
         
-        print_status "📦 Installing dependencies with npm install --legacy-peer-deps (attempt 3/3)..."
+        substep "Installing dependencies with npm install --legacy-peer-deps (attempt 3/3)"
+        log_command "npm install --production=false --no-audit --no-fund --legacy-peer-deps"
         if ! npm install --production=false --no-audit --no-fund --legacy-peer-deps; then
-            print_error "❌ ALL DEPENDENCY INSTALLATION ATTEMPTS FAILED"
+            print_error "ALL DEPENDENCY INSTALLATION ATTEMPTS FAILED"
             print_error "   • npm install failed (attempts 1-2)"
             print_error "   • npm install --legacy-peer-deps failed (attempt 3)"
             send_discord_notification "❌ Deployment failed: All npm install attempts failed" "15158332" "Failed"
             send_webhook_notification "failed" "❌ Deployment failed: All npm install attempts failed"
             exit 1
         else
-            print_success "✅ Dependencies installed successfully with npm install (legacy mode)"
+            print_success "Dependencies installed successfully with npm install (legacy mode)"
         fi
     else
-        print_success "✅ Dependencies installed successfully with npm install (attempt 2)"
+        print_success "Dependencies installed successfully with npm install (attempt 2)"
     fi
 else
-    print_success "✅ Dependencies installed successfully with npm install (attempt 1)"
+    print_success "Dependencies installed successfully with npm install (attempt 1)"
 fi
 
-print_status "Step 2: Cleaning previous build..."
+step "Cleaning previous build"
+substep "Removing dist directory"
+log_command "rm -rf dist/"
 rm -rf dist/
+
+substep "Removing TypeScript build cache"
+log_command "rm -f tsconfig.build.tsbuildinfo"
 rm -f tsconfig.build.tsbuildinfo
 
-print_status "Step 3: Building the application..."
+step "Building the application"
+substep "Compiling TypeScript to JavaScript"
+log_command "npm run build"
 if ! npm run build; then
-    print_error "❌ BUILD FAILED"
+    print_error "BUILD FAILED"
     print_error "   • npm run build command failed"
-    print_warning "🔍 Checking TypeScript compilation issues..."
+    substep "Checking TypeScript compilation issues"
+    log_command "npx tsc --noEmit"
     npx tsc --noEmit || true
     send_discord_notification "❌ Build failed during npm run build" "15158332" "Failed"
     send_webhook_notification "failed" "❌ Build failed during npm run build"
     exit 1
 else
-    print_success "✅ Application built successfully"
+    print_success "Application built successfully"
 fi
 
 # Verify the build was successful
