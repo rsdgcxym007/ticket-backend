@@ -116,7 +116,7 @@ send_webhook_notification() {
                  \"commit\": \"$commit\",
                  \"timestamp\": \"$timestamp\",
                  \"environment\": \"production\",
-                 \"version\": \"$(npm version --json 2>/dev/null | grep '\"ticket-backend\"' | cut -d'\"' -f4 || echo 'unknown')\"
+                 \"version\": \"$(npm version --json 2>/dev/null | grep 'ticket-backend' | cut -d'"' -f4 || echo 'unknown')\"
              }" \
              "$WEBHOOK_URL" 2>/dev/null || {
                  print_warning "Failed to send webhook notification to $WEBHOOK_URL"
@@ -223,17 +223,37 @@ log_command "rm -f tsconfig.build.tsbuildinfo"
 rm -f tsconfig.build.tsbuildinfo
 
 step "Building the application"
+substep "Ensuring TypeScript is available globally"
+log_command "npm install -g typescript"
+npm install -g typescript || {
+    substep "Global install failed, ensuring local TypeScript"
+    log_command "npm install typescript --save-dev"
+    npm install typescript --save-dev || true
+}
+
 substep "Compiling TypeScript to JavaScript"
 log_command "npm run build"
 if ! npm run build; then
     print_error "BUILD FAILED"
     print_error "   • npm run build command failed"
-    substep "Checking TypeScript compilation issues"
-    log_command "npx tsc --noEmit"
-    npx tsc --noEmit || true
-    send_discord_notification "❌ Build failed during npm run build" "15158332" "Failed"
-    send_webhook_notification "failed" "❌ Build failed during npm run build"
-    exit 1
+    
+    substep "Trying alternative build methods"
+    log_command "npx nest build"
+    if ! npx nest build; then
+        substep "Checking TypeScript compilation issues"
+        log_command "npx tsc --noEmit"
+        npx tsc --noEmit || true
+        
+        substep "Trying direct TypeScript compilation"
+        log_command "npx tsc"
+        npx tsc || true
+        
+        send_discord_notification "❌ Build failed during npm run build" "15158332" "Failed"
+        send_webhook_notification "failed" "❌ Build failed during npm run build"
+        exit 1
+    else
+        print_success "Application built successfully with npx nest build"
+    fi
 else
     print_success "Application built successfully"
 fi
