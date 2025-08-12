@@ -6,8 +6,8 @@
 set -e
 
 # Configuration
-WEBHOOK_BASE_URL="http://43.229.133.51:4000/api"
-LOCAL_WEBHOOK_URL="http://localhost:3001/api"
+WEBHOOK_BASE_URL="http://43.229.133.51:4000/api/webhook"
+LOCAL_WEBHOOK_URL="http://localhost:3001/api/webhook"
 
 # Colors for output
 RED='\033[0;31m'
@@ -75,7 +75,7 @@ echo ""
 
 # Test 1: Production webhook
 print_status "Test 1: Production Deployment Webhook"
-if test_webhook "$WEBHOOK_BASE_URL" "/v1/webhook/deploy" "Production Webhook"; then
+if test_webhook "$WEBHOOK_BASE_URL" "/v1/deploy" "Production Webhook"; then
     print_success "Production webhook is working!"
 else
     print_error "Production webhook failed!"
@@ -84,7 +84,7 @@ echo ""
 
 # Test 2: Local webhook (if available)
 print_status "Test 2: Local Development Webhook"
-if test_webhook "$LOCAL_WEBHOOK_URL" "/webhook/v1/deploy" "Local Webhook"; then
+if test_webhook "$LOCAL_WEBHOOK_URL" "/v1/deploy" "Local Webhook"; then
     print_success "Local webhook is working!"
 else
     print_warning "Local webhook not available (this is normal if not running locally)"
@@ -109,7 +109,7 @@ for status in "${statuses[@]}"; do
             "timestamp": "'$(date -u +"%Y-%m-%dT%H:%M:%S.%3NZ")'",
             "environment": "testing"
         }' \
-        "$WEBHOOK_BASE_URL/v1/webhook/deploy" 2>/dev/null || echo -e "\nERROR")
+        "$WEBHOOK_BASE_URL/v1/deploy" 2>/dev/null || echo -e "\nERROR")
     
     http_code=$(echo "$response" | tail -n1)
     
@@ -153,7 +153,7 @@ echo ""
 echo "=============================================="
 print_status "🎯 Webhook Testing Complete!"
 echo ""
-print_status "Production Webhook URL: $WEBHOOK_BASE_URL/v1/webhook/deploy"
-print_status "Test Command: curl -X POST $WEBHOOK_BASE_URL/v1/webhook/deploy -H 'Content-Type: application/json' -d '{\"status\":\"test\",\"message\":\"Hello\"}'"
+print_status "Production Webhook URL: $WEBHOOK_BASE_URL/v1/deploy"
+print_status "Test Command: curl -X POST $WEBHOOK_BASE_URL/v1/deploy -H 'Content-Type: application/json' -d '{\"status\":\"test\",\"message\":\"Hello\"}'"
 echo ""
 print_success "Check Discord channel for notifications! 📱"

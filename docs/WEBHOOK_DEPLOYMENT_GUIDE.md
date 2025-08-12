@@ -9,7 +9,7 @@
 
 ### **Production URL:**
 ```
-http://43.229.133.51:4000/api/v1/webhook/deploy
+http://43.229.133.51:4000/api/webhook/v1/deploy
 ```
 
 ### **Local Development:**
@@ -21,7 +21,7 @@ http://localhost:3001/api/webhook/v1/deploy
 
 ## 📡 **API Reference**
 
-### **POST `/api/v1/webhook/deploy`**
+### **POST `/api/webhook/v1/deploy`**
 รับการแจ้งเตือน deployment และส่งต่อไป Discord
 
 **Request Body:**
@@ -65,7 +65,7 @@ http://localhost:3001/api/webhook/v1/deploy
 ### **Updated `build-and-deploy.sh`:**
 ```bash
 # Webhook notification URL
-WEBHOOK_URL="http://43.229.133.51:4000/api/v1/webhook/deploy"
+WEBHOOK_URL="http://43.229.133.51:4000/api/webhook/v1/deploy"
 
 # Function to send webhook notification
 send_webhook_notification() {
@@ -147,7 +147,7 @@ send_webhook_notification "success" "✅ Deployment completed successfully!"
 ./scripts/test-webhook.sh
 
 # Or test manually with curl
-curl -X POST http://43.229.133.51:4000/api/v1/webhook/deploy \
+curl -X POST http://43.229.133.51:4000/api/webhook/v1/deploy \
   -H "Content-Type: application/json" \
   -d '{
     "status": "success",
@@ -230,7 +230,7 @@ curl -X POST http://43.229.133.51:4000/api/webhook/test
 ### **Debug Commands:**
 ```bash
 # Test webhook endpoint
-curl -v -X POST http://43.229.133.51:4000/api/v1/webhook/deploy \
+curl -v -X POST http://43.229.133.51:4000/api/webhook/v1/deploy \
   -H "Content-Type: application/json" \
   -d '{"status":"test","message":"debug"}'
 
@@ -277,7 +277,7 @@ GITHUB_WEBHOOK_SECRET=your_secret_here
 ---
 
 **🎯 Webhook System Ready!**
-- ✅ Endpoint: `http://43.229.133.51:4000/api/v1/webhook/deploy`
+- ✅ Endpoint: `http://43.229.133.51:4000/api/webhook/v1/deploy`
 - ✅ Discord integration configured
 - ✅ Build script updated
 - ✅ Testing script available

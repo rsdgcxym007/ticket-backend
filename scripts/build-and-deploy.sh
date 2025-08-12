@@ -9,7 +9,7 @@ set -e  # Exit on any error
 DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/1404715794205511752/H4H1Q-aJ2B1LwSpKxHYP7rt4tCWA0p10339NN5Gy71fhwXvFjcfSQKXNl9Xdj60ks__l"
 
 # Webhook notification URL
-WEBHOOK_URL="http://43.229.133.51:4000/api/v1/webhook/deploy"
+WEBHOOK_URL="http://43.229.133.51:4000/api/webhook/v1/deploy"
 
 echo "🚀 Starting build and deployment process..."
 

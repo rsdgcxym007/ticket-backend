@@ -63,7 +63,7 @@ set -e
 PROJECT_DIR="${PROJECT_DIR:-/var/www/backend/ticket-backend}"
 BRANCH="feature/newfunction"
 DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/1404715794205511752/H4H1Q-aJ2B1LwSpKxHYP7rt4tCWA0p10339NN5Gy71fhwXvFjcfSQKXNl9Xdj60ks__l"
-WEBHOOK_URL="http://43.229.133.51:4000/api/v1/webhook/deploy"
+WEBHOOK_URL="http://43.229.133.51:4000/api/webhook/v1/deploy"
 
 # Colors
 RED='\033[0;31m'
