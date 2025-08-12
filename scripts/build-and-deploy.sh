@@ -131,25 +131,23 @@ print_status "Step 1: Cleaning and installing dependencies..."
 print_status "Cleaning npm cache and node_modules..."
 npm cache clean --force 2>/dev/null || true
 rm -rf node_modules/
-rm -f package-lock.json
 
-# Use npm ci (clean install) with retry logic for better reliability
-print_status "📦 Installing dependencies with npm ci (attempt 1/3)..."
-if ! npm ci --production=false; then
-    print_warning "🔄 npm ci failed, cleaning and retrying..."
-    npm cache clean --force 2>/dev/null || true
-    sleep 2
-    
-    print_status "📦 Installing dependencies with npm ci (attempt 2/3)..."
+# Strategy: Try npm ci first (if package-lock.json exists), then fallback to npm install
+print_status "📦 Installing dependencies..."
+
+if [ -f "package-lock.json" ]; then
+    print_status "📦 Found package-lock.json, using npm ci (attempt 1/2)..."
     if ! npm ci --production=false; then
-        print_warning "🔄 npm ci failed again, trying npm install with legacy flags..."
+        print_warning "🔄 npm ci failed, cleaning lock file and retrying with npm install..."
+        rm -f package-lock.json
+        npm cache clean --force 2>/dev/null || true
         sleep 2
         
-        print_status "📦 Installing dependencies with npm install (attempt 3/3)..."
+        print_status "📦 Installing with npm install (attempt 2/2)..."
         if ! npm install --production=false --no-audit --no-fund --legacy-peer-deps; then
             print_error "❌ ALL DEPENDENCY INSTALLATION ATTEMPTS FAILED"
-            print_error "   • npm ci failed (attempts 1-2)"
-            print_error "   • npm install --legacy-peer-deps failed (attempt 3)"
+            print_error "   • npm ci failed (package-lock.json was present)"
+            print_error "   • npm install --legacy-peer-deps failed"
             send_discord_notification "❌ Deployment failed: All npm install attempts failed" "15158332" "Failed"
             send_webhook_notification "failed" "❌ Deployment failed: All npm install attempts failed"
             exit 1
@@ -157,10 +155,29 @@ if ! npm ci --production=false; then
             print_success "✅ Dependencies installed successfully with npm install (legacy mode)"
         fi
     else
-        print_success "✅ Dependencies installed successfully with npm ci (attempt 2)"
+        print_success "✅ Dependencies installed successfully with npm ci"
     fi
 else
-    print_success "✅ Dependencies installed successfully with npm ci (attempt 1)"
+    print_status "📦 No package-lock.json found, using npm install with retries..."
+    
+    # First attempt with npm install
+    if ! npm install --production=false --no-audit --no-fund; then
+        print_warning "🔄 First npm install failed, retrying with legacy flags..."
+        sleep 2
+        
+        if ! npm install --production=false --no-audit --no-fund --legacy-peer-deps; then
+            print_error "❌ ALL DEPENDENCY INSTALLATION ATTEMPTS FAILED"
+            print_error "   • npm install failed (attempt 1)"
+            print_error "   • npm install --legacy-peer-deps failed (attempt 2)"
+            send_discord_notification "❌ Deployment failed: All npm install attempts failed" "15158332" "Failed"
+            send_webhook_notification "failed" "❌ Deployment failed: All npm install attempts failed"
+            exit 1
+        else
+            print_success "✅ Dependencies installed successfully with npm install (legacy mode)"
+        fi
+    else
+        print_success "✅ Dependencies installed successfully with npm install"
+    fi
 fi
 
 print_status "Step 2: Cleaning previous build..."

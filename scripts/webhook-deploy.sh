@@ -77,21 +77,43 @@ if [ ! -d .git ]; then
 fi
 
 # Step 1: Install dependencies first (as requested)
-log "Step 1: Installing dependencies (npm ci --production=false)"
-if ! npm ci --production=false; then
-  warn "❌ npm ci failed — cleaning cache and retrying with npm install --legacy-peer-deps"
-  npm cache clean --force || true
-  sleep 2
-  if ! npm install --legacy-peer-deps; then
-    notify "❌ [Backend] ALL DEPENDENCY INSTALLATION FAILED"
-    notify_github "failed" "npm ci and npm install both failed"
-    error "❌ DEPENDENCY INSTALLATION FAILED (both npm ci and npm install failed)"
-    exit 1
+log "Step 1: Installing dependencies"
+
+# Check if package-lock.json exists for npm ci strategy
+if [ -f "package-lock.json" ]; then
+  log "Found package-lock.json, trying npm ci first..."
+  if ! npm ci --production=false; then
+    warn "❌ npm ci failed — trying npm install as fallback"
+    npm cache clean --force || true
+    sleep 2
+    if ! npm install --production=false --legacy-peer-deps; then
+      notify "❌ [Backend] ALL DEPENDENCY INSTALLATION FAILED"
+      notify_github "failed" "npm ci and npm install both failed"
+      error "❌ DEPENDENCY INSTALLATION FAILED (both npm ci and npm install failed)"
+      exit 1
+    else
+      success "✅ Dependencies installed with npm install --legacy-peer-deps (fallback)"
+    fi
   else
-    success "✅ Dependencies installed with npm install --legacy-peer-deps (fallback)"
+    success "✅ Dependencies installed with npm ci"
   fi
 else
-  success "✅ Dependencies installed with npm ci"
+  log "No package-lock.json found, using npm install..."
+  if ! npm install --production=false; then
+    warn "❌ npm install failed — retrying with legacy flags"
+    npm cache clean --force || true
+    sleep 2
+    if ! npm install --production=false --legacy-peer-deps; then
+      notify "❌ [Backend] ALL DEPENDENCY INSTALLATION FAILED"
+      notify_github "failed" "npm install failed"
+      error "❌ DEPENDENCY INSTALLATION FAILED"
+      exit 1
+    else
+      success "✅ Dependencies installed with npm install --legacy-peer-deps"
+    fi
+  else
+    success "✅ Dependencies installed with npm install"
+  fi
 fi
 
 # Step 2: Call deploy.sh deploy (pull code → npm ci again → build → restart PM2)
@@ -114,19 +136,36 @@ else
   git reset --hard "origin/$BRANCH" || { notify_github "failed" "git reset failed"; exit 1; }
   git pull --ff-only origin "$BRANCH" || { notify_github "failed" "git pull failed"; exit 1; }
   
-  # npm ci again
-  log "Running npm ci again..."
-  if ! npm ci --production=false; then
-    warn "Second npm ci failed, trying npm install"
-    if ! npm install --production=false --legacy-peer-deps; then
-      notify_github "failed" "second npm ci and npm install both failed"
-      error "❌ Second dependency installation failed"
-      exit 1
+  # npm ci again (if package-lock.json exists)
+  log "Installing dependencies again..."
+  if [ -f "package-lock.json" ]; then
+    log "Running npm ci (package-lock.json found)..."
+    if ! npm ci --production=false; then
+      warn "Second npm ci failed, trying npm install"
+      if ! npm install --production=false --legacy-peer-deps; then
+        notify_github "failed" "second npm ci and npm install both failed"
+        error "❌ Second dependency installation failed"
+        exit 1
+      else
+        success "✅ Second dependencies installed with npm install"
+      fi
+    else
+      success "✅ Second dependencies installed with npm ci"
+    fi
+  else
+    log "Running npm install (no package-lock.json)..."
+    if ! npm install --production=false; then
+      warn "npm install failed, trying with legacy flags"
+      if ! npm install --production=false --legacy-peer-deps; then
+        notify_github "failed" "second npm install failed"
+        error "❌ Second dependency installation failed"
+        exit 1
+      else
+        success "✅ Second dependencies installed with npm install --legacy-peer-deps"
+      fi
     else
       success "✅ Second dependencies installed with npm install"
     fi
-  else
-    success "✅ Second dependencies installed with npm ci"
   fi
   
   # Build
