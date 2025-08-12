@@ -56,17 +56,48 @@ export class QRCodeService {
     options: QRCodeOptions = {},
   ): Promise<{ qrCodeImage: string; qrData: QRCodeData; qrUrl: string }> {
     try {
-      // สร้างวันหมดอายุ (7 วันหลังจากการแข่งขัน)
-      const showDateTime = new Date(showDate);
-      const validUntil = new Date(
-        showDateTime.getTime() + 7 * 24 * 60 * 60 * 1000,
-      ).toISOString();
+      // Validate และแปลง showDate
+      let showDateTime: Date;
+      let validUntil: string;
+
+      try {
+        // ตรวจสอบว่า showDate เป็น string ที่ถูกต้องหรือไม่
+        if (!showDate || typeof showDate !== 'string') {
+          this.logger.warn(
+            `⚠️ Invalid showDate format: ${showDate}, using current date`,
+          );
+          showDateTime = new Date();
+        } else {
+          showDateTime = new Date(showDate);
+
+          // ตรวจสอบว่าเป็น valid date หรือไม่
+          if (isNaN(showDateTime.getTime())) {
+            this.logger.warn(
+              `⚠️ Invalid showDate value: ${showDate}, using current date`,
+            );
+            showDateTime = new Date();
+          }
+        }
+
+        // สร้างวันหมดอายุ (7 วันหลังจากการแข่งขัน)
+        validUntil = new Date(
+          showDateTime.getTime() + 7 * 24 * 60 * 60 * 1000,
+        ).toISOString();
+      } catch (dateError) {
+        this.logger.error(
+          `❌ Date parsing error: ${dateError.message}, using current date`,
+        );
+        showDateTime = new Date();
+        validUntil = new Date(
+          showDateTime.getTime() + 7 * 24 * 60 * 60 * 1000,
+        ).toISOString();
+      }
 
       // สร้างข้อมูล QR
       const qrData: QRCodeData = {
         orderId,
         userId,
-        showDate,
+        showDate: showDateTime.toISOString(), // ใช้ ISO string ที่แน่นอน
         seats: seats || [],
         amount,
         ticketType,
