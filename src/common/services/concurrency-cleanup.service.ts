@@ -34,7 +34,7 @@ export class ConcurrencyCleanupService {
    * 🕐 Cleanup expired seat locks every minute
    * ทำความสะอาดการล็อคที่นั่งที่หมดอายุทุกนาที
    */
-  @Cron('0 * * * * *') // Every minute
+  @Cron('*/3 * * * *') // Every 3 minutes
   async cleanupExpiredSeatLocks(): Promise<void> {
     try {
       this.logger.log('🧹 Starting expired seat locks cleanup');
