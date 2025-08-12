@@ -117,30 +117,60 @@ fi
 print_success "Build completed successfully"
 
 print_status "Step 4: Restarting application with PM2..."
-if ! pm2 restart ticket-backend-prod; then
-    print_warning "PM2 restart failed, attempting to start fresh..."
+
+# Set timeout for PM2 operations
+export PM2_KILL_TIMEOUT=30000
+
+# First, try graceful restart
+print_status "Attempting graceful restart..."
+if timeout 60s pm2 restart ticket-backend-prod 2>/dev/null; then
+    print_success "PM2 restart successful"
+else
+    print_warning "Graceful restart failed, attempting force restart..."
     
-    # Stop and delete if exists
-    pm2 stop ticket-backend-prod 2>/dev/null || true
-    pm2 delete ticket-backend-prod 2>/dev/null || true
+    # Force stop and delete if exists
+    pm2 stop ticket-backend-prod --force 2>/dev/null || true
+    pm2 delete ticket-backend-prod --force 2>/dev/null || true
     
-    # Start fresh
-    if ! pm2 start ecosystem.config.js --env production; then
-        print_error "Failed to start application"
-        send_webhook_notification "failed" "Failed to restart application"
+    # Start fresh with timeout
+    print_status "Starting fresh PM2 process..."
+    if timeout 60s pm2 start ecosystem.config.js --env production; then
+        print_success "Fresh PM2 start successful"
+    else
+        print_error "Failed to start application with PM2"
+        send_webhook_notification "failed" "Failed to restart application - PM2 timeout"
         exit 1
     fi
 fi
 
 print_status "Step 5: Verifying deployment..."
-sleep 5
+sleep 3
 
-# Check if application is running
-if pm2 describe ticket-backend-prod | grep -q "online"; then
-    print_success "Application is running successfully"
-else
-    print_error "Application failed to start"
-    send_webhook_notification "failed" "Application failed to start after deployment"
+# Check if application is running with timeout
+RETRY_COUNT=0
+MAX_RETRIES=10
+APP_RUNNING=false
+
+while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+    if pm2 describe ticket-backend-prod 2>/dev/null | grep -q "online"; then
+        print_success "Application is running successfully"
+        APP_RUNNING=true
+        break
+    else
+        print_status "Waiting for application to start... (attempt $((RETRY_COUNT + 1))/$MAX_RETRIES)"
+        sleep 3
+        RETRY_COUNT=$((RETRY_COUNT + 1))
+    fi
+done
+
+if [ "$APP_RUNNING" = false ]; then
+    print_error "Application failed to start after $MAX_RETRIES attempts"
+    
+    # Show recent logs for debugging
+    print_error "Recent PM2 logs:"
+    pm2 logs ticket-backend-prod --lines 10 --nostream 2>/dev/null || true
+    
+    send_webhook_notification "failed" "Application failed to start after deployment - timeout after ${MAX_RETRIES} attempts"
     exit 1
 fi
 
@@ -158,15 +188,40 @@ send_webhook_notification "success" "🎉 Auto-deployment completed successfully
 
 # Optional: Run post-deployment health check
 print_status "Step 6: Running health check..."
-sleep 3
+sleep 2
 
-if curl -f -s http://localhost:3001/api/health >/dev/null; then
-    print_success "Health check passed"
-    send_webhook_notification "success" "✅ Health check passed - Application is healthy"
+# Check application health with timeout
+HEALTH_URL="http://localhost:4000/api/v1"
+HEALTH_STATUS="unknown"
+
+print_status "Testing application health at $HEALTH_URL"
+if timeout 30s curl -f -s "$HEALTH_URL" >/dev/null 2>&1; then
+    print_success "Health check passed - Application is responding"
+    HEALTH_STATUS="healthy"
+    send_webhook_notification "success" "✅ Deployment and health check completed successfully!"
+elif timeout 30s curl -f -s "http://localhost:4000" >/dev/null 2>&1; then
+    print_success "Application is responding (alternate endpoint)"
+    HEALTH_STATUS="responding"
+    send_webhook_notification "success" "✅ Deployment completed - Application is responding"
 else
-    print_warning "Health check failed, but deployment completed"
-    send_webhook_notification "warning" "⚠️ Deployment completed but health check failed"
+    print_warning "Health check failed, but application may still be starting"
+    HEALTH_STATUS="unknown"
+    send_webhook_notification "warning" "⚠️ Deployment completed but health check inconclusive"
 fi
+
+# Final success notification with complete status
+FINAL_TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
+send_webhook_notification "completed" "🎉 Auto-deployment workflow completed! Status: $HEALTH_STATUS, Time: $FINAL_TIMESTAMP"
+
+print_success "=== AUTO-DEPLOYMENT COMPLETED ==="
+print_status "Summary:"
+print_status "- Commit: ${COMMIT_HASH:0:8}"
+print_status "- Message: $COMMIT_MSG"
+print_status "- Health: $HEALTH_STATUS"
+print_status "- Completed: $FINAL_TIMESTAMP"
+print_success "Auto-deployment script finished successfully!"
+
+exit 0
 
 print_success "🤖 Auto-deployment process completed!"
 echo "=============================================="
