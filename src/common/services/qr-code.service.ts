@@ -105,6 +105,7 @@ export class QRCodeService {
         securityHash: '', // จะสร้างด้านล่าง
       };
 
+      // กไๆกไๆกไๆ
       // สร้าง security hash
       qrData.securityHash = this.generateSecurityHash(qrData);
 
