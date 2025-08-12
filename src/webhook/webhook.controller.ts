@@ -20,6 +20,9 @@ const execAsync = promisify(exec);
 export class WebhookController {
   private readonly logger = new Logger(WebhookController.name);
   private readonly discordWebhookUrl: string;
+  private deploymentInProgress = false;
+  private lastDeploymentTime = 0;
+  private readonly DEPLOYMENT_COOLDOWN = 30000; // 30 seconds cooldown
 
   constructor(private configService: ConfigService) {
     this.discordWebhookUrl =
@@ -148,10 +151,40 @@ export class WebhookController {
         };
       }
 
+      // Check if deployment is already in progress
+      if (this.deploymentInProgress) {
+        this.logger.warn('Deployment already in progress, skipping...');
+        return {
+          status: 'skipped',
+          message: 'Deployment already in progress',
+          repository: repoName,
+          branch: branch,
+          timestamp: new Date().toISOString(),
+        };
+      }
+
+      // Check cooldown period
+      const now = Date.now();
+      if (now - this.lastDeploymentTime < this.DEPLOYMENT_COOLDOWN) {
+        const remainingCooldown = Math.ceil((this.DEPLOYMENT_COOLDOWN - (now - this.lastDeploymentTime)) / 1000);
+        this.logger.warn(`Deployment in cooldown, ${remainingCooldown}s remaining`);
+        return {
+          status: 'cooldown',
+          message: `Deployment in cooldown, ${remainingCooldown}s remaining`,
+          repository: repoName,
+          branch: branch,
+          timestamp: new Date().toISOString(),
+        };
+      }
+
       // Log deployment initiation
       this.logger.log(
         `🚀 Initiating deployment for ${repoName}:${branch} (${isInternalRequest ? 'internal' : 'external'} request)`,
       );
+
+      // Set deployment lock and timestamp
+      this.deploymentInProgress = true;
+      this.lastDeploymentTime = now;
 
       // Execute deployment script in background
       this.executeDeployment();
@@ -193,7 +226,9 @@ export class WebhookController {
       // Make sure script is executable
       await execAsync(`chmod +x ${scriptPath}`);
 
-      const { stdout, stderr } = await execAsync(scriptPath);
+      // Set environment variable to skip notifications (prevents loops)
+      const env = { ...process.env, SKIP_NOTIFICATIONS: 'true' };
+      const { stdout, stderr } = await execAsync(scriptPath, { env });
 
       if (stdout) this.logger.log(`Deployment output: ${stdout}`);
       if (stderr) this.logger.warn(`Deployment warnings: ${stderr}`);
@@ -210,6 +245,10 @@ export class WebhookController {
         timestamp: new Date().toISOString(),
         environment: 'production',
       });
+    } finally {
+      // Always clear the deployment lock
+      this.deploymentInProgress = false;
+      this.logger.log('Deployment lock released');
     }
   }
 

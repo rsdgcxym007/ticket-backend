@@ -40,6 +40,12 @@ send_notification() {
     local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%S.%3NZ")
     local commit_hash=$(git rev-parse HEAD 2>/dev/null || echo 'unknown')
     
+    # Skip notifications if running from webhook controller (prevents loops)
+    if [ "$SKIP_NOTIFICATIONS" = "true" ]; then
+        print_status "Skipping notification (controlled by webhook)"
+        return 0
+    fi
+    
     curl -s -H "Content-Type: application/json" \
          -H "User-Agent: ticket-backend-deploy-script/1.0" \
          -X POST \
@@ -83,6 +89,20 @@ if ! git checkout "$BRANCH"; then
     print_error "Failed to checkout branch: $BRANCH"
     send_notification "failed" "Failed to checkout branch $BRANCH"
     exit 1
+fi
+
+# Handle potential merge conflicts by stashing local changes
+print_status "Checking for local changes..."
+if ! git diff --quiet || ! git diff --cached --quiet; then
+    print_warning "Local changes detected, stashing them..."
+    git stash push -m "auto-deploy-stash-$(date +%Y%m%d-%H%M%S)"
+fi
+
+# Reset to clean state if needed
+if ! git reset --hard origin/"$BRANCH" 2>/dev/null; then
+    print_warning "Reset failed, trying fetch and reset..."
+    git fetch origin "$BRANCH"
+    git reset --hard origin/"$BRANCH"
 fi
 
 if ! git pull origin "$BRANCH"; then
