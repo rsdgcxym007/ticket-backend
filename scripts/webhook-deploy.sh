@@ -84,7 +84,8 @@ send_discord_notification() {
             ;;
     esac
     
-    local commit_hash=$(git rev-parse HEAD 2>/dev/null | cut -c1-8 || echo 'unknown')
+    local commit_hash=$(git rev-parse HEAD 2>/dev/null || echo 'unknown')
+    commit_hash=${commit_hash:0:8}
     local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
     
     curl -s -H "Content-Type: application/json" \
@@ -268,7 +269,7 @@ fi
 # Final success notification with complete status
 FINAL_TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
 send_webhook_notification "completed" "🎉 Auto-deployment workflow completed! Status: $HEALTH_STATUS, Time: $FINAL_TIMESTAMP"
-send_discord_notification "completed" "✅ Auto-deployment workflow completed! Status: $HEALTH_STATUS, Health: $HEALTH_STATUS, Time: $FINAL_TIMESTAMP"
+send_discord_notification "completed" "✅ Auto-deployment workflow completed! Status: $HEALTH_STATUS, Time: $FINAL_TIMESTAMP"
 
 print_success "=== AUTO-DEPLOYMENT COMPLETED ==="
 print_status "Summary:"
