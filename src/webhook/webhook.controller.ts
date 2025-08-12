@@ -20,9 +20,6 @@ const execAsync = promisify(exec);
 export class WebhookController {
   private readonly logger = new Logger(WebhookController.name);
   private readonly discordWebhookUrl: string;
-  private deploymentInProgress = false;
-  private lastDeploymentTime = 0;
-  private readonly DEPLOYMENT_COOLDOWN = 30000; // 30 seconds cooldown
 
   constructor(private configService: ConfigService) {
     this.discordWebhookUrl =
@@ -151,46 +148,12 @@ export class WebhookController {
         };
       }
 
-      // Check if deployment is already in progress
-      if (this.deploymentInProgress) {
-        this.logger.warn('Deployment already in progress, skipping...');
-        return {
-          status: 'skipped',
-          message: 'Deployment already in progress',
-          repository: repoName,
-          branch: branch,
-          timestamp: new Date().toISOString(),
-        };
-      }
-
-      // Check cooldown period
-      const now = Date.now();
-      if (now - this.lastDeploymentTime < this.DEPLOYMENT_COOLDOWN) {
-        const remainingCooldown = Math.ceil(
-          (this.DEPLOYMENT_COOLDOWN - (now - this.lastDeploymentTime)) / 1000,
-        );
-        this.logger.warn(
-          `Deployment in cooldown, ${remainingCooldown}s remaining`,
-        );
-        return {
-          status: 'cooldown',
-          message: `Deployment in cooldown, ${remainingCooldown}s remaining`,
-          repository: repoName,
-          branch: branch,
-          timestamp: new Date().toISOString(),
-        };
-      }
-
       // Log deployment initiation
       this.logger.log(
-        `🚀 Initiating deployment for ${repoName}:${branch} (${isInternalRequest ? 'internal' : 'external'} request)`,
+        `🚀 Simple deployment for ${repoName}:${branch} (${isInternalRequest ? 'internal' : 'external'} request)`,
       );
 
-      // Set deployment lock and timestamp
-      this.deploymentInProgress = true;
-      this.lastDeploymentTime = now;
-
-      // Execute deployment script in background
+      // Execute deployment script in background (fire and forget)
       this.executeDeployment();
 
       return {
@@ -212,47 +175,47 @@ export class WebhookController {
 
   private async executeDeployment() {
     try {
-      this.logger.log('Starting background deployment...');
+      this.logger.log('Starting simple deployment...');
 
-      // Use absolute path to the project directory
       const projectDir =
         process.env.PROJECT_DIR || '/var/www/backend/ticket-backend';
-      const scriptPath = `${projectDir}/scripts/webhook-deploy.sh`;
-
-      this.logger.log(`Executing deployment script: ${scriptPath}`);
-
-      // Check if script exists before executing
+      
+      // Try simple scripts in order of preference
+      const simpleV2ScriptPath = `${projectDir}/scripts/simple-webhook-deploy-v2.sh`;
+      const simpleScriptPath = `${projectDir}/scripts/simple-webhook-deploy.sh`;
+      const complexScriptPath = `${projectDir}/scripts/webhook-deploy.sh`;
+      
       const fs = require('fs');
-      if (!fs.existsSync(scriptPath)) {
-        throw new Error(`Deployment script not found: ${scriptPath}`);
+      let scriptPath = simpleV2ScriptPath;
+      
+      if (fs.existsSync(simpleV2ScriptPath)) {
+        this.logger.log('Using simple-webhook-deploy-v2.sh (recommended)');
+        scriptPath = simpleV2ScriptPath;
+      } else if (fs.existsSync(simpleScriptPath)) {
+        this.logger.log('Using simple-webhook-deploy.sh');
+        scriptPath = simpleScriptPath;
+      } else if (fs.existsSync(complexScriptPath)) {
+        this.logger.log('Fallback to webhook-deploy.sh');
+        scriptPath = complexScriptPath;
+      } else {
+        throw new Error('No deployment script found');
       }
+
+      this.logger.log(`Executing: ${scriptPath}`);
 
       // Make sure script is executable
       await execAsync(`chmod +x ${scriptPath}`);
 
-      // Set environment variable to skip notifications (prevents loops)
-      const env = { ...process.env, SKIP_NOTIFICATIONS: 'true' };
-      const { stdout, stderr } = await execAsync(scriptPath, { env });
+      // Execute script without environment variables (keep it simple)
+      const { stdout, stderr } = await execAsync(scriptPath);
 
       if (stdout) this.logger.log(`Deployment output: ${stdout}`);
       if (stderr) this.logger.warn(`Deployment warnings: ${stderr}`);
 
-      this.logger.log('Deployment completed successfully');
+      this.logger.log('Simple deployment completed successfully');
     } catch (error) {
-      this.logger.error('Deployment failed:', error);
-
-      // Send failure notification
-      await this.sendDiscordNotification({
-        status: 'failed',
-        message: `Auto-deployment failed: ${error.message}`,
-        branch: 'feature/newfunction',
-        timestamp: new Date().toISOString(),
-        environment: 'production',
-      });
-    } finally {
-      // Always clear the deployment lock
-      this.deploymentInProgress = false;
-      this.logger.log('Deployment lock released');
+      this.logger.error('Simple deployment failed:', error);
+      // Let the script handle its own notifications
     }
   }
 
