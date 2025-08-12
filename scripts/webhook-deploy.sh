@@ -60,57 +60,45 @@ attempt_build() {
   log "📦 Building application with NestJS CLI..."
   notify "📦 Building application..."
   NEST_CLI_PATH="./node_modules/.bin/nest"
-  BUILD_OK=0
   
   if [ -x "$NEST_CLI_PATH" ]; then
     log "✅ Using local NestJS CLI..."
     if "$NEST_CLI_PATH" build; then
-      BUILD_OK=1
       log "✅ Build successful with local NestJS CLI!"
       notify "✅ Build completed successfully!"
-      return $BUILD_OK
+      return 0
     fi
   fi
 
-  if [ $BUILD_OK -eq 0 ] && [ -f "./node_modules/@nestjs/cli/bin/nest.js" ]; then
+  if [ -f "./node_modules/@nestjs/cli/bin/nest.js" ]; then
     log "🔄 Retrying build via node Nest CLI binary..."
     notify "🔄 Trying alternative build method..."
     if node ./node_modules/@nestjs/cli/bin/nest.js build; then
-      BUILD_OK=1
       log "✅ Build successful with node CLI!"
       notify "✅ Build completed with fallback method!"
-      return $BUILD_OK
+      return 0
     fi
   fi
 
-  if [ $BUILD_OK -eq 0 ]; then
-    log "🔄 Retrying build via npx @nestjs/cli..."
-    notify "🔄 Trying npx build method..."
-    if npx --yes @nestjs/cli build; then
-      BUILD_OK=1
-      log "✅ Build successful with npx!"
-      notify "✅ Build completed with npx!"
-      return $BUILD_OK
-    fi
+  log "🔄 Retrying build via npx @nestjs/cli..."
+  notify "🔄 Trying npx build method..."
+  if npx --yes @nestjs/cli build; then
+    log "✅ Build successful with npx!"
+    notify "✅ Build completed with npx!"
+    return 0
   fi
 
-  if [ $BUILD_OK -eq 0 ]; then
-    log "🔄 Final fallback: building with TypeScript compiler (tsc)..."
-    notify "🔄 Using TypeScript compiler as final attempt..."
-    if ./node_modules/.bin/tsc -p tsconfig.build.json; then
-      BUILD_OK=1
-      log "✅ Build successful with TypeScript compiler!"
-      notify "✅ Build completed with TypeScript compiler!"
-      return $BUILD_OK
-    fi
+  log "🔄 Final fallback: building with TypeScript compiler (tsc)..."
+  notify "🔄 Using TypeScript compiler as final attempt..."
+  if ./node_modules/.bin/tsc -p tsconfig.build.json; then
+    log "✅ Build successful with TypeScript compiler!"
+    notify "✅ Build completed with TypeScript compiler!"
+    return 0
   fi
 
-  if [ $BUILD_OK -eq 0 ]; then
-    log "❌ All build methods failed!"
-    notify "❌ BUILD FAILED - All methods exhausted"
-  fi
-
-  return $BUILD_OK
+  log "❌ All build methods failed!"
+  notify "❌ BUILD FAILED - All methods exhausted"
+  return 1
 }
 
 # Main auto-deployment process
