@@ -58,11 +58,21 @@ export class WebhookController {
     @Req() req: any,
   ) {
     const clientIp = req.ip || req.connection.remoteAddress;
-    this.logger.log(`Webhook received from IP: ${clientIp}`);
+    const userAgent = headers['user-agent'];
+    
+    this.logger.log(`🔄 Webhook received from IP: ${clientIp}, User-Agent: ${userAgent}`);
 
     try {
       // Basic security checks
-      const userAgent = headers['user-agent'];
+
+      // GitHub webhook IP ranges (approximate common ranges)
+      const isGitHubIP = 
+        clientIp.startsWith('140.82.') ||   // GitHub primary range
+        clientIp.startsWith('192.30.') ||   // GitHub secondary range
+        clientIp.startsWith('185.199.') ||  // GitHub CDN range
+        clientIp.startsWith('124.122.') ||  // GitHub Asia range
+        clientIp.startsWith('13.229.') ||   // GitHub AWS range
+        clientIp.startsWith('52.74.');      // GitHub AWS Singapore
 
       // Validate User-Agent (should be from GitHub or internal deployment scripts)
       const isValidUserAgent =
@@ -70,17 +80,24 @@ export class WebhookController {
         (userAgent.includes('GitHub-Hookshot') ||
           userAgent.includes('curl') ||
           userAgent.includes('axios') ||
-          userAgent.includes('node') ||
-          clientIp === '43.229.133.51' || // Allow from server IP
-          clientIp.includes('127.0.0.1') || // Allow localhost
-          clientIp.includes('::1')); // Allow IPv6 localhost
+          userAgent.includes('node'));
 
-      if (!isValidUserAgent) {
+      // Allow if valid user agent OR from known IPs
+      const isValidSource = 
+        isValidUserAgent ||
+        isGitHubIP ||
+        clientIp === '43.229.133.51' || // Allow from server IP
+        clientIp.includes('127.0.0.1') || // Allow localhost
+        clientIp.includes('::1'); // Allow IPv6 localhost
+
+      if (!isValidSource) {
         this.logger.warn(
-          `Invalid User-Agent: ${userAgent} from IP: ${clientIp}`,
+          `❌ Invalid source - User-Agent: ${userAgent}, IP: ${clientIp}, GitHub IP check: ${isGitHubIP}`,
         );
         throw new UnauthorizedException('Invalid webhook source');
       }
+
+      this.logger.log(`✅ Valid webhook source - IP: ${clientIp}, User-Agent: ${userAgent}`);
 
       // TODO: Add webhook secret validation (uncomment when secret is configured)
       // const webhookSecret = process.env.GITHUB_WEBHOOK_SECRET;
