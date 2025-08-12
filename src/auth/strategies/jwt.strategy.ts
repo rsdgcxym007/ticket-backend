@@ -6,9 +6,12 @@ import { ExtractJwt, Strategy } from 'passport-jwt';
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(private configService: ConfigService) {
-    const secret = configService.get('JWT_SECRET') || 'myUltraSecretHash123';
-    console.log('🔐 JWT Strategy - using secret:', secret);
-    console.log('🔐 JWT_SECRET from config:', configService.get('JWT_SECRET'));
+    const secret = configService.get('JWT_SECRET');
+    if (!secret) {
+      throw new Error('JWT_SECRET environment variable is required');
+    }
+    console.log('🔐 JWT Strategy - using secret (first 8 chars):', secret.substring(0, 8) + '...');
+    console.log('🔐 JWT_SECRET loaded from environment variables');
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       secretOrKey: secret,
