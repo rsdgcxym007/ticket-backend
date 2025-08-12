@@ -140,11 +140,13 @@ install_system_dependencies() {
     # Update package list
     apt update || error_exit "Failed to update package list"
     
-    # Install essential packages
-    apt install -y curl wget git nodejs npm postgresql postgresql-contrib redis-server jq htop || error_exit "Failed to install system packages"
+    # Install basic system packages first
+    apt install -y curl wget git postgresql postgresql-contrib redis-server jq htop build-essential || error_exit "Failed to install basic system packages"
     
-    # Install PM2 globally
-    npm install -g pm2 || error_exit "Failed to install PM2"
+    # Use our Node.js fix script for proper installation
+    log "🔧 Installing Node.js using fix script..."
+    cd "$PROJECT_DIR" || error_exit "Failed to change to project directory"
+    ./scripts/fix-nodejs.sh --clean || error_exit "Failed to install Node.js"
     
     log "✅ System dependencies installed"
 }
