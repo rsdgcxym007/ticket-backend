@@ -1,7 +1,28 @@
 #!/bin/bash
 
 # Emergency Fix Script for ticket-backend
-# Use this when npm install fails or deployment is stuck
+# Use this when npm# Try npm install with different flags
+if npm install --no-audit --no-fund --legacy-peer-deps; then
+    print_success "Dependencies installed successfully with npm install --legacy-peer-deps"
+elif npm install --no-audit --no-fund --force; then
+    print_success "Dependencies installed successfully with npm install --force"
+elif npm install --legacy-peer-deps; then
+    print_success "Dependencies installed successfully with npm install --legacy-peer-deps (retry)"
+else
+    print_error "All npm install attempts failed"
+    # Try yarn as last resort
+    print_warning "Trying yarn as last resort..."
+    if command_exists yarn; then
+        yarn install --legacy-peer-deps || {
+            print_error "Yarn install also failed"
+            exit 1
+        }
+        print_success "Dependencies installed successfully with yarn"
+    else
+        print_error "Yarn not available, all dependency installation methods failed"
+        exit 1
+    fi
+fifails or deployment is stuck
 
 set -e
 
