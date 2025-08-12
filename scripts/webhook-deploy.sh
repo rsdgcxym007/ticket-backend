@@ -41,6 +41,7 @@ send_webhook_notification() {
     local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%S.%3NZ")
     
     curl -s -H "Content-Type: application/json" \
+         -H "User-Agent: ticket-backend-deploy-script/1.0" \
          -X POST \
          -d "{
              \"status\": \"$status\",

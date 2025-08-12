@@ -82,6 +82,7 @@ send_webhook_notification() {
     
     if command_exists curl; then
         curl -H "Content-Type: application/json" \
+             -H "User-Agent: ticket-backend-deploy-script/1.0" \
              -X POST \
              -d "{
                  \"status\": \"$status\",

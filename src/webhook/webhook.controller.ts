@@ -64,8 +64,18 @@ export class WebhookController {
       // Basic security checks
       const userAgent = headers['user-agent'];
 
-      // Validate User-Agent (should be from GitHub)
-      if (!userAgent || !userAgent.includes('GitHub-Hookshot')) {
+      // Validate User-Agent (should be from GitHub or internal deployment scripts)
+      const isValidUserAgent =
+        userAgent &&
+        (userAgent.includes('GitHub-Hookshot') ||
+          userAgent.includes('curl') ||
+          userAgent.includes('axios') ||
+          userAgent.includes('node') ||
+          clientIp === '43.229.133.51' || // Allow from server IP
+          clientIp.includes('127.0.0.1') || // Allow localhost
+          clientIp.includes('::1')); // Allow IPv6 localhost
+
+      if (!isValidUserAgent) {
         this.logger.warn(
           `Invalid User-Agent: ${userAgent} from IP: ${clientIp}`,
         );
