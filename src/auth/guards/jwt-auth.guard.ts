@@ -1,4 +1,9 @@
-import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  UnauthorizedException,
+  Optional,
+} from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { SessionService } from '../session.service';
 import { ExecutionContext } from '@nestjs/common';
@@ -7,7 +12,7 @@ import { ExecutionContext } from '@nestjs/common';
 export class JwtAuthGuard extends AuthGuard('jwt') {
   private readonly logger = new Logger(JwtAuthGuard.name);
 
-  constructor(private readonly sessionService: SessionService) {
+  constructor(@Optional() private readonly sessionService: SessionService) {
     super();
   }
 
@@ -27,6 +32,15 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     console.log('JWT validation passed, checking session...');
     const request = context.switchToHttp().getRequest();
     console.log('User in request after JWT validation:', request.user);
+
+    // ถ้า sessionService ไม่ available ให้ยอมรับเฉพาะ JWT validation จาก parent guard
+    if (!this.sessionService) {
+      this.logger.warn(
+        'SessionService not available, skipping session validation',
+      );
+      console.log('=== JwtAuthGuard canActivate END (no session service) ===');
+      return true;
+    }
 
     // ตรวจสอบ session
     const token = this.extractTokenFromHeader(request);
