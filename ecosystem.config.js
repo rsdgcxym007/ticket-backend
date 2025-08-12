@@ -11,10 +11,12 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         PORT: 4000,
+        PROJECT_DIR: '/var/www/backend/ticket-backend',
       },
       env_production: {
         NODE_ENV: 'production',
         PORT: 4000,
+        PROJECT_DIR: '/var/www/backend/ticket-backend',
         // Database Configuration
         DATABASE_HOST: '43.229.133.51',
         DATABASE_PORT: 5432,

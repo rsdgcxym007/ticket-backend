@@ -136,11 +136,21 @@ export class WebhookController {
     try {
       this.logger.log('Starting background deployment...');
 
-      // Get the current working directory or use environment variable
-      const projectDir = process.env.PROJECT_DIR || process.cwd();
+      // Use absolute path to the project directory
+      const projectDir =
+        process.env.PROJECT_DIR || '/var/www/backend/ticket-backend';
       const scriptPath = `${projectDir}/scripts/webhook-deploy.sh`;
 
       this.logger.log(`Executing deployment script: ${scriptPath}`);
+
+      // Check if script exists before executing
+      const fs = require('fs');
+      if (!fs.existsSync(scriptPath)) {
+        throw new Error(`Deployment script not found: ${scriptPath}`);
+      }
+
+      // Make sure script is executable
+      await execAsync(`chmod +x ${scriptPath}`);
 
       const { stdout, stderr } = await execAsync(scriptPath);
 
@@ -150,6 +160,15 @@ export class WebhookController {
       this.logger.log('Deployment completed successfully');
     } catch (error) {
       this.logger.error('Deployment failed:', error);
+
+      // Send failure notification
+      await this.sendDiscordNotification({
+        status: 'failed',
+        message: `Auto-deployment failed: ${error.message}`,
+        branch: 'feature/newfunction',
+        timestamp: new Date().toISOString(),
+        environment: 'production',
+      });
     }
   }
 
