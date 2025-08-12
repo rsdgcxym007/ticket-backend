@@ -8,8 +8,8 @@ set -e  # Exit on any error
 # Discord webhook URL
 DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/1404715794205511752/H4H1Q-aJ2B1LwSpKxHYP7rt4tCWA0p10339NN5Gy71fhwXvFjcfSQKXNl9Xdj60ks__l"
 
-# Webhook notification URL (updated to port 4400)
-WEBHOOK_URL="http://43.229.133.51:4400/hooks/deploy-backend-master"
+# Webhook notification URL (updated to port 4100 to match hooks.json)
+WEBHOOK_URL="http://43.229.133.51:4100/hooks/deploy-backend-master"
 
 echo "🚀 Starting build and deployment process..."
 
@@ -131,23 +131,25 @@ print_status "Step 1: Cleaning and installing dependencies..."
 print_status "Cleaning npm cache and node_modules..."
 npm cache clean --force 2>/dev/null || true
 rm -rf node_modules/
+rm -f package-lock.json
 
-# Strategy: Try npm ci first (if package-lock.json exists), then fallback to npm install
-print_status "📦 Installing dependencies..."
-
-if [ -f "package-lock.json" ]; then
-    print_status "📦 Found package-lock.json, using npm ci (attempt 1/2)..."
-    if ! npm ci --production=false; then
-        print_warning "🔄 npm ci failed, cleaning lock file and retrying with npm install..."
-        rm -f package-lock.json
-        npm cache clean --force 2>/dev/null || true
+# Use npm install with retry logic for maximum compatibility
+print_status "📦 Installing dependencies with npm install (attempt 1/3)..."
+if ! npm install --production=false --no-audit --no-fund; then
+    print_warning "🔄 First npm install failed, cleaning cache and retrying..."
+    npm cache clean --force 2>/dev/null || true
+    sleep 2
+    
+    print_status "📦 Installing dependencies with npm install (attempt 2/3)..."
+    if ! npm install --production=false --no-audit --no-fund; then
+        print_warning "🔄 Second attempt failed, trying with legacy peer deps..."
         sleep 2
         
-        print_status "📦 Installing with npm install (attempt 2/2)..."
+        print_status "📦 Installing dependencies with npm install --legacy-peer-deps (attempt 3/3)..."
         if ! npm install --production=false --no-audit --no-fund --legacy-peer-deps; then
             print_error "❌ ALL DEPENDENCY INSTALLATION ATTEMPTS FAILED"
-            print_error "   • npm ci failed (package-lock.json was present)"
-            print_error "   • npm install --legacy-peer-deps failed"
+            print_error "   • npm install failed (attempts 1-2)"
+            print_error "   • npm install --legacy-peer-deps failed (attempt 3)"
             send_discord_notification "❌ Deployment failed: All npm install attempts failed" "15158332" "Failed"
             send_webhook_notification "failed" "❌ Deployment failed: All npm install attempts failed"
             exit 1
@@ -155,29 +157,10 @@ if [ -f "package-lock.json" ]; then
             print_success "✅ Dependencies installed successfully with npm install (legacy mode)"
         fi
     else
-        print_success "✅ Dependencies installed successfully with npm ci"
+        print_success "✅ Dependencies installed successfully with npm install (attempt 2)"
     fi
 else
-    print_status "📦 No package-lock.json found, using npm install with retries..."
-    
-    # First attempt with npm install
-    if ! npm install --production=false --no-audit --no-fund; then
-        print_warning "🔄 First npm install failed, retrying with legacy flags..."
-        sleep 2
-        
-        if ! npm install --production=false --no-audit --no-fund --legacy-peer-deps; then
-            print_error "❌ ALL DEPENDENCY INSTALLATION ATTEMPTS FAILED"
-            print_error "   • npm install failed (attempt 1)"
-            print_error "   • npm install --legacy-peer-deps failed (attempt 2)"
-            send_discord_notification "❌ Deployment failed: All npm install attempts failed" "15158332" "Failed"
-            send_webhook_notification "failed" "❌ Deployment failed: All npm install attempts failed"
-            exit 1
-        else
-            print_success "✅ Dependencies installed successfully with npm install (legacy mode)"
-        fi
-    else
-        print_success "✅ Dependencies installed successfully with npm install"
-    fi
+    print_success "✅ Dependencies installed successfully with npm install (attempt 1)"
 fi
 
 print_status "Step 2: Cleaning previous build..."
