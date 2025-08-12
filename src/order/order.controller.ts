@@ -19,6 +19,8 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import type { Express } from 'express';
+import 'multer';
 
 import { OrderService } from './order.service';
 import { CreateOrderDto } from './dto/create-order.dto';

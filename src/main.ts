@@ -31,10 +31,14 @@ async function bootstrap() {
   // Debug JWT secret
   const jwtSecret = configService.get('JWT_SECRET');
   if (!jwtSecret) {
-    logger.error('❌ JWT_SECRET environment variable is required but not found');
+    logger.error(
+      '❌ JWT_SECRET environment variable is required but not found',
+    );
     process.exit(1);
   }
-  logger.log(`🔐 JWT_SECRET loaded from environment (first 8 chars): ${jwtSecret.substring(0, 8)}...`);
+  logger.log(
+    `🔐 JWT_SECRET loaded from environment (first 8 chars): ${jwtSecret.substring(0, 8)}...`,
+  );
   logger.log(`🔐 NODE_ENV: ${configService.get('NODE_ENV')}`);
   logger.log(
     `🔐 All ENV vars starting with JWT: ${JSON.stringify(

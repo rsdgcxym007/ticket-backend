@@ -44,6 +44,52 @@ error_exit() {
   exit 1
 }
 
+# Check for common npm corruption issues
+check_npm_health() {
+  log "🔍 Checking npm and node_modules health..."
+  
+  local issues_found=false
+  
+  # Check for common corruption indicators
+  if [ -d "node_modules" ]; then
+    # Check for incomplete TypeORM installation (common issue from logs)
+    if [ -d "node_modules/typeorm" ] && [ ! -f "node_modules/typeorm/package.json" ]; then
+      log "⚠️ Detected corrupted TypeORM installation"
+      issues_found=true
+    fi
+    
+    # Check for incomplete @swc/helpers (from error log)
+    if [ -d "node_modules/@swc/helpers" ] && [ ! -f "node_modules/@swc/helpers/package.json" ]; then
+      log "⚠️ Detected corrupted @swc/helpers installation"
+      issues_found=true
+    fi
+    
+    # Check for directories that should not be empty but are
+    for dir in node_modules/@swc/helpers node_modules/typeorm; do
+      if [ -d "$dir" ] && [ -z "$(ls -A "$dir" 2>/dev/null)" ]; then
+        log "⚠️ Detected empty critical directory: $dir"
+        issues_found=true
+      fi
+    done
+  fi
+  
+  # Check package-lock.json integrity
+  if [ -f "package-lock.json" ]; then
+    if ! npm ls --depth=0 > /dev/null 2>&1; then
+      log "⚠️ Package-lock.json appears to be inconsistent with node_modules"
+      issues_found=true
+    fi
+  fi
+  
+  if [ "$issues_found" = true ]; then
+    log "🚨 npm corruption detected - will perform clean installation"
+    return 1
+  else
+    log "✅ npm environment appears healthy"
+    return 0
+  fi
+}
+
 # Attempt to build the project with robust fallbacks
 attempt_build() {
   log "🔨 เริ่มต้นกระบวนการ build..."
@@ -132,13 +178,61 @@ main() {
   # Make scripts executable (in case they changed)
   chmod +x "$SCRIPTS_DIR"/*.sh 2>/dev/null || log "⚠️ Warning: Could not set script permissions"
   
-  # Install dependencies and build manually for webhook deployment
+  # Check npm health before attempting installation
+  if ! check_npm_health; then
+    log "🧹 Pre-emptive cleanup due to corruption detection..."
+    if [ -d "node_modules" ]; then
+      chmod -R u+w node_modules 2>/dev/null || true
+      rm -rf node_modules || {
+        log "⚠️ Standard removal failed, using sudo..."
+        sudo rm -rf node_modules || log "⚠️ Sudo removal failed, continuing..."
+      }
+    fi
+    rm -f package-lock.json || true
+    npm cache clean --force || true
+  fi
+
+  # Enhanced dependency installation with corruption handling
   log "📦 Installing dependencies (including devDependencies for build)..."
   notify "📦 Installing dependencies..."
+  
+  # Clean up any corrupted files first
+  log "🧹 Cleaning up potential corrupted files..."
+  
+  # Remove any partially extracted or corrupted node_modules
+  if [ -d "node_modules" ]; then
+    log "🗑️ Removing existing node_modules..."
+    # Use more aggressive removal for corrupted directories
+    chmod -R u+w node_modules 2>/dev/null || true
+    rm -rf node_modules || {
+      log "⚠️ Standard removal failed, using sudo..."
+      sudo rm -rf node_modules || log "⚠️ Sudo removal also failed, continuing..."
+    }
+  fi
+  
+  # Clean npm cache thoroughly
+  log "🧽 Cleaning npm cache thoroughly..."
   npm cache clean --force || log "⚠️ Cache clean failed"
+  npm cache verify || log "⚠️ Cache verify failed"
+  
+  # Clean package-lock.json to avoid version conflicts
+  if [ -f "package-lock.json" ]; then
+    log "🔄 Backing up and regenerating package-lock.json..."
+    cp package-lock.json package-lock.json.backup || true
+    rm -f package-lock.json || true
+  fi
+  
   # Ensure devDependencies are installed even if production env is set
   export npm_config_production=false
-  npm install --include=dev || error_exit "npm install failed"
+  export npm_config_legacy_peer_deps=true
+  
+  # Install with more robust options
+  log "📦 Installing dependencies with enhanced options..."
+  npm install --include=dev --legacy-peer-deps --no-audit --no-fund || {
+    log "⚠️ First install attempt failed, trying with --force..."
+    npm install --include=dev --legacy-peer-deps --no-audit --no-fund --force || error_exit "npm install failed"
+  }
+  
   log "✅ Dependencies installed successfully!"
   notify "✅ Dependencies installed!"
   
@@ -148,17 +242,49 @@ main() {
   if ! attempt_build; then
     log "⚠️ Build failed - cleaning up and retrying once..."
     notify "⚠️ Build failed - starting recovery process..."
-    # Clean artifacts and reinstall dependencies
-    log "🧹 Cleaning dist directory..."
+    
+    # Enhanced cleanup and recovery
+    log "🧹 Starting enhanced cleanup process..."
+    
+    # Clean build artifacts
+    log "🗑️ Removing dist directory..."
     rm -rf dist || true
-    log "🧹 Cleaning node_modules..."
-    rm -rf node_modules || true
-    log "🧹 Cleaning npm cache..."
+    
+    # Clean node_modules more aggressively
+    log "🗑️ Removing node_modules completely..."
+    if [ -d "node_modules" ]; then
+      chmod -R u+w node_modules 2>/dev/null || true
+      rm -rf node_modules || {
+        log "⚠️ Standard removal failed, using sudo for recovery..."
+        sudo rm -rf node_modules || log "⚠️ Sudo removal failed, continuing..."
+      }
+    fi
+    
+    # Clean all npm/cache related files
+    log "� Deep cleaning npm cache and lock files..."
     npm cache clean --force || true
-    log "📦 Reinstalling dependencies..."
+    rm -f package-lock.json || true
+    rm -rf ~/.npm/_cacache || true
+    rm -rf ~/.npm/_logs || true
+    
+    # Recovery installation with enhanced options
+    log "📦 Recovery installation with enhanced options..."
     notify "📦 Reinstalling dependencies for recovery..."
     export npm_config_production=false
-    npm install --include=dev || error_exit "Recovery npm install failed"
+    export npm_config_legacy_peer_deps=true
+    
+    # Try multiple installation strategies
+    if ! npm install --include=dev --legacy-peer-deps --no-audit --no-fund; then
+      log "🔄 Standard recovery failed, trying with --force..."
+      if ! npm install --include=dev --legacy-peer-deps --no-audit --no-fund --force; then
+        log "🔄 Force install failed, trying with clean slate..."
+        # Last resort: completely clean start
+        rm -rf node_modules package-lock.json || true
+        npm cache clean --force || true
+        npm install --include=dev --legacy-peer-deps --no-audit --no-fund --force || error_exit "Recovery npm install failed"
+      fi
+    fi
+    
     log "✅ Recovery dependencies installed!"
 
     # Retry build once more

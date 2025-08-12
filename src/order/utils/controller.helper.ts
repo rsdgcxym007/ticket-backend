@@ -8,6 +8,8 @@ import {
   NotFoundException,
   ConflictException,
 } from '@nestjs/common';
+import type { Express } from 'express';
+import 'multer';
 import { success, error } from '../../common/responses';
 import { AuthenticatedRequest } from '../../common/interfaces/auth.interface';
 
