@@ -161,7 +161,6 @@ if ! command_exists npm; then
 fi
 NPM_VERSION=$(npm --version)
 print_success "npm found: $NPM_VERSION"
-fi
 
 step "Installing dependencies"
 
