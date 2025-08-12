@@ -56,10 +56,18 @@ export class MobileScannerController {
     @Res() res: any,
   ) {
     try {
+      // 📋 Log scan activity
+      this.logger.log(
+        `🔍 QR Code Scan: orderId=${orderId}, path=/mobile/scanner/check-in/${orderId}, qr=${qrData ? 'present' : 'missing'}`,
+      );
+
       // ตรวจสอบ QR Code
       const validation = await this.qrCodeService.validateQRCode(qrData);
 
       if (!validation.isValid) {
+        this.logger.warn(
+          `❌ QR Code validation failed: orderId=${orderId}, error=${validation.error}`,
+        );
         const errorHtml = this.generateCustomerInfoHTML({
           status: 'error',
           title: 'QR Code ไม่ถูกต้อง',
@@ -74,6 +82,7 @@ export class MobileScannerController {
       const order = await this.orderService.findById(orderId);
 
       if (!order) {
+        this.logger.warn(`❌ Order not found: orderId=${orderId}`);
         const errorHtml = this.generateCustomerInfoHTML({
           status: 'error',
           title: 'ไม่พบข้อมูลออเดอร์',
@@ -83,6 +92,10 @@ export class MobileScannerController {
         res.setHeader('Content-Type', 'text/html; charset=utf-8');
         return res.send(errorHtml);
       }
+
+      this.logger.log(
+        `✅ QR Code scan successful: orderId=${orderId}, customerName=${order.customerName}, attendanceStatus=${order.attendanceStatus}`,
+      );
 
       // แสดงข้อมูลลูกค้าและฟอร์มสำหรับ Staff Login
       const html = this.generateCustomerInfoHTML({
@@ -141,8 +154,16 @@ export class MobileScannerController {
     try {
       const { orderId, qrData, username, password } = body;
 
+      // 📋 Log staff checkin attempt with path
+      this.logger.log(
+        `🔐 Staff Check-in attempt: orderId=${orderId}, username=${username}, path=/mobile/scanner/staff-checkin`,
+      );
+
       // ตรวจสอบ Staff credentials
       if (!this.validateStaffCredentials(username, password)) {
+        this.logger.warn(
+          `❌ Staff login failed: username=${username}, orderId=${orderId}, path=/mobile/scanner/staff-checkin`,
+        );
         const errorHtml = this.generateCustomerInfoHTML({
           status: 'error',
           title: 'การเข้าสู่ระบบไม่สำเร็จ',
@@ -221,6 +242,11 @@ export class MobileScannerController {
       const staffId = req.user.id;
       const staffName = req.user.name || 'Unknown Staff';
 
+      // 📋 Log scan activity with full path
+      this.logger.log(
+        `🔍 QR Code Scan: staffId=${staffId}, staffName=${staffName}, path=/mobile/scanner/scan, qrData=${scanDto.qrData.substring(0, 30)}...`,
+      );
+
       this.logger.log(
         `📱 Staff ${staffName} กำลังสแกน QR Code: ${scanDto.qrData.substring(0, 20)}...`,
       );
@@ -232,7 +258,7 @@ export class MobileScannerController {
 
       if (!validation.isValid) {
         this.logger.warn(
-          `❌ QR Code ไม่ถูกต้อง - Staff: ${staffName}, Error: ${validation.error}`,
+          `❌ QR Code ไม่ถูกต้อง - Staff: ${staffName}, Error: ${validation.error}, path=/mobile/scanner/scan`,
         );
         return {
           success: false,
@@ -250,7 +276,7 @@ export class MobileScannerController {
       );
 
       this.logger.log(
-        `✅ เช็คอินสำเร็จ - Order: ${validation.data?.orderId}, Staff: ${staffName}`,
+        `✅ เช็คอินสำเร็จ - Order: ${validation.data?.orderId}, Staff: ${staffName}, path=/mobile/scanner/scan`,
       );
 
       return {
