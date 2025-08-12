@@ -191,7 +191,7 @@ if ! npm install --production=false --no-audit --no-fund; then
     substep "Installing dependencies with npm install (attempt 2/3)"
     log_command "npm install --production=false --no-audit --no-fund"
     if ! npm install --production=false --no-audit --no-fund; then
-        print_warning "Second attempt failed, trying with legacy peer deps...")
+        print_warning "Second attempt failed, trying with legacy peer deps..."
         sleep 2
         
         substep "Installing dependencies with npm install --legacy-peer-deps (attempt 3/3)"
