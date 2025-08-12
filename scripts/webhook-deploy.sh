@@ -58,15 +58,65 @@ send_webhook_notification() {
          "$WEBHOOK_URL" 2>/dev/null || true
 }
 
+# Function to send Discord notification
+send_discord_notification() {
+    local status="$1"
+    local message="$2"
+    local color=""
+    local emoji=""
+    
+    case "$status" in
+        "started")
+            color="3447003"  # Blue
+            emoji="🤖"
+            ;;
+        "success"|"completed")
+            color="3066993"  # Green
+            emoji="✅"
+            ;;
+        "failed")
+            color="15158332"  # Red
+            emoji="❌"
+            ;;
+        *)
+            color="16776960"  # Yellow
+            emoji="⚠️"
+            ;;
+    esac
+    
+    local commit_hash=$(git rev-parse HEAD 2>/dev/null | cut -c1-8 || echo 'unknown')
+    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    
+    curl -s -H "Content-Type: application/json" \
+         -X POST \
+         -d "{
+             \"embeds\": [{
+                 \"title\": \"${emoji} Auto Deployment - ${status^^}\",
+                 \"description\": \"${message}\",
+                 \"color\": ${color},
+                 \"fields\": [
+                     {\"name\": \"Branch\", \"value\": \"${BRANCH}\", \"inline\": true},
+                     {\"name\": \"Commit\", \"value\": \"${commit_hash}\", \"inline\": true},
+                     {\"name\": \"Environment\", \"value\": \"Production\", \"inline\": true}
+                 ],
+                 \"footer\": {\"text\": \"Auto-Deploy System\"},
+                 \"timestamp\": \"$(date -u +"%Y-%m-%dT%H:%M:%S.%3NZ")\"
+             }]
+         }" \
+         "$DISCORD_WEBHOOK_URL" 2>/dev/null || true
+}
+
 # Change to project directory
 cd "$PROJECT_DIR" || {
     print_error "Failed to change to project directory: $PROJECT_DIR"
     send_webhook_notification "failed" "Failed to access project directory"
+    send_discord_notification "failed" "❌ Failed to access project directory: $PROJECT_DIR"
     exit 1
 }
 
 print_status "Starting auto-deployment from webhook..."
 send_webhook_notification "started" "🤖 Auto-deployment initiated from GitHub webhook"
+send_discord_notification "started" "Auto-deployment initiated from GitHub webhook"
 
 # Check if git repo exists
 if [ ! -d ".git" ]; then
@@ -107,6 +157,7 @@ print_status "Step 3: Building application..."
 if ! npm run build; then
     print_error "Build failed"
     send_webhook_notification "failed" "Build process failed"
+    send_discord_notification "failed" "❌ Build process failed"
     exit 1
 fi
 
@@ -174,6 +225,7 @@ if [ "$APP_RUNNING" = false ]; then
     pm2 logs ticket-backend-prod --lines 10 --nostream 2>/dev/null || true
     
     send_webhook_notification "failed" "Application failed to start after deployment - timeout after ${MAX_RETRIES} attempts"
+    send_discord_notification "failed" "❌ Application failed to start after deployment - timeout after ${MAX_RETRIES} attempts"
     exit 1
 fi
 
@@ -188,6 +240,7 @@ print_status "Message: $COMMIT_MSG"
 print_status "Time: $DEPLOY_TIME"
 
 send_webhook_notification "success" "🎉 Auto-deployment completed successfully! Commit: ${COMMIT_HASH:0:8}"
+send_discord_notification "success" "🎉 Auto-deployment completed successfully! Commit: ${COMMIT_HASH:0:8}"
 
 # Optional: Run post-deployment health check
 print_status "Step 6: Running health check..."
@@ -215,6 +268,7 @@ fi
 # Final success notification with complete status
 FINAL_TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
 send_webhook_notification "completed" "🎉 Auto-deployment workflow completed! Status: $HEALTH_STATUS, Time: $FINAL_TIMESTAMP"
+send_discord_notification "completed" "✅ Auto-deployment workflow completed! Status: $HEALTH_STATUS, Health: $HEALTH_STATUS, Time: $FINAL_TIMESTAMP"
 
 print_success "=== AUTO-DEPLOYMENT COMPLETED ==="
 print_status "Summary:"
