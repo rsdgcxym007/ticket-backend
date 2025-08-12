@@ -17,8 +17,6 @@
     "restart:pm2": "pm2 restart ticket-backend-prod",
     "logs:pm2": "pm2 logs ticket-backend-prod",
     "status:pm2": "pm2 status",
-    "build:start": "./scripts/build-and-start.sh",
-    "pm2:start": "./scripts/start-pm2.sh",
     "seed:zone": "ts-node src/scripts/zone.seed.ts",
     "seed:seat": "ts-node src/scripts/seat-from-zone.seed.ts",
     "seed:admin": "ts-node src/scripts/create-admin.ts",
@@ -31,8 +29,7 @@
     "lint": "eslint \"{src,apps,libs}/**/*.ts\" --fix",
     "lint:fix": "eslint \"{src,apps,libs}/**/*.ts\" --fix",
     "clean": "rm -rf dist",
-    "prebuild": "npm run clean",
-    "health": "./scripts/status-check.sh"
+    "prebuild": "npm run clean"
   },
   "dependencies": {
     "@nestjs/axios": "^4.0.0",

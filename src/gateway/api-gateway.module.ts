@@ -29,7 +29,7 @@ export class ApiGatewayModule implements NestModule {
     // Apply API versioning middleware to all routes except gateway itself
     consumer
       .apply(ApiVersioningMiddleware)
-      .exclude('gateway/(.*)')
+      .exclude('gateway/*path')
       .forRoutes('*');
 
     // Apply rate limiting middleware to all routes
@@ -38,7 +38,7 @@ export class ApiGatewayModule implements NestModule {
     // Apply request transformation middleware to all API routes
     consumer
       .apply(RequestTransformationMiddleware)
-      .exclude('gateway/(.*)', 'health', 'docs', 'api-docs')
+      .exclude('gateway/*path', 'health', 'docs', 'api-docs')
       .forRoutes('*');
   }
 }
