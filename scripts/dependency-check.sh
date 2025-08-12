@@ -153,14 +153,25 @@ fix_dependencies() {
             ;;
         "clean-install")
             log_message "Cleaning and reinstalling dependencies..."
-            rm -rf node_modules package-lock.json
+            force_remove_node_modules
+            rm -f package-lock.json
             npm install --production --no-audit --no-fund
             ;;
         "cache-clean")
             log_message "Cleaning npm cache and reinstalling..."
             npm cache clean --force
-            rm -rf node_modules package-lock.json
+            force_remove_node_modules
+            rm -f package-lock.json
             npm install --production --no-audit --no-fund
+            ;;
+        "force-clean")
+            log_message "Force cleaning everything and reinstalling..."
+            force_remove_node_modules
+            rm -f package-lock.json yarn.lock
+            npm cache clean --force
+            # Clear npm cache directory
+            rm -rf ~/.npm 2>/dev/null || true
+            npm install --production --no-audit --no-fund --prefer-offline=false
             ;;
         *)
             log_message "Unknown fix method: $fix_method"
@@ -169,6 +180,83 @@ fix_dependencies() {
     esac
     
     return $?
+}
+
+# Force remove node_modules with multiple strategies
+force_remove_node_modules() {
+    log_message "Force removing node_modules directory..."
+    
+    if [ ! -d "node_modules" ]; then
+        log_message "node_modules directory does not exist"
+        return 0
+    fi
+    
+    # Strategy 1: Normal rm
+    log_message "Trying normal rm..."
+    rm -rf node_modules 2>/dev/null
+    
+    if [ ! -d "node_modules" ]; then
+        log_message "Successfully removed node_modules with normal rm"
+        return 0
+    fi
+    
+    # Strategy 2: Change permissions and try again
+    log_message "Trying with permission changes..."
+    chmod -R 755 node_modules 2>/dev/null || true
+    rm -rf node_modules 2>/dev/null
+    
+    if [ ! -d "node_modules" ]; then
+        log_message "Successfully removed node_modules after permission change"
+        return 0
+    fi
+    
+    # Strategy 3: Kill any processes that might be using the files
+    log_message "Killing processes that might be using node_modules..."
+    lsof +D node_modules 2>/dev/null | grep -v COMMAND | awk '{print $2}' | xargs -r kill -9 2>/dev/null || true
+    sleep 2
+    rm -rf node_modules 2>/dev/null
+    
+    if [ ! -d "node_modules" ]; then
+        log_message "Successfully removed node_modules after killing processes"
+        return 0
+    fi
+    
+    # Strategy 4: Use find to remove files individually
+    log_message "Trying to remove files individually..."
+    find node_modules -type f -exec rm -f {} \; 2>/dev/null || true
+    find node_modules -type d -empty -delete 2>/dev/null || true
+    rm -rf node_modules 2>/dev/null
+    
+    if [ ! -d "node_modules" ]; then
+        log_message "Successfully removed node_modules with individual file removal"
+        return 0
+    fi
+    
+    # Strategy 5: Move to temp and remove in background
+    log_message "Moving to temp directory for background removal..."
+    local temp_dir="/tmp/node_modules_$(date +%s)"
+    mv node_modules "$temp_dir" 2>/dev/null || true
+    
+    if [ ! -d "node_modules" ]; then
+        log_message "Successfully moved node_modules to temp"
+        # Remove in background
+        (rm -rf "$temp_dir" 2>/dev/null &)
+        return 0
+    fi
+    
+    # Strategy 6: Last resort - use sudo if available
+    if command -v sudo >/dev/null 2>&1; then
+        log_message "Trying with sudo as last resort..."
+        sudo rm -rf node_modules 2>/dev/null || true
+        
+        if [ ! -d "node_modules" ]; then
+            log_message "Successfully removed node_modules with sudo"
+            return 0
+        fi
+    fi
+    
+    log_message "Failed to remove node_modules directory completely"
+    return 1
 }
 
 # Check PM2 logs for dependency errors
