@@ -4,6 +4,7 @@ import { Repository, LessThan } from 'typeorm';
 import { UserSession } from './entities/user-session.entity';
 import { JwtService } from '@nestjs/jwt';
 import * as crypto from 'crypto';
+import { randomUUID } from 'crypto';
 import { Cron, CronExpression } from '@nestjs/schedule';
 
 @Injectable()
@@ -29,7 +30,7 @@ export class SessionService {
     await this.revokeAllUserSessions(userId);
 
     // สร้าง JWT ID ที่ unique
-    const tokenId = crypto.randomUUID();
+    const tokenId = randomUUID();
 
     // สร้าง JWT payload
     const payload = {
@@ -65,11 +66,6 @@ export class SessionService {
     });
 
     const savedSession = await this.sessionRepo.save(session);
-
-    this.logger.log(
-      `New session created for user ${userId}, token ID: ${tokenId}`,
-    );
-
     return {
       access_token,
       session: savedSession,
@@ -117,8 +113,6 @@ export class SessionService {
     await this.sessionRepo.update(sessionId, {
       isActive: false,
     });
-
-    this.logger.log(`Session ${sessionId} revoked`);
   }
 
   /**
@@ -129,8 +123,6 @@ export class SessionService {
       { userId, isActive: true },
       { isActive: false },
     );
-
-    this.logger.log(`${result.affected} sessions revoked for user ${userId}`);
   }
 
   /**
@@ -141,8 +133,6 @@ export class SessionService {
       { tokenId, isActive: true },
       { isActive: false },
     );
-
-    this.logger.log(`Session with token ID ${tokenId} revoked`);
   }
 
   /**
@@ -176,10 +166,6 @@ export class SessionService {
       await this.sessionRepo.update(
         { expiresAt: LessThan(new Date()), isActive: true },
         { isActive: false },
-      );
-
-      this.logger.log(
-        `🧹 Cleaned up ${expiredSessions.length} expired sessions`,
       );
     }
   }

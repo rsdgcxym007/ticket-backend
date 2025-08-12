@@ -7,6 +7,7 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { SessionService } from '../session.service';
 import { ExecutionContext } from '@nestjs/common';
+import { UserRole } from '../../common/enums';
 
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {
@@ -36,7 +37,7 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
 
       // เพิ่ม default role ถ้าไม่มีให้ RolesGuard ใช้งาน
       if (request.user && !request.user.role) {
-        request.user.role = 'USER'; // ตั้งค่า default role
+        request.user.role = UserRole.USER; // ใช้ค่าจาก enum แทน
         console.log('✅ Set default role for user:', {
           id: request.user.id,
           userId: request.user.userId,

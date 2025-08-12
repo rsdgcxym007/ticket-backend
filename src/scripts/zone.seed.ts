@@ -2,12 +2,10 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../app.module';
 import { ZoneService } from '../zone/zone.service';
 import { CreateZoneDto } from '../zone/dto/create-zone.dto';
+import { randomUUID } from 'crypto';
 import * as crypto from 'crypto';
 
-// Polyfill crypto for Node.js compatibility
-if (typeof globalThis.crypto === 'undefined') {
-  (globalThis as any).crypto = crypto;
-}
+const generateString = () => randomUUID();
 
 async function bootstrap() {
   const app = await NestFactory.createApplicationContext(AppModule);
