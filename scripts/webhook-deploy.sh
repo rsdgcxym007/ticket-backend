@@ -1,13 +1,14 @@
 #!/bin/bash
 
-# Thin wrapper to always use the latest, simple deployment flow.
-# Falls back to a safe minimal deploy if the new scripts are missing.
+# Webhook Auto-Deployment Script (self-contained)
+# Simple, robust, and finishes everything within this file.
 
 set -euo pipefail
 
-# Configuration (can be overridden by env vars)
+# Configuration (override via env if needed)
 PROJECT_DIR="${PROJECT_DIR:-/var/www/backend/ticket-backend}"
 BRANCH="${BRANCH:-feature/newfunction}"
+DISCORD_WEBHOOK="${DISCORD_WEBHOOK:-https://discord.com/api/webhooks/1404715794205511752/H4H1Q-aJ2B1LwSpKxHYP7rt4tCWA0p10339NN5Gy71fhwXvFjcfSQKXNl9Xdj60ks__l}"
 
 # Colors for output
 RED='\033[0;31m'
@@ -16,65 +17,97 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-log()    { echo -e "${BLUE}🤖 AUTO-DEPLOY: $*${NC}"; }
-success(){ echo -e "${GREEN}✅ AUTO-DEPLOY: $*${NC}"; }
-warn()   { echo -e "${YELLOW}⚠️  AUTO-DEPLOY: $*${NC}"; }
-error()  { echo -e "${RED}❌ AUTO-DEPLOY: $*${NC}"; }
+log()    { echo -e "${BLUE}🚀 DEPLOY: $*${NC}"; }
+success(){ echo -e "${GREEN}✅ DEPLOY: $*${NC}"; }
+warn()   { echo -e "${YELLOW}⚠️  DEPLOY: $*${NC}"; }
+error()  { echo -e "${RED}❌ DEPLOY: $*${NC}"; }
 
-cd "$PROJECT_DIR" || { error "Cannot cd to $PROJECT_DIR"; exit 1; }
+notify() {
+    local msg="$1"
+    curl -s -H "Content-Type: application/json" \
+             -X POST \
+             -d "{\"content\": \"$msg\"}" \
+             "$DISCORD_WEBHOOK" >/dev/null 2>&1 || true
+}
 
-log "Delegation wrapper started (prefers simple-webhook-deploy-v2.sh)"
+# Go to project directory
+cd "$PROJECT_DIR" || { notify "❌ [Backend] Failed to access project directory"; error "Cannot cd to $PROJECT_DIR"; exit 1; }
 
-# Prefer the newest simple script if present
-if [ -f "scripts/simple-webhook-deploy-v2.sh" ]; then
-    chmod +x scripts/simple-webhook-deploy-v2.sh || true
-    log "Using scripts/simple-webhook-deploy-v2.sh"
-    exec ./scripts/simple-webhook-deploy-v2.sh
-fi
+log "Starting self-contained auto-deployment on branch $BRANCH"
 
-# Fallback to the first-generation simple script
-if [ -f "scripts/simple-webhook-deploy.sh" ]; then
-    chmod +x scripts/simple-webhook-deploy.sh || true
-    log "Using scripts/simple-webhook-deploy.sh"
-    exec ./scripts/simple-webhook-deploy.sh
-fi
-
-# Last-resort minimal deploy (kept very small and safe)
-warn "Simple scripts not found. Running minimal fallback deploy."
-
+# Ensure git repo exists
 if [ ! -d .git ]; then
-    error "Project directory is not a git repository: $PROJECT_DIR"
+    notify "❌ [Backend] Not a git repo at $PROJECT_DIR"
+    error "Not a git repository: $PROJECT_DIR"
     exit 1
 fi
 
-log "Updating code on branch $BRANCH"
-git fetch origin
-git checkout "$BRANCH"
-git reset --hard "origin/$BRANCH"
-git pull --ff-only origin "$BRANCH"
-
-log "Installing dependencies"
-if ! npm ci --production=false; then
-    warn "npm ci failed — retrying with npm install --legacy-peer-deps"
-    npm cache clean --force || true
-    npm install --legacy-peer-deps
+# Sync to latest clean state
+log "Syncing repository..."
+if ! git fetch origin; then
+    notify "❌ [Backend] git fetch failed"
+    error "git fetch failed"
+    exit 1
 fi
 
-log "Building application"
-npm run build
+if ! git checkout "$BRANCH" 2>/dev/null; then
+    warn "Checkout failed, trying to create local branch tracking origin/$BRANCH"
+    git fetch origin "$BRANCH":"$BRANCH" || true
+    git checkout "$BRANCH" || { notify "❌ [Backend] git checkout $BRANCH failed"; exit 1; }
+fi
 
-log "Starting/Restarting PM2 process"
+git reset --hard "origin/$BRANCH" || { notify "❌ [Backend] git reset --hard origin/$BRANCH failed"; exit 1; }
+git pull --ff-only origin "$BRANCH" || { notify "❌ [Backend] git pull --ff-only failed"; exit 1; }
+
+# Backup env
+cp .env.production .env.production.bak 2>/dev/null || true
+
+# Install dependencies with fallback
+log "Installing dependencies (npm ci)"
+if ! npm ci --production=false; then
+    warn "npm ci failed — cleaning cache and retrying with npm install --legacy-peer-deps"
+    npm cache clean --force || true
+    if ! npm install --legacy-peer-deps; then
+        notify "❌ [Backend] npm install failed"
+        error "npm install failed"
+        exit 1
+    fi
+fi
+
+# Build
+log "Building application"
+if ! npm run build; then
+    notify "❌ [Backend] build failed"
+    error "Build failed"
+    exit 1
+fi
+
+# Verify dist
+if [ ! -f dist/main.js ]; then
+    notify "❌ [Backend] build verification failed (dist/main.js missing)"
+    error "Build verification failed"
+    exit 1
+fi
+
+# PM2 restart/start
+log "Restarting PM2 process"
 if pm2 list | grep -q "ticket-backend-prod"; then
     pm2 restart ticket-backend-prod || pm2 start ecosystem.config.js --env production
 else
     pm2 start ecosystem.config.js --env production
 fi
 
-sleep 3
-if pm2 list | grep -q "ticket-backend-prod"; then
-    success "Deployment completed (fallback path)"
+sleep 5
+
+# Verify PM2 status
+if pm2 list | grep -q "ticket-backend-prod.*online"; then
+    COMMIT=$(git log -1 --pretty=format:"%h - %s by %an")
+    notify "✅ [Backend] Deploy success: $COMMIT"
+    success "Application running: $COMMIT"
+    log "Done"
     exit 0
 else
-    error "PM2 failed to start the application"
+    notify "❌ [Backend] Application failed to start after deploy"
+    error "PM2 application not online"
     exit 1
 fi
