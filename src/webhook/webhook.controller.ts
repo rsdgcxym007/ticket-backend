@@ -166,8 +166,12 @@ export class WebhookController {
       // Check cooldown period
       const now = Date.now();
       if (now - this.lastDeploymentTime < this.DEPLOYMENT_COOLDOWN) {
-        const remainingCooldown = Math.ceil((this.DEPLOYMENT_COOLDOWN - (now - this.lastDeploymentTime)) / 1000);
-        this.logger.warn(`Deployment in cooldown, ${remainingCooldown}s remaining`);
+        const remainingCooldown = Math.ceil(
+          (this.DEPLOYMENT_COOLDOWN - (now - this.lastDeploymentTime)) / 1000,
+        );
+        this.logger.warn(
+          `Deployment in cooldown, ${remainingCooldown}s remaining`,
+        );
         return {
           status: 'cooldown',
           message: `Deployment in cooldown, ${remainingCooldown}s remaining`,
