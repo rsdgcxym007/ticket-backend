@@ -64,40 +64,44 @@ attempt_build() {
   
   if [ -x "$NEST_CLI_PATH" ]; then
     log "✅ Using local NestJS CLI..."
-    "$NEST_CLI_PATH" build && BUILD_OK=1 || BUILD_OK=0
-    if [ $BUILD_OK -eq 1 ]; then
+    if "$NEST_CLI_PATH" build; then
+      BUILD_OK=1
       log "✅ Build successful with local NestJS CLI!"
       notify "✅ Build completed successfully!"
+      return $BUILD_OK
     fi
   fi
 
   if [ $BUILD_OK -eq 0 ] && [ -f "./node_modules/@nestjs/cli/bin/nest.js" ]; then
     log "🔄 Retrying build via node Nest CLI binary..."
     notify "🔄 Trying alternative build method..."
-    node ./node_modules/@nestjs/cli/bin/nest.js build && BUILD_OK=1 || BUILD_OK=0
-    if [ $BUILD_OK -eq 1 ]; then
+    if node ./node_modules/@nestjs/cli/bin/nest.js build; then
+      BUILD_OK=1
       log "✅ Build successful with node CLI!"
       notify "✅ Build completed with fallback method!"
+      return $BUILD_OK
     fi
   fi
 
   if [ $BUILD_OK -eq 0 ]; then
     log "🔄 Retrying build via npx @nestjs/cli..."
     notify "🔄 Trying npx build method..."
-    npx --yes @nestjs/cli build && BUILD_OK=1 || BUILD_OK=0
-    if [ $BUILD_OK -eq 1 ]; then
+    if npx --yes @nestjs/cli build; then
+      BUILD_OK=1
       log "✅ Build successful with npx!"
       notify "✅ Build completed with npx!"
+      return $BUILD_OK
     fi
   fi
 
   if [ $BUILD_OK -eq 0 ]; then
     log "🔄 Final fallback: building with TypeScript compiler (tsc)..."
     notify "🔄 Using TypeScript compiler as final attempt..."
-    ./node_modules/.bin/tsc -p tsconfig.build.json && BUILD_OK=1 || BUILD_OK=0
-    if [ $BUILD_OK -eq 1 ]; then
+    if ./node_modules/.bin/tsc -p tsconfig.build.json; then
+      BUILD_OK=1
       log "✅ Build successful with TypeScript compiler!"
       notify "✅ Build completed with TypeScript compiler!"
+      return $BUILD_OK
     fi
   fi
 
