@@ -330,6 +330,56 @@ export class OrderService {
       throw ErrorHandlingHelper.handleDatabaseError(error);
     }
   }
+
+  /**
+   * 🧑‍💼 ดึงรายชื่อ staff/admin ที่สร้างออเดอร์
+   */
+  async getOrderCreators(): Promise<Array<{ value: string; label: string }>> {
+    try {
+      // ดึง distinct createdBy ที่ไม่เป็น null จาก orders
+      const distinctCreators = await this.orderRepo
+        .createQueryBuilder('order')
+        .select('DISTINCT order.createdBy', 'createdBy')
+        .where('order.createdBy IS NOT NULL')
+        .getRawMany();
+
+      if (!distinctCreators || distinctCreators.length === 0) {
+        return [{ value: '', label: 'ทั้งหมด' }];
+      }
+
+      // ดึงข้อมูล user จาก createdBy IDs
+      const createdByIds = distinctCreators
+        .map((item) => item.createdBy)
+        .filter(Boolean);
+
+      if (createdByIds.length === 0) {
+        return [{ value: '', label: 'ทั้งหมด' }];
+      }
+
+      const users = await this.userRepo
+        .createQueryBuilder('user')
+        .select(['user.id', 'user.name', 'user.role'])
+        .where('user.id IN (:...ids)', { ids: createdByIds })
+        .andWhere('user.role IN (:...roles)', {
+          roles: [UserRole.STAFF, UserRole.ADMIN],
+        })
+        .getMany();
+
+      const creators = [
+        { value: '', label: 'ทั้งหมด' },
+        ...users.map((user) => ({
+          value: user.id,
+          label: user.name || `User ${user.id}`,
+        })),
+      ];
+
+      return creators;
+    } catch (error) {
+      this.logger.error('Error getting order creators:', error);
+      return [{ value: '', label: 'ทั้งหมด' }];
+    }
+  }
+
   // 🔍 FIND BY ID
   // ========================================
   async findById(id: string, userId?: string): Promise<OrderData | null> {

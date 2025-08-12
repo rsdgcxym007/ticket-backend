@@ -19,11 +19,15 @@ import { RegisterDto } from './dto/register.dto';
 import { ApiTags } from '@nestjs/swagger';
 import { ApiResponseHelper } from '../common/utils';
 import { Throttle } from '@nestjs/throttler';
+import { SessionService } from './session.service';
 
 @ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly sessionService: SessionService,
+  ) {}
 
   @Post('login')
   @Throttle({ auth: { limit: 5, ttl: 900000 } }) // 5 login attempts per 15 minutes
@@ -126,7 +130,7 @@ export class AuthController {
   @Get('sessions')
   async getSessions(@Req() req: any) {
     const userId = req.user?.id || req.user?.userId;
-    // Note: SessionService needs to be injected in controller if needed
-    return ApiResponseHelper.success([], 'Active sessions retrieved');
+    const sessions = await this.sessionService.getUserActiveSessions(userId);
+    return ApiResponseHelper.success(sessions, 'Active sessions retrieved');
   }
 }

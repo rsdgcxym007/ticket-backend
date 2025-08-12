@@ -20,12 +20,39 @@ export class RolesGuard implements CanActivate {
       [context.getHandler(), context.getClass()],
     );
 
-    const { user } = context.switchToHttp().getRequest();
-
     if (!requiredRoles) {
       return true;
     }
 
-    return requiredRoles.includes(user.role);
+    const { user } = context.switchToHttp().getRequest();
+
+    if (!user) {
+      this.logger.warn(
+        'User not found in request - authentication may have failed',
+      );
+      return false;
+    }
+
+    if (!user.role) {
+      this.logger.warn('User role not found in request');
+      return false;
+    }
+
+    // Debug logging
+    console.log('=== RolesGuard Debug ===');
+    console.log('Required roles:', requiredRoles);
+    console.log('User object:', user);
+    console.log('User role:', user.role);
+    console.log('UserRole enum values:', Object.values(UserRole));
+    console.log('=======================');
+
+    const hasRequiredRole = requiredRoles.includes(user.role);
+    if (!hasRequiredRole) {
+      this.logger.warn(
+        `User role ${user.role} does not match required roles: ${requiredRoles.join(', ')}`,
+      );
+    }
+
+    return hasRequiredRole;
   }
 }

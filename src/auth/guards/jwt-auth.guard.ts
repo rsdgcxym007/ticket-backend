@@ -12,14 +12,23 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
   }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
+    console.log('=== JwtAuthGuard canActivate START ===');
+    console.log('Calling super.canActivate...');
+
     // เรียก parent guard ก่อน
     const canActivate = await super.canActivate(context);
+    console.log('super.canActivate result:', canActivate);
+
     if (!canActivate) {
+      console.log('super.canActivate returned false');
       return false;
     }
 
-    // ตรวจสอบ session
+    console.log('JWT validation passed, checking session...');
     const request = context.switchToHttp().getRequest();
+    console.log('User in request after JWT validation:', request.user);
+
+    // ตรวจสอบ session
     const token = this.extractTokenFromHeader(request);
 
     if (!token) {
@@ -33,20 +42,34 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     }
 
     const tokenHash = this.sessionService.createTokenHash(token);
-
-    // ตรวจสอบ session
-    const session = await this.sessionService.validateSession(
-      tokenId,
-      tokenHash,
+    console.log('🔐 Session validation - Token ID:', tokenId);
+    console.log(
+      '🔐 Session validation - Token Hash:',
+      tokenHash.substring(0, 16) + '...',
     );
-    if (!session) {
-      throw new UnauthorizedException('Session expired or invalid');
+
+    try {
+      // ตรวจสอบ session
+      const session = await this.sessionService.validateSession(
+        tokenId,
+        tokenHash,
+      );
+      if (!session) {
+        throw new UnauthorizedException('Session expired or invalid');
+      }
+
+      console.log('✅ Session validation passed:', session.id);
+      // เพิ่ม session ข้อมูลไปใน request
+      request.session = session;
+
+      console.log(
+        '=== JwtAuthGuard canActivate END (session validation passed) ===',
+      );
+      return true;
+    } catch (error) {
+      console.log('❌ Session validation failed:', error.message);
+      throw new UnauthorizedException('Session validation failed');
     }
-
-    // เพิ่ม session ข้อมูลไปใน request
-    request.session = session;
-
-    return true;
   }
 
   handleRequest(err, user, info, context) {

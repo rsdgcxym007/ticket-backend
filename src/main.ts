@@ -28,6 +28,19 @@ async function bootstrap() {
   const configService = app.get(ConfigService);
   const logger = new Logger('Bootstrap');
 
+  // Debug JWT secret
+  const jwtSecret = configService.get('JWT_SECRET');
+  logger.log(`🔐 JWT_SECRET from config: ${jwtSecret || 'undefined'}`);
+  logger.log(`🔐 JWT_SECRET fallback: ${jwtSecret || 'myUltraSecretHash123'}`);
+  logger.log(`🔐 NODE_ENV: ${configService.get('NODE_ENV')}`);
+  logger.log(
+    `🔐 All ENV vars starting with JWT: ${JSON.stringify(
+      Object.keys(process.env)
+        .filter((k) => k.startsWith('JWT'))
+        .reduce((acc, k) => ({ ...acc, [k]: process.env[k] }), {}),
+    )}`,
+  );
+
   // ========================================
   // 🛡️ SECURITY MIDDLEWARE
   // ========================================

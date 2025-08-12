@@ -5,10 +5,14 @@ import { StaffService } from './staff.service';
 import { Staff } from './staff.entity';
 import { User } from '../user/user.entity';
 import { Auth } from '../auth/auth.entity';
+import { AuthModule } from '../auth/auth.module';
 import { CacheService } from '../common/services/cache.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Staff, User, Auth])],
+  imports: [
+    TypeOrmModule.forFeature([Staff, User, Auth]),
+    AuthModule, // ✅ เพิ่ม AuthModule เพื่อให้ JwtAuthGuard และ RolesGuard พร้อมใช้งาน
+  ],
   controllers: [StaffController],
   providers: [StaffService, CacheService],
   exports: [StaffService],

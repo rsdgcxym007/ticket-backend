@@ -120,25 +120,17 @@ export class OrderController {
   })
   @ApiResponse({ status: 200, description: 'ดึงรายชื่อสำเร็จ' })
   async getOrderCreators(@Req() req: AuthenticatedRequest) {
-    const orders = await this.orderService.findAll({ limit: 10000 }, undefined);
-    const creatorMap = new Map();
-    if (orders && Array.isArray(orders.items)) {
-      for (const order of orders.items) {
-        if (order.createdById && order.createdByName) {
-          creatorMap.set(order.createdById, order.createdByName);
-        }
-      }
+    try {
+      const creators = await this.orderService.getOrderCreators();
+      return success(creators, 'ดึงรายชื่อ staff/admin/master สำเร็จ', req);
+    } catch (err) {
+      this.logger.error('Error getting order creators:', err);
+      return success(
+        [{ value: '', label: 'ทั้งหมด' }],
+        'ดึงรายชื่อ staff/admin/master สำเร็จ',
+        req,
+      );
     }
-    const creators = [
-      { value: '', label: 'ทั้งหมด' },
-      ...Array.from(creatorMap.entries()).map(([id, name]) => {
-        return {
-          value: id,
-          label: name,
-        };
-      }),
-    ];
-    return success(creators, 'ดึงรายชื่อ staff/admin/master สำเร็จ', req);
   }
 
   /**

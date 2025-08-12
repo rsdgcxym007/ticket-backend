@@ -7,6 +7,8 @@ import { ExtractJwt, Strategy } from 'passport-jwt';
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(private configService: ConfigService) {
     const secret = configService.get('JWT_SECRET') || 'myUltraSecretHash123';
+    console.log('🔐 JWT Strategy - using secret:', secret);
+    console.log('🔐 JWT_SECRET from config:', configService.get('JWT_SECRET'));
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       secretOrKey: secret,
@@ -14,11 +16,20 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: any) {
-    return {
+    console.log(
+      '🔐 JWT Strategy - validating payload:',
+      JSON.stringify(payload, null, 2),
+    );
+    const user = {
       id: payload.sub,
       userId: payload.sub,
       email: payload.email,
       role: payload.role,
     };
+    console.log(
+      '🔐 JWT Strategy - returning user:',
+      JSON.stringify(user, null, 2),
+    );
+    return user;
   }
 }

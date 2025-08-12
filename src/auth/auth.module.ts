@@ -10,6 +10,8 @@ import { SessionService } from './session.service';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { JwtStrategy } from './strategies/jwt.strategy';
+import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { RolesGuard } from './guards/roles.guard';
 import { UserModule } from '../user/user.module';
 import { forwardRef } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -30,8 +32,14 @@ import { ScheduleModule } from '@nestjs/schedule';
     ScheduleModule.forRoot(), // สำหรับ cron jobs
     forwardRef(() => UserModule),
   ],
-  providers: [AuthService, SessionService, JwtStrategy],
+  providers: [
+    AuthService,
+    SessionService,
+    JwtStrategy,
+    JwtAuthGuard,
+    RolesGuard,
+  ],
   controllers: [AuthController],
-  exports: [AuthService, SessionService],
+  exports: [AuthService, SessionService, JwtAuthGuard, RolesGuard],
 })
 export class AuthModule {}
