@@ -60,7 +60,7 @@ module.exports = {
       path: '/var/www/ticket-backend',
       'pre-deploy-local': '',
       'post-deploy':
-        'npm install --production && npm run build && pm2 reload ecosystem.config.js --env production && pm2 save',
+        'npm ci && npm run clean && npm run build && pm2 reload ecosystem.config.js --env production && pm2 save',
       'pre-setup': '',
     },
   },
