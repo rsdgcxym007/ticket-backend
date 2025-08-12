@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { MobileController } from './mobile.controller';
 import { MobileScannerController } from './mobile-scanner.controller';
@@ -14,6 +14,7 @@ import { QRCodeService } from '../common/services/qr-code.service';
 import { CacheService } from '../common/services/cache.service';
 import { AuthModule } from '../auth/auth.module';
 import { ConfigModule } from '@nestjs/config';
+import { OrderModule } from '../order/order.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { ConfigModule } from '@nestjs/config';
     ]),
     AuthModule,
     ConfigModule,
+    forwardRef(() => OrderModule),
   ],
   controllers: [MobileController, MobileScannerController],
   providers: [MobileService, QRCodeService, CacheService],

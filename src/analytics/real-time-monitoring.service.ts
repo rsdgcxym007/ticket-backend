@@ -478,23 +478,23 @@ export class RealTimeMonitoringService {
   }
 
   /**
-   * ⏰ Scheduled Monitoring Tasks
+   * ⏰ Scheduled Monitoring Tasks - OPTIMIZED for lower CPU usage
    */
-  @Cron(CronExpression.EVERY_30_SECONDS)
+  @Cron('0 */2 * * * *') // Every 2 minutes instead of every 30 seconds
   async updateRealTimeMetrics() {
-    // Update metrics every 30 seconds
+    // Update metrics every 2 minutes to reduce CPU load
     try {
+      // Only update essential metrics, reduce complexity
       await this.getSystemHealth();
-      await this.getPerformanceMetrics();
       // Don't log every update to avoid spam
     } catch (error) {
       this.logger.error(`Failed to update real-time metrics: ${error.message}`);
     }
   }
 
-  @Cron(CronExpression.EVERY_MINUTE)
+  @Cron('0 */10 * * * *') // Every 10 minutes instead of every minute
   async checkSystemAlerts() {
-    // Check for new alerts every minute
+    // Check for new alerts every 10 minutes to reduce load
     try {
       const alerts = await this.getSystemAlerts();
       if (alerts.length > 0) {
@@ -505,9 +505,9 @@ export class RealTimeMonitoringService {
     }
   }
 
-  @Cron(CronExpression.EVERY_5_MINUTES)
+  @Cron('0 */15 * * * *') // Every 15 minutes instead of every 5 minutes
   async updateSecurityMetrics() {
-    // Update security monitoring every 5 minutes
+    // Update security monitoring every 15 minutes to reduce CPU usage
     try {
       await this.getSecurityMonitoring();
       this.logger.log('🔒 Security monitoring cycle completed');

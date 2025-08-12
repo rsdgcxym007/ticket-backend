@@ -39,8 +39,8 @@ module.exports = {
       out_file: '/var/log/pm2/ticket-backend-out.log',
       log_file: '/var/log/pm2/ticket-backend.log',
       log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
-      max_memory_restart: '1G',
-      node_args: '--max-old-space-size=1024',
+      max_memory_restart: '512M', // Reduced from 1G to 512M
+      node_args: '--max-old-space-size=512 --gc-interval=100', // Optimized memory and GC
       watch: false,
       ignore_watch: ['node_modules', 'uploads', 'logs', '.git'],
       restart_delay: 5000,

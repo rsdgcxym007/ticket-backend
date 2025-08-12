@@ -44,7 +44,7 @@ export class QRCodeService {
   }
 
   /**
-   * 🎫 สร้าง QR Code สำหรับตั๋ว
+   * 🎫 สร้าง QR Code สำหรับตั๋ว (URL สำหรับแอปทั่วไป)
    */
   async generateTicketQR(
     orderId: string,
@@ -54,7 +54,7 @@ export class QRCodeService {
     amount: number,
     ticketType: 'seated' | 'standing',
     options: QRCodeOptions = {},
-  ): Promise<{ qrCodeImage: string; qrData: QRCodeData }> {
+  ): Promise<{ qrCodeImage: string; qrData: QRCodeData; qrUrl: string }> {
     try {
       // สร้างวันหมดอายุ (7 วันหลังจากการแข่งขัน)
       const showDateTime = new Date(showDate);
@@ -80,6 +80,13 @@ export class QRCodeService {
       // เข้ารหัสข้อมูล
       const encryptedData = this.encryptData(JSON.stringify(qrData));
 
+      // สร้าง URL สำหรับการเข้าถึงจากแอปทั่วไป
+      const baseUrl =
+        this.configService.get<string>('NUXT_PUBLIC_APP_URL') ||
+        this.configService.get<string>('APP_BASE_URL') ||
+        'http://localhost:3000';
+      const qrUrl = `${baseUrl}/api/v1/mobile/scanner/check-in/${orderId}?qr=${encodeURIComponent(encryptedData)}`;
+
       // ตั้งค่า default options
       const qrOptions: QRCode.QRCodeToDataURLOptions = {
         width: options.width || 256,
@@ -91,14 +98,17 @@ export class QRCodeService {
         errorCorrectionLevel: options.errorCorrectionLevel || 'M',
       };
 
-      // สร้าง QR Code image
-      const qrCodeImage = await QRCode.toDataURL(encryptedData, qrOptions);
+      // สร้าง QR Code image จาก URL (แทนที่จะเป็นข้อมูลเข้ารหัส)
+      const qrCodeImage = await QRCode.toDataURL(qrUrl, qrOptions);
 
-      this.logger.log(`✅ สร้าง QR Code สำเร็จสำหรับออเดอร์ ${orderId}`);
+      this.logger.log(
+        `✅ สร้าง QR Code URL สำเร็จสำหรับออเดอร์ ${orderId}: ${qrUrl}`,
+      );
 
       return {
         qrCodeImage,
         qrData,
+        qrUrl,
       };
     } catch (error) {
       this.logger.error(

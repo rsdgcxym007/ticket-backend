@@ -19,16 +19,19 @@ import { join } from 'path';
 
 async function bootstrap() {
   // ========================================
-  // 🚀 CREATE NESTJS APPLICATION
+  // 🚀 CREATE NESTJS APPLICATION - OPTIMIZED
   // ========================================
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
-    logger: ['log', 'error', 'warn', 'debug', 'verbose'],
+    logger:
+      process.env.NODE_ENV === 'production'
+        ? ['error', 'warn'] // Reduced logging in production
+        : ['log', 'error', 'warn', 'debug'],
   });
 
   const configService = app.get(ConfigService);
   const logger = new Logger('Bootstrap');
 
-  // Debug JWT secret
+  // Debug JWT secret - only in development
   const jwtSecret = configService.get('JWT_SECRET');
   if (!jwtSecret) {
     logger.error(
@@ -36,17 +39,14 @@ async function bootstrap() {
     );
     process.exit(1);
   }
-  logger.log(
-    `🔐 JWT_SECRET loaded from environment (first 8 chars): ${jwtSecret.substring(0, 8)}...`,
-  );
-  logger.log(`🔐 NODE_ENV: ${configService.get('NODE_ENV')}`);
-  logger.log(
-    `🔐 All ENV vars starting with JWT: ${JSON.stringify(
-      Object.keys(process.env)
-        .filter((k) => k.startsWith('JWT'))
-        .reduce((acc, k) => ({ ...acc, [k]: process.env[k] }), {}),
-    )}`,
-  );
+
+  // Reduce verbose logging in production
+  if (process.env.NODE_ENV !== 'production') {
+    logger.log(
+      `🔐 JWT_SECRET loaded from environment (first 8 chars): ${jwtSecret.substring(0, 8)}...`,
+    );
+    logger.log(`🔐 NODE_ENV: ${configService.get('NODE_ENV')}`);
+  }
 
   // ========================================
   // 🛡️ SECURITY MIDDLEWARE

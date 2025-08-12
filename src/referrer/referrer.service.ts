@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, Repository, In } from 'typeorm';
 import { Referrer } from './referrer.entity';
@@ -8,23 +8,27 @@ import { Order } from '../order/order.entity';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
-import { OrderStatus } from '../common/enums';
+import { OrderStatus, AttendanceStatus } from '../common/enums';
 import { createPdfBuffer } from '../utils/createPdfBuffer';
 import { getImageBase64 } from '../utils/imageBase64';
+import { QRCodeService } from '../common/services/qr-code.service';
 import * as path from 'path';
 import ThaiBahtText from 'thai-baht-text';
 dayjs.extend(utc);
 dayjs.extend(timezone);
 @Injectable()
 export class ReferrerService {
+  private readonly logger = new Logger(ReferrerService.name);
+
   /**
-   * สร้าง PDF ใบเสร็จความร้อน 57x38mm ขาวดำ
-   * @param order ข้อมูลออเดอร์เดียว (Order entity)
+   * สร้าง PDF ใบเสร็จความร้อน 57x38mm ขาวดำ จาก tickets array
+   * @param tickets array of ticket objects
    */
 
   constructor(
     @InjectRepository(Referrer) private repo: Repository<Referrer>,
     @InjectRepository(Order) private orderRepo: Repository<Order>,
+    private qrCodeService: QRCodeService,
   ) {}
 
   async create(dto: CreateReferrerDto) {
@@ -723,142 +727,166 @@ export class ReferrerService {
     if (!tickets || tickets.length === 0)
       throw new BadRequestException('ไม่พบข้อมูลบัตรสำหรับออกใบเสร็จ');
 
-    const logoPath = path.join(process.cwd(), 'images/LOGOST.png');
-    let logoBase64 = '';
-    try {
-      logoBase64 = getImageBase64(logoPath);
-    } catch {
-      logoBase64 = '';
-    }
-
     const printedAt = new Date();
     const printedDate = printedAt.toLocaleDateString('en-GB');
     const printedTime = printedAt.toLocaleTimeString('en-GB');
 
-    const pages = tickets.map((ticket, idx) => {
-      const seat = ticket.seatNumber || '-';
-      // const zone = ticket.zone?.name || '-';
-      const type = ticket.type === 'STANDING' ? 'STANDING' : ticket.type || '-';
+    const pages = await Promise.all(
+      tickets.map(async (ticket, idx) => {
+        const seat = ticket.seatNumber || '-';
+        const type =
+          ticket.type === 'STANDING' ? 'STANDING' : ticket.type || '-';
 
-      return {
-        stack: [
-          ...(logoBase64
-            ? [
-                {
-                  image: logoBase64,
-                  width: 50,
-                  alignment: 'center',
-                  margin: [0, 0, 0, 10],
-                  ...(idx > 0 ? { pageBreak: 'before' } : {}),
+        // สร้าง QR Code สำหรับแต่ละตั๋ว
+        let qrCodeBase64 = '';
+        try {
+          if (ticket.orderNumber && ticket.orderId) {
+            // ใช้ generateTicketQR แทน generateQRCode
+            const qrResult = await this.qrCodeService.generateTicketQR(
+              ticket.orderId,
+              ticket.userId || 'guest',
+              ticket.showDate,
+              seat !== '-' ? [seat] : null,
+              ticket.amount || 0,
+              type === 'STANDING' ? 'standing' : 'seated',
+              {
+                width: 150,
+                margin: 1,
+                errorCorrectionLevel: 'M',
+                color: {
+                  dark: '#000000',
+                  light: '#FFFFFF',
                 },
-              ]
-            : []),
+              },
+            );
 
-          {
-            text: 'PATONG BOXING STADIUM',
-            alignment: 'center',
-            bold: true,
-            fontSize: 11,
-            margin: [0, 0, 0, 2],
-          },
-          {
-            text: '2/59 Soi Keb Sub 2 Sai Nam Yen RD.\nPatong Beach , Phuket 83150',
-            alignment: 'center',
-            fontSize: 8,
-            margin: [0, 0, 0, 2],
-          },
-          {
-            text: 'Tel. 076-345578,086-4761724,080-5354042',
-            alignment: 'center',
-            fontSize: 7,
-            margin: [0, 0, 0, 3],
-          },
+            qrCodeBase64 = qrResult.qrCodeImage;
+          }
+        } catch (error) {
+          this.logger.warn(`ไม่สามารถสร้าง QR Code ได้: ${error.message}`);
+          qrCodeBase64 = '';
+        }
 
-          {
-            table: {
-              widths: ['auto', '*'],
-              body: [
-                ['Order', ticket.orderNumber || '-'],
-                ['Date', ticket.showDate || '-'],
-                ['Name', ticket.customerName || '-'],
-              ].map(([label, value]) => [
-                {
-                  text: `${label} :`,
-                  bold: true,
-                  fontSize: 12,
-                  alignment: 'center',
-                },
-                { text: value, fontSize: 12, alignment: 'center' },
-              ]),
+        return {
+          stack: [
+            ...(qrCodeBase64
+              ? [
+                  {
+                    image: qrCodeBase64,
+                    width: 50,
+                    alignment: 'center',
+                    margin: [0, 0, 0, 10],
+                    ...(idx > 0 ? { pageBreak: 'before' } : {}),
+                  },
+                ]
+              : []),
+
+            {
+              text: 'PATONG BOXING STADIUM',
+              alignment: 'center',
+              bold: true,
+              fontSize: 11,
+              margin: [0, 0, 0, 2],
             },
-            layout: 'noBorders',
-            margin: [10, 0, 3, -3],
-          },
+            {
+              text: '2/59 Soi Keb Sub 2 Sai Nam Yen RD.\nPatong Beach , Phuket 83150',
+              alignment: 'center',
+              fontSize: 8,
+              margin: [0, 0, 0, 2],
+            },
+            {
+              text: 'Tel. 076-345578,086-4761724,080-5354042',
+              alignment: 'center',
+              fontSize: 7,
+              margin: [0, 0, 0, 3],
+            },
 
-          ...(type === 'STANDING'
-            ? [
-                {
-                  text: 'STADIUM',
-                  alignment: 'center',
-                  fontSize: 22,
-                  bold: true,
-                  margin: [0, 0, 0, -10],
-                },
-                {
-                  text: 'SEAT',
-                  alignment: 'center',
-                  fontSize: 18,
-                  bold: true,
-                  margin: [0, 0, 0, 0],
-                },
-              ]
-            : [
-                {
-                  text: type?.toUpperCase() || 'ZONE',
-                  alignment: 'center',
-                  fontSize: 16,
-                  bold: true,
-                  margin: [0, 0, 0, -4],
-                },
-                {
-                  text: 'SEAT NO :',
-                  alignment: 'center',
-                  fontSize: 10,
-                  margin: [0, 0, 0, -4],
-                },
-                {
-                  text: seat,
-                  alignment: 'center',
-                  fontSize: 24,
-                  bold: true,
-                  margin: [0, 0, 0, -4],
-                },
-              ]),
+            {
+              table: {
+                widths: ['auto', '*'],
+                body: [
+                  ['Order', ticket.orderNumber || '-'],
+                  ['Date', ticket.showDate || '-'],
+                  ['Name', ticket.customerName || '-'],
+                ].map(([label, value]) => [
+                  {
+                    text: `${label} :`,
+                    bold: true,
+                    fontSize: 12,
+                    alignment: 'center',
+                  },
+                  { text: value, fontSize: 12, alignment: 'center' },
+                ]),
+              },
+              layout: 'noBorders',
+              margin: [10, 0, 3, -3],
+            },
 
-          {
-            text: 'NON REFUNDABLE',
-            alignment: 'center',
-            fontSize: 10,
-            bold: true,
-            margin: [0, 0, 0, 2],
-          },
-          {
-            text: 'VALID ON SHOW DATE ONLY',
-            alignment: 'center',
-            fontSize: 8,
-            margin: [0, 0, 0, 2],
-          },
-          {
-            text: `Printed ${printedDate} ${printedTime}`,
-            alignment: 'center',
-            fontSize: 7,
-            color: 'gray',
-            margin: [0, 0, 0, 0],
-          },
-        ],
-        margin: [2, 2, 2, 2], // ✅ เพิ่ม margin ด้านนอก
-      };
-    });
+            ...(type === 'STANDING'
+              ? [
+                  {
+                    text: 'STADIUM',
+                    alignment: 'center',
+                    fontSize: 22,
+                    bold: true,
+                    margin: [0, 0, 0, -10],
+                  },
+                  {
+                    text: 'SEAT',
+                    alignment: 'center',
+                    fontSize: 18,
+                    bold: true,
+                    margin: [0, 0, 0, 0],
+                  },
+                ]
+              : [
+                  {
+                    text: type?.toUpperCase() || 'ZONE',
+                    alignment: 'center',
+                    fontSize: 16,
+                    bold: true,
+                    margin: [0, 0, 0, -4],
+                  },
+                  {
+                    text: 'SEAT NO :',
+                    alignment: 'center',
+                    fontSize: 10,
+                    margin: [0, 0, 0, -4],
+                  },
+                  {
+                    text: seat,
+                    alignment: 'center',
+                    fontSize: 24,
+                    bold: true,
+                    margin: [0, 0, 0, -4],
+                  },
+                ]),
+
+            {
+              text: 'NON REFUNDABLE',
+              alignment: 'center',
+              fontSize: 10,
+              bold: true,
+              margin: [0, 0, 0, 2],
+            },
+            {
+              text: 'VALID ON SHOW DATE ONLY',
+              alignment: 'center',
+              fontSize: 8,
+              margin: [0, 0, 0, 2],
+            },
+            {
+              text: `Printed ${printedDate} ${printedTime}`,
+              alignment: 'center',
+              fontSize: 7,
+              color: 'gray',
+              margin: [0, 0, 0, 0],
+            },
+          ],
+          margin: [2, 2, 2, 2],
+        };
+      }),
+    );
 
     const docDefinition = {
       pageSize: { width: 162, height: 288 }, // 57mm x 101.6mm (1mm = 2.83465pt)

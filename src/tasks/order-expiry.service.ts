@@ -1,11 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThan } from 'typeorm';
+import { Repository, LessThan, MoreThanOrEqual, Between, Raw } from 'typeorm';
 import { Order } from '../order/order.entity';
 import { SeatBooking } from '../seats/seat-booking.entity';
 import { OrderStatus, BookingStatus } from '../common/enums';
 import { DateTimeHelper } from '../common/utils';
+import { AttendanceStatus } from '../common/enums';
 
 @Injectable()
 export class OrderExpiryService {
@@ -19,9 +20,9 @@ export class OrderExpiryService {
   ) {}
 
   /**
-   * ⏰ ตรวจสอบและยกเลิกออเดอร์ที่หมดเวลาทุก 1 นาที
+   * ⏰ ตรวจสอบและยกเลิกออเดอร์ที่หมดเวลาทุก 5 นาที (ลดจาก 1 นาที)
    */
-  @Cron(CronExpression.EVERY_MINUTE)
+  @Cron('0 */5 * * * *') // Every 5 minutes instead of every minute
   async handleExpiredOrders() {
     try {
       const now = DateTimeHelper.now();
@@ -51,6 +52,49 @@ export class OrderExpiryService {
       );
     } catch (error) {
       this.logger.error('❌ เกิดข้อผิดพลาดในการยกเลิกออเดอร์หมดเวลา:', error);
+    }
+  }
+
+  /**
+   * 🎭 ตรวจสอบและอัปเดตสถานะ AttendanceStatus ทุกวันเที่ยงคืน
+   */
+  @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
+  async updateAttendanceStatus() {
+    try {
+      this.logger.log('🎭 เริ่มตรวจสอบและอัปเดตสถานะ AttendanceStatus...');
+
+      const todayString = DateTimeHelper.formatDate(
+        DateTimeHelper.now(),
+        'YYYY-MM-DD',
+      );
+
+      const pendingAttendanceOrders = await this.orderRepo.find({
+        where: {
+          showDate: Raw((alias) => `${alias} = :todayString`, { todayString }),
+          attendanceStatus: AttendanceStatus.PENDING,
+        },
+      });
+
+      if (pendingAttendanceOrders.length === 0) {
+        this.logger.debug('🔍 ไม่พบออเดอร์ที่ต้องอัปเดตสถานะ AttendanceStatus');
+        return;
+      }
+
+      // อัปเดตสถานะ AttendanceStatus เป็น NO_SHOW
+      const orderIds = pendingAttendanceOrders.map((order) => order.id);
+      await this.orderRepo.update(orderIds, {
+        attendanceStatus: AttendanceStatus.NO_SHOW,
+        updatedAt: DateTimeHelper.now(),
+      });
+
+      this.logger.log(
+        `✅ อัปเดตสถานะ AttendanceStatus เป็น NO_SHOW สำหรับ ${orderIds.length} ออเดอร์`,
+      );
+    } catch (error) {
+      this.logger.error(
+        '❌ เกิดข้อผิดพลาดในการอัปเดตสถานะ AttendanceStatus:',
+        error,
+      );
     }
   }
 
@@ -167,9 +211,9 @@ export class OrderExpiryService {
   }
 
   /**
-   * ⚠️ แจ้งเตือนออเดอร์ที่ใกล้หมดเวลาทุก 30 วินาที
+   * ⚠️ แจ้งเตือนออเดอร์ที่ใกล้หมดเวลาทุก 5 นาที (ลดจาก 30 วินาที)
    */
-  @Cron('*/30 * * * * *')
+  @Cron('0 */3 * * * *') // Every 5 minutes instead of every 30 seconds
   async notifyExpiringOrders() {
     try {
       const now = DateTimeHelper.now();
@@ -201,9 +245,9 @@ export class OrderExpiryService {
   }
 
   /**
-   * 🔧 ตรวจสอบสุขภาพระบบทุก 5 นาที
+   * 🔧 ตรวจสอบสุขภาพระบบทุก 30 นาที (ลดจาก 5 นาที)
    */
-  @Cron('0 */5 * * * *')
+  @Cron('0 */30 * * * *') // Every 30 minutes instead of every 5 minutes
   async healthCheck() {
     try {
       // ตรวจสอบออเดอร์ที่ค้างอยู่นานเกินไป

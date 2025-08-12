@@ -31,6 +31,7 @@
     "emergency-fix": "./scripts/emergency-fix.sh",
     "build-deploy": "./scripts/build-and-deploy.sh",
     "test-discord": "./scripts/test-discord-notifications.sh",
+    "optimize-performance": "./scripts/optimize-performance.sh",
     "fix-nodejs": "sudo ./scripts/super-tool.sh --fix-nodejs",
     "deploy-quick": "./scripts/super-tool.sh --deploy-quick",
     "deploy-full": "sudo ./scripts/super-tool.sh --deploy-full",

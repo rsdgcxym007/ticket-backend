@@ -7,6 +7,7 @@ import { PaymentModule } from '../payment/payment.module';
 import { Order } from '../order/order.entity';
 import { forwardRef, Module } from '@nestjs/common';
 import { OrderModule } from '../order/order.module';
+import { QRCodeService } from '../common/services/qr-code.service';
 
 @Module({
   imports: [
@@ -15,7 +16,7 @@ import { OrderModule } from '../order/order.module';
     forwardRef(() => OrderModule),
   ],
   controllers: [ReferrerController],
-  providers: [ReferrerService],
+  providers: [ReferrerService, QRCodeService],
   exports: [ReferrerService, TypeOrmModule],
 })
 export class ReferrerModule {}

@@ -35,6 +35,7 @@ import {
   BookingStatus,
   AuditAction,
   OrderPurchaseType,
+  AttendanceStatus,
 } from '../common/enums';
 
 // ========================================
@@ -1311,7 +1312,7 @@ export class OrderService {
 
     return { success: true, message: 'ลบออเดอร์สำเร็จ' };
   }
-  @Cron(CronExpression.EVERY_MINUTE)
+  @Cron(CronExpression.EVERY_5_MINUTES)
   async handleExpiredOrders() {
     this.logger.debug('🕐 Checking for expired orders...');
 
@@ -2790,5 +2791,86 @@ export class OrderService {
     queryBuilder.orderBy('order.createdAt', 'DESC');
 
     return await queryBuilder.getMany();
+  }
+
+  /**
+   * 🎫 อัพเดท Attendance Status เมื่อสแกน QR Code
+   * @param orderId Order ID
+   * @param attendanceStatus สถานะการเข้าร่วม
+   * @param scannedBy ผู้ที่ทำการสแกน
+   * @returns ข้อมูลออเดอร์ที่อัพเดทแล้ว
+   */
+  async updateAttendanceStatus(
+    orderId: string,
+    attendanceStatus: AttendanceStatus,
+    scannedBy: string,
+  ): Promise<OrderData> {
+    try {
+      // หาออเดอร์
+      const order = await this.orderRepo.findOne({
+        where: { id: orderId },
+        relations: ['user', 'seatBookings', 'seatBookings.seat', 'payment'],
+      });
+
+      if (!order) {
+        throw new NotFoundException(`ไม่พบออเดอร์ ${orderId}`);
+      }
+
+      // ตรวจสอบว่าออเดอร์ถูกชำระเงินแล้วหรือไม่
+      if (
+        order.status !== OrderStatus.PAID &&
+        order.status !== OrderStatus.CONFIRMED
+      ) {
+        throw new BadRequestException(
+          'ออเดอร์ต้องถูกชำระเงินแล้วจึงจะสามารถเช็คอินได้',
+        );
+      }
+
+      // ตรวจสอบว่าสามารถเช็คอินซ้ำได้หรือไม่
+      if (
+        order.attendanceStatus === AttendanceStatus.CHECKED_IN &&
+        attendanceStatus === AttendanceStatus.CHECKED_IN
+      ) {
+        this.logger.warn(`ออเดอร์ ${orderId} ถูกเช็คอินไปแล้ว`);
+        // ส่งข้อมูลกลับโดยไม่ error เพื่อให้ UI แสดงสถานะปัจจุบัน
+      } else {
+        // อัพเดท attendance status
+        await this.orderRepo.update(orderId, {
+          attendanceStatus,
+          updatedAt: ThailandTimeHelper.now(),
+          updatedBy: scannedBy,
+        });
+
+        // บันทึก audit log
+        await this.auditRepo.save({
+          action: AuditAction.UPDATE,
+          entityType: 'Order',
+          entityId: orderId,
+          oldValues: { attendanceStatus: order.attendanceStatus },
+          newValues: { attendanceStatus },
+          performedBy: scannedBy,
+          ipAddress: 'mobile-scanner',
+          userAgent: 'Mobile Scanner App',
+          createdAt: ThailandTimeHelper.now(),
+        });
+
+        this.logger.log(
+          `✅ อัพเดท attendance status สำเร็จ - Order: ${orderId}, Status: ${attendanceStatus}, By: ${scannedBy}`,
+        );
+      }
+
+      // ดึงข้อมูลออเดอร์ล่าสุดหลังจากอัพเดท
+      const updatedOrder = await this.orderRepo.findOne({
+        where: { id: orderId },
+        relations: ['user', 'seatBookings', 'seatBookings.seat', 'payment'],
+      });
+
+      return this.orderBusinessService.transformOrderToData(updatedOrder);
+    } catch (error) {
+      this.logger.error(
+        `❌ เกิดข้อผิดพลาดในการอัพเดท attendance status: ${error.message}`,
+      );
+      throw error;
+    }
   }
 }

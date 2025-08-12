@@ -261,4 +261,37 @@ export class ReferrerController {
     }
     res.send(buffer);
   }
+
+  @Post('generate-thermal-receipt-qr')
+  @Header('Content-Type', 'application/pdf')
+  async generateThermalReceiptWithQR(
+    @Body() body: { tickets: any[] },
+    @Res() res: Response,
+  ) {
+    if (!body.tickets || body.tickets.length === 0) {
+      throw new NotFoundException('ไม่พบข้อมูลตั๋วสำหรับออกใบเสร็จ');
+    }
+
+    const buffer = await this.service.generateThermalReceiptPdf(body.tickets);
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="thermal-receipt-qr-${new Date().getTime()}.pdf"`,
+    );
+
+    const allowedOrigins = [
+      'http://43.229.133.51:3000',
+      'http://localhost:3000',
+      'http://localhost:3000/#/',
+      'http://localhost:3000/#/th',
+      'http://localhost:3000/#/en',
+    ];
+    const reqOrigin = (res.req as any)?.headers?.origin;
+    if (allowedOrigins.includes(reqOrigin)) {
+      res.setHeader('Access-Control-Allow-Origin', reqOrigin);
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+    }
+    res.send(buffer);
+  }
 }

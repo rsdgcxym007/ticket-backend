@@ -9,9 +9,9 @@ export class CacheCleanupTask {
   constructor(private readonly cacheService: CacheService) {}
 
   /**
-   * ทำความสะอาด Cache ทุก 5 นาที
+   * ทำความสะอาด Cache ทุก 15 นาที (ลดจาก 5 นาที)
    */
-  @Cron(CronExpression.EVERY_5_MINUTES)
+  @Cron('0 */15 * * * *') // Every 15 minutes instead of every 5 minutes
   async cleanupExpiredCache() {
     this.logger.log('🧹 Starting cache cleanup...');
 
