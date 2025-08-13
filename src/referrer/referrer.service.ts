@@ -762,9 +762,13 @@ export class ReferrerService {
 
             if (qrResult && qrResult.qrCodeImage) {
               qrCodeBase64 = qrResult.qrCodeImage;
-              this.logger.log(`QR Code สร้างสำเร็จสำหรับ order: ${ticket.orderNumber}`);
+              this.logger.log(
+                `QR Code สร้างสำเร็จสำหรับ order: ${ticket.orderNumber}`,
+              );
             } else {
-              this.logger.warn(`QR Code result ไม่มี qrCodeImage สำหรับ order: ${ticket.orderNumber}`);
+              this.logger.warn(
+                `QR Code result ไม่มี qrCodeImage สำหรับ order: ${ticket.orderNumber}`,
+              );
               // สร้าง fallback QR code ด้วยข้อมูลพื้นฐาน
               const fallbackData = `ORDER:${ticket.orderNumber}-SEAT:${seat}-DATE:${ticket.showDate}`;
               const QRCode = await import('qrcode');
@@ -780,7 +784,9 @@ export class ReferrerService {
               qrCodeBase64 = fallbackQR;
             }
           } else {
-            this.logger.warn(`ข้อมูลไม่ครบสำหรับสร้าง QR Code: orderNumber=${ticket.orderNumber}, orderId=${ticket.orderId}`);
+            this.logger.warn(
+              `ข้อมูลไม่ครบสำหรับสร้าง QR Code: orderNumber=${ticket.orderNumber}, orderId=${ticket.orderId}`,
+            );
             // สร้าง basic QR code จากข้อมูลที่มี
             const basicData = `TICKET:${ticket.orderNumber || 'NO-ORDER'}-${seat}-${ticket.showDate || 'NO-DATE'}`;
             const QRCode = await import('qrcode');
@@ -796,7 +802,10 @@ export class ReferrerService {
             qrCodeBase64 = basicQR;
           }
         } catch (error) {
-          this.logger.error(`Error สร้าง QR Code: ${error.message}`, error.stack);
+          this.logger.error(
+            `Error สร้าง QR Code: ${error.message}`,
+            error.stack,
+          );
           // สร้าง emergency QR code
           try {
             const emergencyData = `EMERGENCY-${ticket.orderNumber || 'UNKNOWN'}-${Date.now()}`;
@@ -812,7 +821,9 @@ export class ReferrerService {
             });
             this.logger.log(`สร้าง Emergency QR Code สำเร็จ`);
           } catch (emergencyError) {
-            this.logger.error(`Emergency QR Code ก็สร้างไม่ได้: ${emergencyError.message}`);
+            this.logger.error(
+              `Emergency QR Code ก็สร้างไม่ได้: ${emergencyError.message}`,
+            );
             qrCodeBase64 = '';
           }
         }
