@@ -35,6 +35,7 @@ import {
   BookingStatus,
   AuditAction,
   OrderPurchaseType,
+  AttendanceStatus,
 } from '../common/enums';
 
 // ========================================
@@ -45,6 +46,7 @@ import {
   LoggingHelper,
   ErrorHandlingHelper,
 } from '../common/utils';
+import { DateFormatterHelper } from '../utils/date-formatter.helper';
 
 // ========================================
 // 🔧 SERVICES
@@ -52,6 +54,7 @@ import {
 import { SeatBookingService } from '../common/services/seat-booking.service';
 import { AuditHelperService } from '../common/services/audit-helper.service';
 import { OrderBusinessService } from './services/order-business.service';
+import { EmailAutomationService } from '../email/email-automation.service';
 
 // ========================================
 // 📊 MAPPERS & TYPES
@@ -155,6 +158,7 @@ export class OrderService {
     private seatBookingService: SeatBookingService,
     private auditHelperService: AuditHelperService,
     private orderBusinessService: OrderBusinessService,
+    private emailAutomationService: EmailAutomationService,
   ) {
     // Add console.log to verify logger initialization
   }
@@ -330,6 +334,56 @@ export class OrderService {
       throw ErrorHandlingHelper.handleDatabaseError(error);
     }
   }
+
+  /**
+   * 🧑‍💼 ดึงรายชื่อ staff/admin ที่สร้างออเดอร์
+   */
+  async getOrderCreators(): Promise<Array<{ value: string; label: string }>> {
+    try {
+      // ดึง distinct createdBy ที่ไม่เป็น null จาก orders
+      const distinctCreators = await this.orderRepo
+        .createQueryBuilder('order')
+        .select('DISTINCT order.createdBy', 'createdBy')
+        .where('order.createdBy IS NOT NULL')
+        .getRawMany();
+
+      if (!distinctCreators || distinctCreators.length === 0) {
+        return [{ value: '', label: 'ทั้งหมด' }];
+      }
+
+      // ดึงข้อมูล user จาก createdBy IDs
+      const createdByIds = distinctCreators
+        .map((item) => item.createdBy)
+        .filter(Boolean);
+
+      if (createdByIds.length === 0) {
+        return [{ value: '', label: 'ทั้งหมด' }];
+      }
+
+      const users = await this.userRepo
+        .createQueryBuilder('user')
+        .select(['user.id', 'user.name', 'user.role'])
+        .where('user.id IN (:...ids)', { ids: createdByIds })
+        .andWhere('user.role IN (:...roles)', {
+          roles: [UserRole.STAFF, UserRole.ADMIN],
+        })
+        .getMany();
+
+      const creators = [
+        { value: '', label: 'ทั้งหมด' },
+        ...users.map((user) => ({
+          value: user.id,
+          label: user.name || `User ${user.id}`,
+        })),
+      ];
+
+      return creators;
+    } catch (error) {
+      this.logger.error('Error getting order creators:', error);
+      return [{ value: '', label: 'ทั้งหมด' }];
+    }
+  }
+
   // 🔍 FIND BY ID
   // ========================================
   async findById(id: string, userId?: string): Promise<OrderData | null> {
@@ -411,11 +465,11 @@ export class OrderService {
           const standingChildQty = updatedOrder.standingChildQty || 0;
           const ringsideQty =
             updatedOrder.ticketType === TicketType.RINGSIDE
-              ? updatedOrder.quantity || 0
+              ? updatedOrder.quantity || updatedOrder.seatBookings.length || 0
               : 0;
           const stadiumQty =
             updatedOrder.ticketType === TicketType.STADIUM
-              ? updatedOrder.quantity || 0
+              ? updatedOrder.quantity || updatedOrder.seatBookings.length || 0
               : 0;
 
           const rsQty = ringsideQty + stadiumQty;
@@ -525,7 +579,13 @@ export class OrderService {
 
     const order = await this.orderRepo.findOne({
       where: { id },
-      relations: ['seatBookings'],
+      relations: [
+        'seatBookings',
+        'seatBookings.seat',
+        'seatBookings.seat.zone',
+        'user',
+        'referrer',
+      ],
     });
 
     if (!order) {
@@ -561,6 +621,51 @@ export class OrderService {
         order.paymentMethod,
       ),
     );
+
+    // 📧 ส่งอีเมลตั๋วให้ลูกค้าหลังจากยืนยันการชำระเงิน
+    if (order.customerEmail && order.customerEmail.trim() !== '') {
+      try {
+        this.logger.log(
+          `📧 เริ่มส่งอีเมลตั๋วให้ลูกค้า: ${order.customerEmail} สำหรับออเดอร์: ${order.orderNumber || id}`,
+        );
+
+        // ส่งอีเมลตั๋วพร้อมข้อมูลครบถ้วน
+        const emailResult = await this.emailAutomationService.sendTicketEmail({
+          orderId: order.orderNumber || id,
+          recipientEmail: order.customerEmail,
+          recipientName: order.customerName,
+          includeQRCode: true,
+          language: 'th',
+          ticketType: order.ticketType,
+          quantity: order.quantity || 1,
+          standingAdultQty: order.standingAdultQty || 0,
+          standingChildQty: order.standingChildQty || 0,
+          showDate: order.showDate
+            ? order.showDate.toISOString().split('T')[0]
+            : undefined,
+          totalAmount: order.totalAmount,
+          seatNumbers:
+            order.seatBookings
+              ?.map((booking) => booking.seat?.seatNumber)
+              .filter(Boolean) || [],
+          notes: `ตั๋วสำหรับ ${order.ticketType === TicketType.STANDING ? 'ยืน' : 'ที่นั่ง'} จำนวน ${order.quantity || 1} ใบ`,
+        });
+
+        this.logger.log(
+          `✅ ส่งอีเมลตั๋วสำเร็จ: ${order.customerEmail}, MessageID: ${emailResult.messageId}`,
+        );
+      } catch (emailError) {
+        this.logger.error(
+          `❌ ส่งอีเมลตั๋วไม่สำเร็จ: ${emailError.message}`,
+          emailError.stack,
+        );
+        // ไม่ throw error เพื่อไม่ให้กระทบกับการยืนยันการชำระเงิน
+      }
+    } else {
+      this.logger.warn(
+        `⚠️ ไม่สามารถส่งอีเมลตั๋วได้: ไม่มีอีเมลลูกค้าสำหรับออเดอร์ ${order.orderNumber || id}`,
+      );
+    }
 
     return { success: true, message: 'ยืนยันการชำระเงินสำเร็จ' };
   }
@@ -1260,7 +1365,7 @@ export class OrderService {
 
     return { success: true, message: 'ลบออเดอร์สำเร็จ' };
   }
-  @Cron(CronExpression.EVERY_MINUTE)
+  @Cron(CronExpression.EVERY_5_MINUTES)
   async handleExpiredOrders() {
     this.logger.debug('🕐 Checking for expired orders...');
 
@@ -1396,6 +1501,9 @@ export class OrderService {
 
       // คำนวณสรุปข้อมูล ใช้ OrderPricingHelper
       const summary = OrderPricingHelper.calculateOrdersSummary(orders);
+      console.log('orders', orders);
+
+      console.log('dqwdqwdkqwdlkqwldjqwldjlqwdjqwldjlqw');
 
       // เตรียมข้อมูลสำหรับ export
       const exportOrders = orders.map((order) => ({
@@ -1415,12 +1523,8 @@ export class OrderService {
         purchaseType: order.purchaseType || OrderPurchaseType.ONSITE,
         attendanceStatus: order.attendanceStatus || 'PENDING',
         paymentMethod: order.paymentMethod || PaymentMethod.CASH,
-        showDate: order.showDate
-          ? new Date(order.showDate).toISOString().split('T')[0]
-          : '-',
-        createdAt: order.createdAt
-          ? new Date(order.createdAt).toISOString()
-          : '-',
+        showDate: DateFormatterHelper.formatDateSafely(order.showDate),
+        createdAt: DateFormatterHelper.formatDateTimeSafely(order.createdAt),
         createdByName: order.createdByName || '-',
         referrerCode: order.referrerCode || '-',
         referrerCommission: order.referrerCommission || 0,
@@ -1671,12 +1775,12 @@ export class OrderService {
         ) {
           // ถ้า paymentAmount มากกว่า totalAmount ให้ลบค่าเสื้อ
           if (order.ticketType === 'STANDING') {
-            // ตั๋วยืน: ลบ 400 ต่อตั๋ว
-            const standingDeduction = (stdQty + stdchQty) * 400;
+            // ตั๋วยืน: ลบ 300 ต่อตั๋ว
+            const standingDeduction = (stdQty + stdchQty) * 300;
             paymentAmount = grossPaymentAmount - standingDeduction;
           } else {
-            // ตั๋วนั่ง (RINGSIDE/STADIUM): ลบ 300 ต่อตั๋ว
-            const sittingDeduction = rsQty * 300;
+            // ตั๋วนั่ง (RINGSIDE/STADIUM): ลบ 400 ต่อตั๋ว
+            const sittingDeduction = rsQty * 400;
             paymentAmount = grossPaymentAmount - sittingDeduction;
           }
         }
@@ -1788,12 +1892,12 @@ export class OrderService {
         ) {
           // ถ้า paymentAmount มากกว่า totalAmount ให้ลบค่าเสื้อ
           if (order.ticketType === 'STANDING') {
-            // ตั๋วยืน: ลบ 400 ต่อตั๋ว
-            const standingDeduction = (stdQty + stdchQty) * 400;
+            // ตั๋วยืน: ลบ 300 ต่อตั๋ว
+            const standingDeduction = (stdQty + stdchQty) * 300;
             orderPaymentAmount = grossOrderPayment - standingDeduction;
           } else {
-            // ตั๋วนั่ง (RINGSIDE/STADIUM): ลบ 300 ต่อตั๋ว
-            const sittingDeduction = rsQty * 300;
+            // ตั๋วนั่ง (RINGSIDE/STADIUM): ลบ 400 ต่อตั๋ว
+            const sittingDeduction = rsQty * 400;
             orderPaymentAmount = grossOrderPayment - sittingDeduction;
           }
         }
@@ -2159,12 +2263,12 @@ export class OrderService {
         ) {
           // ถ้า paymentAmount มากกว่า totalAmount ให้ลบค่าเสื้อ
           if (order.ticketType === 'STANDING') {
-            // ตั๋วยืน: ลบ 400 ต่อตั๋ว
-            const standingDeduction = (stdQty + stdchQty) * 400;
+            // ตั๋วยืน: ลบ 300 ต่อตั๋ว
+            const standingDeduction = (stdQty + stdchQty) * 300;
             paymentAmount = grossPaymentAmount - standingDeduction;
           } else {
-            // ตั๋วนั่ง (RINGSIDE/STADIUM): ลบ 300 ต่อตั๋ว
-            const sittingDeduction = rsQty * 300;
+            // ตั๋วนั่ง (RINGSIDE/STADIUM): ลบ 400 ต่อตั๋ว
+            const sittingDeduction = rsQty * 400;
             paymentAmount = grossPaymentAmount - sittingDeduction;
           }
         }
@@ -2424,12 +2528,12 @@ export class OrderService {
         ) {
           // ถ้า paymentAmount มากกว่า totalAmount ให้ลบค่าเสื้อ
           if (order.ticketType === 'STANDING') {
-            // ตั๋วยืน: ลบ 400 ต่อตั๋ว
-            const standingDeduction = (stdQty + stdchQty) * 400;
+            // ตั๋วยืน: ลบ 300 ต่อตั๋ว
+            const standingDeduction = (stdQty + stdchQty) * 300;
             paymentAmount = grossPaymentAmount - standingDeduction;
           } else {
-            // ตั๋วนั่ง (RINGSIDE/STADIUM): ลบ 300 ต่อตั๋ว
-            const sittingDeduction = rsQty * 300;
+            // ตั๋วนั่ง (RINGSIDE/STADIUM): ลบ 400 ต่อตั๋ว
+            const sittingDeduction = rsQty * 400;
             paymentAmount = grossPaymentAmount - sittingDeduction;
           }
         }
@@ -2740,5 +2844,86 @@ export class OrderService {
     queryBuilder.orderBy('order.createdAt', 'DESC');
 
     return await queryBuilder.getMany();
+  }
+
+  /**
+   * 🎫 อัพเดท Attendance Status เมื่อสแกน QR Code
+   * @param orderId Order ID
+   * @param attendanceStatus สถานะการเข้าร่วม
+   * @param scannedBy ผู้ที่ทำการสแกน
+   * @returns ข้อมูลออเดอร์ที่อัพเดทแล้ว
+   */
+  async updateAttendanceStatus(
+    orderId: string,
+    attendanceStatus: AttendanceStatus,
+    scannedBy: string,
+  ): Promise<OrderData> {
+    try {
+      // หาออเดอร์
+      const order = await this.orderRepo.findOne({
+        where: { id: orderId },
+        relations: ['user', 'seatBookings', 'seatBookings.seat', 'payment'],
+      });
+
+      if (!order) {
+        throw new NotFoundException(`ไม่พบออเดอร์ ${orderId}`);
+      }
+
+      // ตรวจสอบว่าออเดอร์ถูกชำระเงินแล้วหรือไม่
+      if (
+        order.status !== OrderStatus.PAID &&
+        order.status !== OrderStatus.CONFIRMED
+      ) {
+        throw new BadRequestException(
+          'ออเดอร์ต้องถูกชำระเงินแล้วจึงจะสามารถเช็คอินได้',
+        );
+      }
+
+      // ตรวจสอบว่าสามารถเช็คอินซ้ำได้หรือไม่
+      if (
+        order.attendanceStatus === AttendanceStatus.CHECKED_IN &&
+        attendanceStatus === AttendanceStatus.CHECKED_IN
+      ) {
+        this.logger.warn(`ออเดอร์ ${orderId} ถูกเช็คอินไปแล้ว`);
+        // ส่งข้อมูลกลับโดยไม่ error เพื่อให้ UI แสดงสถานะปัจจุบัน
+      } else {
+        // อัพเดท attendance status
+        await this.orderRepo.update(orderId, {
+          attendanceStatus,
+          updatedAt: ThailandTimeHelper.now(),
+          updatedBy: scannedBy,
+        });
+
+        // บันทึก audit log
+        await this.auditRepo.save({
+          action: AuditAction.UPDATE,
+          entityType: 'Order',
+          entityId: orderId,
+          oldValues: { attendanceStatus: order.attendanceStatus },
+          newValues: { attendanceStatus },
+          performedBy: scannedBy,
+          ipAddress: 'mobile-scanner',
+          userAgent: 'Mobile Scanner App',
+          createdAt: ThailandTimeHelper.now(),
+        });
+
+        this.logger.log(
+          `✅ อัพเดท attendance status สำเร็จ - Order: ${orderId}, Status: ${attendanceStatus}, By: ${scannedBy}`,
+        );
+      }
+
+      // ดึงข้อมูลออเดอร์ล่าสุดหลังจากอัพเดท
+      const updatedOrder = await this.orderRepo.findOne({
+        where: { id: orderId },
+        relations: ['user', 'seatBookings', 'seatBookings.seat', 'payment'],
+      });
+
+      return this.orderBusinessService.transformOrderToData(updatedOrder);
+    } catch (error) {
+      this.logger.error(
+        `❌ เกิดข้อผิดพลาดในการอัพเดท attendance status: ${error.message}`,
+      );
+      throw error;
+    }
   }
 }

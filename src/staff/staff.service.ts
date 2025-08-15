@@ -82,7 +82,7 @@ export class StaffService {
         password: hashedPassword,
         displayName: `${createStaffDto.firstName} ${createStaffDto.lastName}`,
         provider: 'manual',
-        providerId: savedUser.id,
+        providerId: savedUser.id, // ใช้เป็น unique identifier สำหรับ provider
         role: 'staff',
         userId: savedUser.id,
       });

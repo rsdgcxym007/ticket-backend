@@ -1,4 +1,5 @@
 import { Payment } from '../payment/payment.entity';
+import { UserSession } from '../auth/entities/user-session.entity';
 import {
   Entity,
   Column,
@@ -36,6 +37,10 @@ export class User {
 
   @OneToMany(() => Payment, (payment) => payment.user)
   payments: Payment[];
+
+  // Add sessions relation for session management
+  @OneToMany(() => UserSession, (session) => session.user)
+  sessions: UserSession[];
 
   @Column({ nullable: true })
   userId: string;

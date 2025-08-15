@@ -34,6 +34,7 @@ import {
   TIME_LIMITS,
 } from '../constants';
 import { BusinessLogicHelper, ReferenceGenerator } from '../utils';
+import { EmailAutomationService } from '../../email/email-automation.service';
 
 /**
  * 🚀 Enhanced Order Service with Concurrency Control
@@ -59,6 +60,7 @@ export class EnhancedOrderService {
     private readonly dataSource: DataSource,
     private readonly orderUpdatesGateway: OrderUpdatesGateway,
     private readonly configService: ConfigService,
+    private readonly emailAutomationService: EmailAutomationService,
   ) {}
 
   /**
@@ -314,6 +316,35 @@ export class EnhancedOrderService {
       }
 
       this.logger.log(`✅ Successfully created order: ${order.id}`);
+
+      // 📧 ส่งอีเมลยืนยันการสั่งซื้อหลังจากสร้างออเดอร์สำเร็จ
+      if (reloadedOrder.customerEmail) {
+        try {
+          this.logger.log(
+            `📧 ส่งอีเมลยืนยันการสั่งซื้อ: ${reloadedOrder.customerEmail}`,
+          );
+
+          await this.emailAutomationService.sendOrderConfirmation({
+            orderId: reloadedOrder.orderNumber || reloadedOrder.id,
+            customerEmail: reloadedOrder.customerEmail,
+            customerName: reloadedOrder.customerName,
+            totalAmount: reloadedOrder.totalAmount || reloadedOrder.total,
+            paymentMethod: reloadedOrder.paymentMethod || 'ไม่ระบุ',
+            ticketType: reloadedOrder.ticketType,
+            quantity: reloadedOrder.quantity,
+            showDate: reloadedOrder.showDate,
+          });
+
+          this.logger.log(
+            `✅ ส่งอีเมลยืนยันการสั่งซื้อสำเร็จ: ${reloadedOrder.customerEmail}`,
+          );
+        } catch (emailError) {
+          this.logger.error(
+            `❌ ส่งอีเมลยืนยันการสั่งซื้อไม่สำเร็จ: ${emailError.message}`,
+          );
+          // ไม่ throw error เพื่อไม่ให้กระทบกับการสร้างออเดอร์
+        }
+      }
 
       // 16. Return data in same format as createOrder
       return {

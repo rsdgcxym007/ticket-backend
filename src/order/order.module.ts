@@ -8,10 +8,13 @@ import { UserModule } from '../user/user.module';
 import { ReferrerModule } from '../referrer/referrer.module';
 import { SeatsModule } from '../seats/seat.module';
 import { PaymentModule } from '../payment/payment.module';
+import { AuthModule } from '../auth/auth.module';
+import { EmailModule } from '../email/email.module';
 import { SeatBooking } from '../seats/seat-booking.entity';
 import { BusinessService } from '../common/services/business.service';
 import { AuditModule } from '../audit/audit.module';
 import { ConcurrencyModule } from '../common/services/concurrency.module';
+import { forwardRef } from '@nestjs/common';
 import { SeatBookingService } from '../common/services/seat-booking.service';
 import { OrderBusinessService } from './services/order-business.service';
 import { AuditHelperService } from '../common/services/audit-helper.service';
@@ -23,6 +26,8 @@ import { AuditHelperService } from '../common/services/audit-helper.service';
     UserModule,
     ReferrerModule,
     PaymentModule,
+    EmailModule, // ✅ เพิ่ม EmailModule
+    forwardRef(() => AuthModule), // ✅ ใช้ forwardRef เพื่อหลีกเลี่ยง circular dependency
     AuditModule,
     ConcurrencyModule, // ✅ เพิ่ม ConcurrencyModule
   ],

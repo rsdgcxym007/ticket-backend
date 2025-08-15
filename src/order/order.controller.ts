@@ -19,6 +19,8 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import type { Express } from 'express';
+import 'multer';
 
 import { OrderService } from './order.service';
 import { CreateOrderDto } from './dto/create-order.dto';
@@ -120,25 +122,17 @@ export class OrderController {
   })
   @ApiResponse({ status: 200, description: 'ดึงรายชื่อสำเร็จ' })
   async getOrderCreators(@Req() req: AuthenticatedRequest) {
-    const orders = await this.orderService.findAll({ limit: 10000 }, undefined);
-    const creatorMap = new Map();
-    if (orders && Array.isArray(orders.items)) {
-      for (const order of orders.items) {
-        if (order.createdById && order.createdByName) {
-          creatorMap.set(order.createdById, order.createdByName);
-        }
-      }
+    try {
+      const creators = await this.orderService.getOrderCreators();
+      return success(creators, 'ดึงรายชื่อ staff/admin/master สำเร็จ', req);
+    } catch (err) {
+      this.logger.error('Error getting order creators:', err);
+      return success(
+        [{ value: '', label: 'ทั้งหมด' }],
+        'ดึงรายชื่อ staff/admin/master สำเร็จ',
+        req,
+      );
     }
-    const creators = [
-      { value: '', label: 'ทั้งหมด' },
-      ...Array.from(creatorMap.entries()).map(([id, name]) => {
-        return {
-          value: id,
-          label: name,
-        };
-      }),
-    ];
-    return success(creators, 'ดึงรายชื่อ staff/admin/master สำเร็จ', req);
   }
 
   /**
@@ -729,9 +723,7 @@ export class OrderController {
     @Res() res: any,
   ) {
     // ดึงข้อมูลออเดอร์ทั้งหมดก่อน
-    const exportData = await this.orderService.exportOrdersData({
-      includeAllPages: true,
-    });
+    const exportData = await this.orderService.exportOrdersData({});
 
     // แปลง orderIds ให้เป็น array ถ้าเป็น object
     let orderIds: string[] = [];
@@ -760,21 +752,15 @@ export class OrderController {
       }
     }
 
-    console.log('📋 Processed orderIds:', orderIds);
-
     // กรองเฉพาะออเดอร์ที่ต้องการ (ถ้าระบุ IDs)
     if (orderIds && orderIds.length > 0) {
       const beforeFilter = exportData.orders.length;
       exportData.orders = exportData.orders.filter((order) =>
         orderIds.includes(order.id),
       );
-      console.log(
-        `🔄 Filtered from ${beforeFilter} to ${exportData.orders.length} orders`,
-      );
 
       // Debug: แสดง IDs ที่พบจริง
       const foundIds = exportData.orders.map((order) => order.id);
-      console.log('✅ Found order IDs:', foundIds);
 
       const notFoundIds = orderIds.filter((id) => !foundIds.includes(id));
       if (notFoundIds.length > 0) {
@@ -785,17 +771,10 @@ export class OrderController {
     const timestamp = new Date().toISOString().split('T')[0];
     const format = exportOrdersDto.format || 'csv';
 
-    console.log(`📊 Export format: ${format}`);
-    console.log(`📊 Orders to export: ${exportData.orders.length}`);
     if (format === 'excel') {
       try {
-        console.log('🔄 Generating Excel file...');
         const excelBuffer =
           await this.orderService.generateOrdersExcel(exportData);
-        console.log(
-          '✅ Excel file generated successfully, size:',
-          excelBuffer.length,
-        );
 
         // ตรวจสอบว่า buffer เป็น Excel จริง
         if (!Buffer.isBuffer(excelBuffer) || excelBuffer.length < 1000) {
@@ -809,11 +788,8 @@ export class OrderController {
         ); // ZIP signature (Excel is ZIP-based)
 
         if (!isValidExcel) {
-          console.error('❌ Generated file is not a valid Excel format');
           throw new Error('Generated file is not Excel format');
         }
-
-        console.log('🔍 Excel validation passed - sending Excel file');
 
         res.set({
           'Content-Type':
@@ -923,18 +899,12 @@ export class OrderController {
       throw new BadRequestException('ไฟล์มีขนาดใหญ่เกิน 50MB');
     }
 
-    this.logger.log(
-      `📤 Starting import: ${file.originalname} (${file.size} bytes)`,
-    );
-
     const result = await this.orderService.importOrdersFromFileBuffer(
       file.buffer,
       file.mimetype,
       file.originalname,
       req.user.id,
     );
-
-    this.logger.log('✅ Import completed successfully');
 
     return success(result, 'นำเข้าไฟล์ออเดอร์สำเร็จ', req);
   }

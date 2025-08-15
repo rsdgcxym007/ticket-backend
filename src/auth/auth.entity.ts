@@ -34,7 +34,7 @@ export class Auth {
   role: string;
 
   @ManyToOne(() => User)
-  @JoinColumn({ name: 'providerId' }) // สมมุติว่าใช้ user.id
+  @JoinColumn({ name: 'userId' }) // ใช้ userId เป็นหลัก
   user: User;
 
   @Column({ nullable: true })

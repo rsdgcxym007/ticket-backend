@@ -9,6 +9,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AuditLog } from './audit/audit-log.entity';
 import { AuditHelper } from './common/utils';
+import appConfig from './config/app.config';
 
 // ========================================
 // 🏗️ CORE MODULES
@@ -40,6 +41,7 @@ import { ScalabilityModule } from './scalability/scalability.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { StaffModule } from './staff/staff.module';
 
 // import { NotificationModule } from './notifications/notification.module';
 // import { UploadModule } from './upload/upload.module';
@@ -61,7 +63,11 @@ import { DashboardModule } from './dashboard/dashboard.module';
     // ========================================
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: ['.env.local', '.env'],
+      load: [appConfig],
+      envFilePath:
+        process.env.NODE_ENV === 'production'
+          ? ['.env.local', '.env.production', '.env']
+          : ['.env.local', '.env.development', '.env'],
       cache: true,
     }),
 
@@ -123,6 +129,7 @@ import { DashboardModule } from './dashboard/dashboard.module';
     ZoneModule,
     ReferrerModule,
     DashboardModule,
+    StaffModule,
     // ========================================
     // 🔧 FEATURE MODULES
     // ========================================

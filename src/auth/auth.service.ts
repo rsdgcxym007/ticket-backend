@@ -8,6 +8,7 @@ import * as bcrypt from 'bcrypt';
 import { RegisterDto } from './dto/register.dto';
 import { User } from '../user/user.entity';
 import { Staff } from '../staff/staff.entity';
+import { SessionService } from './session.service';
 import {
   LoggingHelper,
   ErrorHandlingHelper,
@@ -24,10 +25,14 @@ export class AuthService {
     private readonly userRepo: Repository<User>,
     @InjectRepository(Staff)
     private readonly staffRepo: Repository<Staff>,
+    private readonly sessionService: SessionService,
   ) {}
 
   async login(
     dto: LoginDto,
+    deviceInfo?: string,
+    ipAddress?: string,
+    userAgent?: string,
   ): Promise<{ access_token: string; user: any; staff?: any }> {
     const logger = LoggingHelper.createContextLogger('AuthService');
     const startTime = Date.now();
@@ -68,15 +73,14 @@ export class AuthService {
         where: { email: dto.email },
       });
 
-      const payload = {
-        sub: auth.user.id,
-        email: auth.email,
-        role: auth.user.role,
-        staffId: staff?.id || null,
-        permissions: staff?.permissions || [],
-      };
+      // สร้าง session ใหม่ (จะปิด sessions เก่าทั้งหมดอัตโนมัติ)
+      const { access_token } = await this.sessionService.createSession(
+        auth.user.id,
+        deviceInfo,
+        ipAddress,
+        userAgent,
+      );
 
-      const access_token = this.jwtService.sign(payload);
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { password: _, ...safeUser } = auth;
 
@@ -90,6 +94,8 @@ export class AuthService {
           email: dto.email,
           loginTime: new Date().toISOString(),
           hasStaffProfile: !!staff,
+          deviceInfo,
+          ipAddress,
         }),
       });
 
@@ -124,6 +130,56 @@ export class AuthService {
       return result;
     }, 2);
   }
+
+  /**
+   * Logout - ปิด session ปัจจุบัน
+   */
+  async logout(tokenId: string): Promise<void> {
+    const logger = LoggingHelper.createContextLogger('AuthService');
+
+    await this.sessionService.revokeSessionByTokenId(tokenId);
+
+    LoggingHelper.logBusinessEvent(logger, 'User logout successful', {
+      tokenId,
+    });
+
+    // 📝 Audit logging for logout
+    await AuditHelper.log({
+      action: AuditAction.LOGOUT,
+      entityType: 'Auth',
+      entityId: tokenId,
+      context: AuditHelper.createSystemContext({
+        source: 'AuthService.logout',
+        logoutTime: new Date().toISOString(),
+      }),
+    });
+  }
+
+  /**
+   * Logout from all devices - ปิด sessions ทั้งหมด
+   */
+  async logoutAll(userId: string): Promise<void> {
+    const logger = LoggingHelper.createContextLogger('AuthService');
+
+    await this.sessionService.revokeAllUserSessions(userId);
+
+    LoggingHelper.logBusinessEvent(logger, 'User logout all successful', {
+      userId,
+    });
+
+    // 📝 Audit logging for logout all
+    await AuditHelper.log({
+      action: AuditAction.LOGOUT,
+      entityType: 'Auth',
+      entityId: userId,
+      context: AuditHelper.createSystemContext({
+        source: 'AuthService.logoutAll',
+        logoutTime: new Date().toISOString(),
+        type: 'all_devices',
+      }),
+    });
+  }
+
   async changePasswordByEmail(
     email: string,
     oldPassword: string,
@@ -161,22 +217,32 @@ export class AuthService {
     const email = emails?.[0]?.value || '';
     const avatar = photos?.[0]?.value || '';
 
-    let user = await this.authRepo.findOne({
+    let auth = await this.authRepo.findOne({
       where: { providerId: id, provider },
     });
 
-    if (!user) {
-      user = this.authRepo.create({
+    if (!auth) {
+      // สร้าง User record ก่อน
+      const newUser = this.userRepo.create({
+        email,
+        name: displayName,
+        role: 'user',
+      });
+      const savedUser = await this.userRepo.save(newUser);
+
+      // จากนั้นสร้าง Auth record พร้อม userId
+      auth = this.authRepo.create({
         providerId: id,
         provider,
         email,
         displayName,
         avatar,
+        userId: savedUser.id, // เพิ่ม userId
       });
-      await this.authRepo.save(user);
+      await this.authRepo.save(auth);
     }
 
-    const payload = { sub: user.id, role: user.role };
+    const payload = { sub: auth.id, role: auth.role };
     return this.jwtService.sign(payload);
   }
 
@@ -216,6 +282,7 @@ export class AuthService {
         displayName: savedUser.name,
         provider: 'manual',
         providerId: savedUser.id,
+        userId: savedUser.id, // เพิ่ม userId ที่ถูกต้อง
         role: savedUser.role,
       });
       await this.authRepo.save(auth);

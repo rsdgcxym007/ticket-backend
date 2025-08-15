@@ -59,6 +59,58 @@ export class SendTicketEmailDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @ApiPropertyOptional({
+    description: 'ประเภทตั๋ว',
+    example: 'RINGSIDE',
+  })
+  @IsOptional()
+  @IsString()
+  ticketType?: string;
+
+  @ApiPropertyOptional({
+    description: 'จำนวนตั๋ว',
+    example: 2,
+  })
+  @IsOptional()
+  quantity?: number;
+
+  @ApiPropertyOptional({
+    description: 'จำนวนตั๋วผู้ใหญ่แบบยืน',
+    example: 1,
+  })
+  @IsOptional()
+  standingAdultQty?: number;
+
+  @ApiPropertyOptional({
+    description: 'จำนวนตั๋วเด็กแบบยืน',
+    example: 0,
+  })
+  @IsOptional()
+  standingChildQty?: number;
+
+  @ApiPropertyOptional({
+    description: 'วันที่แสดง',
+    example: '2025-08-15',
+  })
+  @IsOptional()
+  @IsString()
+  showDate?: string;
+
+  @ApiPropertyOptional({
+    description: 'ยอดรวม',
+    example: 2800,
+  })
+  @IsOptional()
+  totalAmount?: number;
+
+  @ApiPropertyOptional({
+    description: 'หมายเลขที่นั่ง',
+    example: ['A1', 'A2'],
+  })
+  @IsOptional()
+  @IsArray()
+  seatNumbers?: string[];
 }
 
 export class EmailRecipientDto {

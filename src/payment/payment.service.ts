@@ -25,6 +25,7 @@ import {
   ErrorHandlingHelper,
   AuditHelper,
 } from '../common/utils';
+import { EmailAutomationService } from '../email/email-automation.service';
 
 @Injectable()
 export class PaymentService {
@@ -35,6 +36,7 @@ export class PaymentService {
     @InjectRepository(Referrer) private referrerRepo: Repository<Referrer>,
     @InjectRepository(SeatBooking) private bookingRepo: Repository<SeatBooking>,
     @InjectRepository(AuditLog) private auditRepo: Repository<AuditLog>,
+    private emailAutomationService: EmailAutomationService,
   ) {}
 
   // ========================================
@@ -237,7 +239,69 @@ export class PaymentService {
       }),
     );
 
+    // 📧 ส่งอีเมลตั๋วเมื่อชำระเงินครบแล้ว
+    if (paymentValidation.isFullyPaid && order.customerEmail) {
+      try {
+        await this.sendTicketEmail(order, flow);
+        logger.log(
+          `📧 Ticket email sent successfully to ${order.customerEmail}`,
+        );
+      } catch (emailError) {
+        logger.error(`❌ Failed to send ticket email: ${emailError.message}`);
+        // ไม่ throw error เพื่อไม่ให้การชำระเงินล้มเหลวเพราะอีเมล
+      }
+    }
+
     return savedPayment;
+  }
+
+  /**
+   * ส่งอีเมลตั๋วหลังชำระเงินครบแล้ว
+   */
+  private async sendTicketEmail(order: Order, flow: 'SEATED' | 'STANDING') {
+    // Prepare ticket data according to SendTicketEmailDto
+    const ticketData = {
+      orderId: order.orderNumber, // ใช้ orderNumber แทน orderId
+      recipientEmail: order.customerEmail,
+      recipientName: order.customerName || 'ลูกค้า',
+      ticketType: flow === 'SEATED' ? 'ตั๋วที่นั่ง' : 'ตั๋วยืน',
+      quantity:
+        flow === 'SEATED'
+          ? order.quantity
+          : order.standingAdultQty + order.standingChildQty,
+      showDate: order.showDate
+        ? order.showDate.toLocaleDateString('th-TH')
+        : 'ไม่ระบุ',
+      totalAmount: order.totalAmount,
+      seatNumbers: [] as string[], // Will be populated from seatBookings if needed
+      includeQRCode: true,
+      notes: 'ขอบคุณที่ใช้บริการของเรา',
+    };
+
+    // For seated tickets, get seat numbers from seatBookings
+    if (flow === 'SEATED' && order.seatBookings?.length > 0) {
+      // Load seat details if not already loaded
+      if (order.seatBookings[0].seat) {
+        ticketData.seatNumbers = order.seatBookings.map(
+          (booking) =>
+            booking.seat.seatNumber ||
+            `R${booking.seat.rowIndex}C${booking.seat.columnIndex}`,
+        );
+      }
+    } else if (flow === 'STANDING') {
+      // For standing tickets, add quantities in notes
+      if (order.standingAdultQty > 0 || order.standingChildQty > 0) {
+        const standingInfo = [];
+        if (order.standingAdultQty > 0)
+          standingInfo.push(`ผู้ใหญ่ ${order.standingAdultQty} คน`);
+        if (order.standingChildQty > 0)
+          standingInfo.push(`เด็ก ${order.standingChildQty} คน`);
+        ticketData.notes = `${ticketData.notes} | ${standingInfo.join(', ')}`;
+      }
+    }
+
+    // Send email via EmailAutomationService
+    await this.emailAutomationService.sendTicketEmail(ticketData);
   }
 
   // ========================================

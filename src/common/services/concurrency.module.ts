@@ -11,6 +11,7 @@ import { DuplicateOrderPreventionService } from './duplicate-order-prevention.se
 import { EnhancedOrderService } from './enhanced-order.service';
 import { ConcurrencyCleanupService } from './concurrency-cleanup.service';
 import { GatewayModule } from '../gateways/gateway.module';
+import { EmailModule } from '../../email/email.module';
 
 /**
  * 🛡️ Concurrency Control Module
@@ -21,6 +22,7 @@ import { GatewayModule } from '../gateways/gateway.module';
     TypeOrmModule.forFeature([Order, User, Seat, SeatBooking, Referrer]),
     ScheduleModule.forRoot(),
     GatewayModule, // ✅ เพิ่ม Gateway Module
+    EmailModule, // ✅ เพิ่ม Email Module
   ],
   providers: [
     ConcurrencyService,
