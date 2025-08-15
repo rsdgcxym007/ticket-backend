@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import * as nodemailer from 'nodemailer';
+import * as handlebars from 'handlebars';
 import { QRCodeService } from '../common/services/qr-code.service';
 import {
   SendTicketEmailDto,
@@ -14,11 +16,33 @@ import {
 @Injectable()
 export class EmailAutomationService {
   private readonly logger = new Logger(EmailAutomationService.name);
+  private transporter: nodemailer.Transporter;
 
   constructor(
     private readonly configService: ConfigService,
     private readonly qrCodeService: QRCodeService,
-  ) {}
+  ) {
+    this.initializeEmailTransporter();
+  }
+
+  /**
+   * 📧 Initialize Email Transporter
+   */
+  private initializeEmailTransporter() {
+    this.transporter = nodemailer.createTransport({
+      host: this.configService.get<string>('SMTP_HOST') || 'smtp.gmail.com',
+      port: this.configService.get<number>('SMTP_PORT') || 587,
+      secure: false, // true for 465, false for other ports
+      auth: {
+        user: this.configService.get<string>('SMTP_USER'),
+        pass: this.configService.get<string>('SMTP_PASS'),
+      },
+    });
+
+    this.logger.log(
+      `📧 Email transporter initialized with ${this.configService.get<string>('SMTP_USER')}`,
+    );
+  }
 
   /**
    * 📧 ส่งตั๋ว QR Code ทาง Email
@@ -31,19 +55,39 @@ export class EmailAutomationService {
     );
 
     try {
-      // จำลองการสร้าง QR Code
+      // สร้าง QR Code ถ้าต้องการ
       const qrCode = sendTicketDto.includeQRCode
         ? await this.generateQRCodeForOrder(sendTicketDto.orderId)
         : null;
 
-      // จำลองการส่ง email
-      const messageId = `email-${Date.now()}-${Math.random().toString(36).substring(7)}`;
-
-      // Mock email template
+      // สร้าง HTML email template
       const emailTemplate = this.getTicketEmailTemplate(
         sendTicketDto,
         qrCode?.qrCodeImage,
       );
+
+      // ตั้งค่า email
+      const mailOptions = {
+        from:
+          this.configService.get<string>('EMAIL_FROM') || 'rsdgcxym@gmail.com',
+        to: sendTicketDto.recipientEmail,
+        subject: `🎫 ตั๋วของคุณสำหรับออเดอร์ ${sendTicketDto.orderId}`,
+        html: emailTemplate,
+        attachments: qrCode
+          ? [
+              {
+                filename: `ticket-${sendTicketDto.orderId}.png`,
+                content: qrCode.qrCodeImage.split('base64,')[1],
+                encoding: 'base64',
+                cid: 'qrcode', // สำหรับใช้ใน HTML เป็น <img src="cid:qrcode">
+              },
+            ]
+          : [],
+      };
+
+      // ส่ง email จริงๆ
+      const result = await this.transporter.sendMail(mailOptions);
+      const messageId = result.messageId;
 
       this.logger.log(`✅ ส่งตั๋วทาง email สำเร็จ - Message ID: ${messageId}`);
 
@@ -79,10 +123,21 @@ export class EmailAutomationService {
     );
 
     try {
-      const messageId = `conf-${Date.now()}-${Math.random().toString(36).substring(7)}`;
-
-      // Mock confirmation email
+      // สร้าง HTML email template
       const emailContent = this.getOrderConfirmationTemplate(confirmationDto);
+
+      // ตั้งค่า email
+      const mailOptions = {
+        from:
+          this.configService.get<string>('EMAIL_FROM') || 'rsdgcxym@gmail.com',
+        to: confirmationDto.customerEmail,
+        subject: `✅ ยืนยันการสั่งซื้อ - ออเดอร์ ${confirmationDto.orderId}`,
+        html: emailContent,
+      };
+
+      // ส่ง email จริงๆ
+      const result = await this.transporter.sendMail(mailOptions);
+      const messageId = result.messageId;
 
       this.logger.log(
         `✅ ส่งคำยืนยันการสั่งซื้อสำเร็จ - Message ID: ${messageId}`,
@@ -406,27 +461,432 @@ export class EmailAutomationService {
     qrCodeImage?: string,
   ): string {
     return `
-      <html>
-        <body>
-          <h1>สวัสดี ${sendTicketDto.recipientName || 'ลูกค้า'}</h1>
-          <p>ตั๋วของคุณสำหรับออเดอร์ ${sendTicketDto.orderId} พร้อมแล้ว!</p>
-          ${qrCodeImage ? `<img src="data:image/png;base64,${qrCodeImage}" alt="QR Code" />` : ''}
-          <p>กรุณานำ QR Code นี้มาใช้เข้างาน</p>
-          ${sendTicketDto.notes ? `<p>หมายเหตุ: ${sendTicketDto.notes}</p>` : ''}
-        </body>
+      <!DOCTYPE html>
+      <html lang="th">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta name="format-detection" content="telephone=no">
+        <title>🎫 Your Digital Ticket - Order ${sendTicketDto.orderId}</title>
+        <!--[if mso]>
+        <noscript>
+          <xml>
+            <o:OfficeDocumentSettings>
+              <o:PixelsPerInch>96</o:PixelsPerInch>
+            </o:OfficeDocumentSettings>
+          </xml>
+        </noscript>
+        <![endif]-->
+        <style>
+          /* Reset Styles */
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          
+          /* Email Client Compatibility */
+          table, td, div, h1, h2, h3, p { font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Roboto', 'Helvetica Neue', Arial, sans-serif; }
+          
+          body { 
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #2d3748;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+          }
+          
+          .email-wrapper {
+            width: 100%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 40px 20px;
+            min-height: 100vh;
+          }
+          
+          .email-container {
+            max-width: 680px;
+            margin: 0 auto;
+            background: #ffffff;
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+          }
+          
+          .header {
+            background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+            color: white;
+            padding: 40px 30px;
+            text-align: center;
+            position: relative;
+          }
+          
+          .header::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><pattern id="grain" width="100" height="100" patternUnits="userSpaceOnUse"><circle cx="25" cy="25" r="1" fill="white" opacity="0.1"/><circle cx="75" cy="75" r="1" fill="white" opacity="0.1"/><circle cx="50" cy="10" r="0.5" fill="white" opacity="0.05"/></pattern></defs><rect width="100" height="100" fill="url(%23grain)"/></svg>') repeat;
+            opacity: 0.1;
+          }
+          
+          .header h1 {
+            font-size: 32px;
+            font-weight: 700;
+            margin-bottom: 10px;
+            position: relative;
+            z-index: 1;
+          }
+          
+          .header .subtitle {
+            font-size: 18px;
+            opacity: 0.9;
+            position: relative;
+            z-index: 1;
+          }
+          
+          .ticket-card {
+            margin: 30px;
+            border: 2px solid #e2e8f0;
+            border-radius: 16px;
+            overflow: hidden;
+            position: relative;
+          }
+          
+          .ticket-header {
+            background: linear-gradient(90deg, #f7fafc 0%, #edf2f7 100%);
+            padding: 20px 25px;
+            border-bottom: 2px dashed #cbd5e0;
+            position: relative;
+          }
+          
+          .ticket-header::after {
+            content: '';
+            position: absolute;
+            bottom: -11px;
+            left: -11px;
+            width: 20px;
+            height: 20px;
+            background: #ffffff;
+            border-radius: 50%;
+            border: 2px solid #e2e8f0;
+          }
+          
+          .ticket-header::before {
+            content: '';
+            position: absolute;
+            bottom: -11px;
+            right: -11px;
+            width: 20px;
+            height: 20px;
+            background: #ffffff;
+            border-radius: 50%;
+            border: 2px solid #e2e8f0;
+          }
+          
+          .ticket-body {
+            padding: 25px;
+            background: #ffffff;
+          }
+          
+          .info-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 25px;
+          }
+          
+          .info-item {
+            display: flex;
+            flex-direction: column;
+          }
+          
+          .info-label {
+            font-size: 12px;
+            color: #718096;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 5px;
+            font-weight: 600;
+          }
+          
+          .info-value {
+            font-size: 16px;
+            color: #2d3748;
+            font-weight: 600;
+          }
+          
+          .highlight-info {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 12px;
+            margin: 20px 0;
+            text-align: center;
+          }
+          
+          .qr-section {
+            text-align: center;
+            padding: 30px;
+            background: linear-gradient(135deg, #f0f4f8 0%, #e2e8f0 100%);
+            border-radius: 16px;
+            margin: 25px;
+          }
+          
+          .qr-section h3 {
+            color: #4a5568;
+            margin-bottom: 15px;
+            font-size: 20px;
+          }
+          
+          .qr-code-container {
+            display: inline-block;
+            padding: 20px;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+            margin: 20px 0;
+          }
+          
+          .qr-section img {
+            max-width: 200px;
+            height: auto;
+            border-radius: 8px;
+          }
+          
+          .instructions {
+            background: #fff8e1;
+            border-left: 4px solid #ffc107;
+            padding: 15px 20px;
+            margin: 20px 25px;
+            border-radius: 0 8px 8px 0;
+          }
+          
+          .footer {
+            background: #f8fafc;
+            padding: 30px;
+            text-align: center;
+            border-top: 1px solid #e2e8f0;
+          }
+          
+          .social-links {
+            margin: 20px 0;
+          }
+          
+          .social-links a {
+            display: inline-block;
+            margin: 0 10px;
+            color: #667eea;
+            text-decoration: none;
+          }
+          
+          /* Mobile Responsiveness */
+          @media only screen and (max-width: 600px) {
+            .email-wrapper { padding: 20px 10px; }
+            .email-container { margin: 0 10px; }
+            .header { padding: 30px 20px; }
+            .header h1 { font-size: 24px; }
+            .ticket-card { margin: 20px 15px; }
+            .info-grid { grid-template-columns: 1fr; gap: 15px; }
+            .qr-section { padding: 20px 15px; margin: 20px 15px; }
+            .footer { padding: 20px 15px; }
+          }
+          
+          /* Dark Mode Support */
+          @media (prefers-color-scheme: dark) {
+            .email-container { background: #1a202c; }
+            .ticket-body { background: #1a202c; color: #e2e8f0; }
+            .info-value { color: #e2e8f0; }
+            .footer { background: #2d3748; color: #e2e8f0; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="email-wrapper">
+          <div class="email-container">
+            <div class="header">
+              <h1>🎫 Digital Ticket</h1>
+              <p class="subtitle">Your event pass is ready!</p>
+            </div>
+            
+            <div class="ticket-card">
+              <div class="ticket-header">
+                <h2 style="margin: 0; font-size: 18px; color: #4a5568;">EVENT TICKET</h2>
+                <p style="margin: 5px 0 0 0; color: #718096; font-size: 14px;">Order: ${sendTicketDto.orderId}</p>
+              </div>
+              
+              <div class="ticket-body">
+                <div class="info-grid">
+                  <div class="info-item">
+                    <span class="info-label">Ticket Holder</span>
+                    <span class="info-value">${sendTicketDto.recipientName || 'Guest'}</span>
+                  </div>
+                  <div class="info-item">
+                    <span class="info-label">Ticket Type</span>
+                    <span class="info-value">${sendTicketDto.ticketType || 'General'}</span>
+                  </div>
+                  <div class="info-item">
+                    <span class="info-label">Quantity</span>
+                    <span class="info-value">${sendTicketDto.quantity || 1} ticket${(sendTicketDto.quantity || 1) > 1 ? 's' : ''}</span>
+                  </div>
+                  <div class="info-item">
+                    <span class="info-label">Event Date</span>
+                    <span class="info-value">${sendTicketDto.showDate || 'TBA'}</span>
+                  </div>
+                  ${
+                    sendTicketDto.seatNumbers &&
+                    sendTicketDto.seatNumbers.length > 0
+                      ? `
+                  <div class="info-item" style="grid-column: 1 / -1;">
+                    <span class="info-label">Seat Numbers</span>
+                    <span class="info-value">${sendTicketDto.seatNumbers.join(', ')}</span>
+                  </div>
+                  `
+                      : ''
+                  }
+                </div>
+                
+                <div class="highlight-info">
+                  <strong style="font-size: 18px;">Total Amount</strong><br>
+                  <span style="font-size: 24px; font-weight: 700;">฿${sendTicketDto.totalAmount.toLocaleString('en-US')}</span>
+                </div>
+              </div>
+            </div>
+
+            ${
+              qrCodeImage
+                ? `
+            <div class="qr-section">
+              <h3>🎯 Entry QR Code</h3>
+              <p style="color: #718096; margin-bottom: 10px;">Present this QR code at the entrance</p>
+              <div class="qr-code-container">
+                <img src="cid:qrcode" alt="Entry QR Code" />
+              </div>
+              <p style="color: #718096; font-size: 14px; margin-top: 10px;">
+                📱 Scan with any QR code reader
+              </p>
+            </div>
+            `
+                : ''
+            }
+
+            <div class="instructions">
+              <h4 style="margin: 0 0 10px 0; color: #e65100;">⚠️ Important Instructions</h4>
+              <ul style="margin: 0; padding-left: 20px; color: #e65100;">
+                <li>Please arrive 30 minutes before the event</li>
+                <li>Keep this email and QR code accessible on your device</li>
+                <li>Bring a valid ID for verification</li>
+                <li>Screenshots of QR codes are accepted</li>
+              </ul>
+            </div>
+
+            <div class="footer">
+              <h4 style="color: #4a5568; margin-bottom: 15px;">Thank you for your purchase!</h4>
+              <p style="color: #718096; margin-bottom: 20px;">
+                Questions? Contact us at <a href="mailto:rsdgcxym@gmail.com" style="color: #667eea;">rsdgcxym@gmail.com</a>
+              </p>
+              
+              <div class="social-links">
+                <a href="#" style="color: #667eea;">📧 Email</a>
+                <a href="#" style="color: #667eea;">📱 Line</a>
+                <a href="#" style="color: #667eea;">📞 Phone</a>
+              </div>
+              
+              <p style="color: #a0aec0; font-size: 12px; margin-top: 20px;">
+                This is an automated message. Please do not reply to this email.
+              </p>
+            </div>
+          </div>
+        </div>
+      </body>
       </html>
     `;
   }
 
   private getOrderConfirmationTemplate(confirmationDto: any): string {
     return `
+      <!DOCTYPE html>
       <html>
-        <body>
-          <h1>ยืนยันการสั่งซื้อ</h1>
-          <p>ออเดอร์ ${confirmationDto.orderId} ของคุณได้รับการยืนยันแล้ว</p>
-          <p>จำนวนเงิน: ${confirmationDto.totalAmount} บาท</p>
-          <p>วิธีชำระเงิน: ${confirmationDto.paymentMethod}</p>
-        </body>
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>ยืนยันการสั่งซื้อ - ${confirmationDto.orderId}</title>
+        <style>
+          body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f4f4f4;
+          }
+          .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+          }
+          .header {
+            text-align: center;
+            border-bottom: 3px solid #28a745;
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+          }
+          .header h1 {
+            color: #28a745;
+            font-size: 28px;
+            margin: 0;
+          }
+          .order-details {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+          }
+          .total-amount {
+            background: #e8f5e8;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            margin: 20px 0;
+          }
+          .footer {
+            text-align: center;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #dee2e6;
+            color: #6c757d;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>✅ ยืนยันการสั่งซื้อ</h1>
+            <p>ออเดอร์ของคุณได้รับการยืนยันแล้ว</p>
+          </div>
+          
+          <div class="order-details">
+            <h2>📋 รายละเอียดออเดอร์</h2>
+            <p><strong>หมายเลขออเดอร์:</strong> ${confirmationDto.orderId}</p>
+            <p><strong>ชื่อลูกค้า:</strong> ${confirmationDto.customerName || 'ไม่ระบุ'}</p>
+            <p><strong>วิธีชำระเงิน:</strong> ${confirmationDto.paymentMethod || 'ไม่ระบุ'}</p>
+            <p><strong>วันที่สั่งซื้อ:</strong> ${new Date().toLocaleDateString('th-TH')}</p>
+          </div>
+
+          <div class="total-amount">
+            <h3>💰 จำนวนเงินรวม</h3>
+            <h2 style="color: #28a745; margin: 10px 0;">${confirmationDto.totalAmount || '0'} บาท</h2>
+          </div>
+
+          <div class="footer">
+            <p>🎫 ตั๋วจะถูกส่งให้คุณทางอีเมลหลังจากชำระเงินเรียบร้อยแล้ว</p>
+            <p>ขอบคุณที่เลือกใช้บริการของเรา</p>
+            <p><small>หากมีคำถาม กรุณาติดต่อ: rsdgcxym@gmail.com</small></p>
+          </div>
+        </div>
+      </body>
       </html>
     `;
   }

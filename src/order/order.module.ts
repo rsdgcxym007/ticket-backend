@@ -9,6 +9,7 @@ import { ReferrerModule } from '../referrer/referrer.module';
 import { SeatsModule } from '../seats/seat.module';
 import { PaymentModule } from '../payment/payment.module';
 import { AuthModule } from '../auth/auth.module';
+import { EmailModule } from '../email/email.module';
 import { SeatBooking } from '../seats/seat-booking.entity';
 import { BusinessService } from '../common/services/business.service';
 import { AuditModule } from '../audit/audit.module';
@@ -25,6 +26,7 @@ import { AuditHelperService } from '../common/services/audit-helper.service';
     UserModule,
     ReferrerModule,
     PaymentModule,
+    EmailModule, // ✅ เพิ่ม EmailModule
     forwardRef(() => AuthModule), // ✅ ใช้ forwardRef เพื่อหลีกเลี่ยง circular dependency
     AuditModule,
     ConcurrencyModule, // ✅ เพิ่ม ConcurrencyModule

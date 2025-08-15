@@ -16,6 +16,7 @@ import helmet from 'helmet';
 import compression from 'compression';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { join } from 'path';
+import { AppConfig } from './config/app.config';
 
 async function bootstrap() {
   // ========================================
@@ -29,6 +30,7 @@ async function bootstrap() {
   });
 
   const configService = app.get(ConfigService);
+  const appConfig = configService.get<AppConfig>('app');
   const logger = new Logger('Bootstrap');
 
   // Debug JWT secret - only in development
@@ -73,11 +75,16 @@ async function bootstrap() {
   // 🌐 CORS CONFIGURATION
   // ========================================
   app.enableCors({
-    origin: ['http://43.229.133.51:3000', 'http://localhost:3000'],
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
-    credentials: true,
+    origin: appConfig.cors.origins,
+    methods: appConfig.cors.methods,
+    allowedHeaders: appConfig.cors.allowedHeaders,
+    credentials: appConfig.cors.credentials,
   });
+
+  // Log CORS origins in development
+  if (appConfig.environment !== 'production') {
+    logger.log(`🌐 CORS Origins: ${appConfig.cors.origins.join(', ')}`);
+  }
 
   // ========================================
   // 📁 STATIC FILES
@@ -106,32 +113,15 @@ async function bootstrap() {
   // ========================================
   // 🚦 API PREFIX & VERSIONING
   // ========================================
-  const apiVersion = configService.get('API_VERSION', 'v1');
-  app.setGlobalPrefix(`api/${apiVersion}`);
+  app.setGlobalPrefix(`api/${appConfig.apiVersion}`);
 
   // ========================================
   // 📚 SWAGGER DOCUMENTATION
   // ========================================
   const config = new DocumentBuilder()
-    .setTitle('🎫 Boxing Ticket Booking System API')
-    .setDescription(
-      `
-      Complete ticket booking system with order management, 
-      payment processing, seat allocation, and analytics.
-      
-      ## Features
-      - 🎟️ Order Management
-      - 💳 Payment Processing
-      - 💺 Seat Management
-      - 📊 Analytics & Reporting
-      - 🔐 Role-based Access Control
-      - 🔍 Audit Trail
-      
-      ## Authentication
-      Use JWT token in Authorization header: \`Bearer <token>\`
-    `,
-    )
-    .setVersion('1.0')
+    .setTitle(appConfig.swagger.title)
+    .setDescription(appConfig.swagger.description)
+    .setVersion(appConfig.swagger.version)
     .addBearerAuth()
     .addTag('Authentication', 'User authentication and authorization')
     .addTag('Orders', 'Order management operations')
@@ -141,31 +131,46 @@ async function bootstrap() {
     .addTag('Audit', 'System audit trail')
     .addTag('Config', 'System configuration')
     .addTag('Health', 'Application health checks')
+    .addTag('Email', 'Email automation system')
     .build();
 
   const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api/docs', app, document, {
-    swaggerOptions: {
-      persistAuthorization: true,
-      tagsSorter: 'alpha',
-      operationsSorter: 'alpha',
-    },
-  });
 
-  logger.log('📚 Swagger documentation available at: /api/docs');
+  if (appConfig.swagger.enabled) {
+    SwaggerModule.setup(appConfig.swagger.path, app, document, {
+      swaggerOptions: {
+        persistAuthorization: true,
+        tagsSorter: 'alpha',
+        operationsSorter: 'alpha',
+      },
+    });
+    logger.log(
+      `📚 Swagger documentation available at: /${appConfig.swagger.path}`,
+    );
+  }
 
   // ========================================
   // 🚀 START SERVER
   // ========================================
-  const port = configService.get('PORT', process.env.PORT ?? 4000);
+  const port = appConfig.port;
   await app.listen(port, '0.0.0.0');
 
-  logger.log(`🎫 Boxing Ticket Booking System started on port ${port}`);
-  logger.log(`🌐 Environment: ${configService.get('NODE_ENV', 'development')}`);
-  logger.log(`📱 API Base URL: http://localhost:${port}/api/${apiVersion}`);
-  logger.log(`📚 Documentation: http://localhost:${port}/api/docs`);
+  logger.log(`🥊 Patong Boxing Stadium Ticket System started on port ${port}`);
+  logger.log(`🌐 Environment: ${appConfig.environment}`);
+  logger.log(`🌍 Frontend URL: ${appConfig.domain.frontend}`);
+  logger.log(`🔗 Backend URL: ${appConfig.domain.backend}`);
   logger.log(
-    `💊 Health Check: http://localhost:${port}/api/${apiVersion}/health`,
+    `📱 API Base URL: ${appConfig.domain.api}/${appConfig.apiVersion}`,
+  );
+
+  if (appConfig.swagger.enabled) {
+    logger.log(
+      `📚 Documentation: ${appConfig.domain.backend}/${appConfig.swagger.path}`,
+    );
+  }
+
+  logger.log(
+    `💊 Health Check: ${appConfig.domain.api}/${appConfig.apiVersion}/health`,
   );
 }
 

@@ -9,6 +9,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AuditLog } from './audit/audit-log.entity';
 import { AuditHelper } from './common/utils';
+import appConfig from './config/app.config';
 
 // ========================================
 // 🏗️ CORE MODULES
@@ -62,6 +63,7 @@ import { StaffModule } from './staff/staff.module';
     // ========================================
     ConfigModule.forRoot({
       isGlobal: true,
+      load: [appConfig],
       envFilePath:
         process.env.NODE_ENV === 'production'
           ? ['.env.local', '.env.production', '.env']

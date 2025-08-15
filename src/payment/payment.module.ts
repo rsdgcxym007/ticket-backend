@@ -11,6 +11,7 @@ import { SeatBooking } from '../seats/seat-booking.entity';
 import { AuditLog } from '../audit/audit-log.entity';
 import { Seat } from '../seats/seat.entity';
 import { Referrer } from '../referrer/referrer.entity';
+import { EmailModule } from '../email/email.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { Referrer } from '../referrer/referrer.entity';
     forwardRef(() => OrderModule),
     forwardRef(() => SeatsModule),
     forwardRef(() => ReferrerModule),
+    EmailModule,
   ],
   controllers: [PaymentController],
   providers: [PaymentService],

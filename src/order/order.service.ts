@@ -54,6 +54,7 @@ import { DateFormatterHelper } from '../utils/date-formatter.helper';
 import { SeatBookingService } from '../common/services/seat-booking.service';
 import { AuditHelperService } from '../common/services/audit-helper.service';
 import { OrderBusinessService } from './services/order-business.service';
+import { EmailAutomationService } from '../email/email-automation.service';
 
 // ========================================
 // 📊 MAPPERS & TYPES
@@ -157,6 +158,7 @@ export class OrderService {
     private seatBookingService: SeatBookingService,
     private auditHelperService: AuditHelperService,
     private orderBusinessService: OrderBusinessService,
+    private emailAutomationService: EmailAutomationService,
   ) {
     // Add console.log to verify logger initialization
   }
@@ -577,7 +579,13 @@ export class OrderService {
 
     const order = await this.orderRepo.findOne({
       where: { id },
-      relations: ['seatBookings'],
+      relations: [
+        'seatBookings',
+        'seatBookings.seat',
+        'seatBookings.seat.zone',
+        'user',
+        'referrer',
+      ],
     });
 
     if (!order) {
@@ -613,6 +621,51 @@ export class OrderService {
         order.paymentMethod,
       ),
     );
+
+    // 📧 ส่งอีเมลตั๋วให้ลูกค้าหลังจากยืนยันการชำระเงิน
+    if (order.customerEmail && order.customerEmail.trim() !== '') {
+      try {
+        this.logger.log(
+          `📧 เริ่มส่งอีเมลตั๋วให้ลูกค้า: ${order.customerEmail} สำหรับออเดอร์: ${order.orderNumber || id}`,
+        );
+
+        // ส่งอีเมลตั๋วพร้อมข้อมูลครบถ้วน
+        const emailResult = await this.emailAutomationService.sendTicketEmail({
+          orderId: order.orderNumber || id,
+          recipientEmail: order.customerEmail,
+          recipientName: order.customerName,
+          includeQRCode: true,
+          language: 'th',
+          ticketType: order.ticketType,
+          quantity: order.quantity || 1,
+          standingAdultQty: order.standingAdultQty || 0,
+          standingChildQty: order.standingChildQty || 0,
+          showDate: order.showDate
+            ? order.showDate.toISOString().split('T')[0]
+            : undefined,
+          totalAmount: order.totalAmount,
+          seatNumbers:
+            order.seatBookings
+              ?.map((booking) => booking.seat?.seatNumber)
+              .filter(Boolean) || [],
+          notes: `ตั๋วสำหรับ ${order.ticketType === TicketType.STANDING ? 'ยืน' : 'ที่นั่ง'} จำนวน ${order.quantity || 1} ใบ`,
+        });
+
+        this.logger.log(
+          `✅ ส่งอีเมลตั๋วสำเร็จ: ${order.customerEmail}, MessageID: ${emailResult.messageId}`,
+        );
+      } catch (emailError) {
+        this.logger.error(
+          `❌ ส่งอีเมลตั๋วไม่สำเร็จ: ${emailError.message}`,
+          emailError.stack,
+        );
+        // ไม่ throw error เพื่อไม่ให้กระทบกับการยืนยันการชำระเงิน
+      }
+    } else {
+      this.logger.warn(
+        `⚠️ ไม่สามารถส่งอีเมลตั๋วได้: ไม่มีอีเมลลูกค้าสำหรับออเดอร์ ${order.orderNumber || id}`,
+      );
+    }
 
     return { success: true, message: 'ยืนยันการชำระเงินสำเร็จ' };
   }
