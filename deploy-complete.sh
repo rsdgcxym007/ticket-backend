@@ -46,14 +46,29 @@ log_error() {
 
 # Check if running with proper permissions
 check_permissions() {
-    if [[ $EUID -eq 0 ]]; then
-        log_error "Don't run this script as root. Run as deployment user with sudo access."
+    # Check if we're on a VPS/server environment
+    if [[ ! -d "/var/www" ]] && [[ ! -d "/etc/nginx" ]]; then
+        log_error "This script is designed to run on a Linux server (VPS)."
+        log_error "You're currently on: $(uname -s)"
+        log_error ""
+        log_error "To deploy from local machine, use instead:"
+        log_error "  npm run production:deploy"
+        log_error "  # or"
+        log_error "  ./deploy-from-local.sh"
         exit 1
     fi
     
-    if ! sudo -n true 2>/dev/null; then
-        log_error "This script requires sudo access. Please run with a user that has sudo privileges."
-        exit 1
+    # Check sudo access (don't run as root, but need sudo)
+    if [[ $EUID -eq 0 ]]; then
+        log_warning "Running as root. This is allowed but not recommended."
+        log_warning "Consider creating a deployment user with sudo access."
+    else
+        if ! sudo -n true 2>/dev/null; then
+            log_error "This script requires sudo access for system configuration."
+            log_error "Please run: sudo $0"
+            log_error "Or configure passwordless sudo for your user."
+            exit 1
+        fi
     fi
 }
 

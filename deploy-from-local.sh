@@ -40,13 +40,34 @@ echo "Project: $PROJECT_DIR"
 echo "============================================"
 
 # Check if we have SSH access
-log_info "Testing SSH connection..."
-if ! ssh -o ConnectTimeout=5 $SERVER_USER@$SERVER_IP "echo 'SSH connection successful'" > /dev/null 2>&1; then
+log_info "Testing SSH connection to $SERVER_USER@$SERVER_IP..."
+if ! ssh -o ConnectTimeout=10 -o BatchMode=yes $SERVER_USER@$SERVER_IP "echo 'SSH connection successful'" > /dev/null 2>&1; then
     log_error "Cannot connect to server. Please check:"
-    echo "1. Server IP: $SERVER_IP"
-    echo "2. SSH key is configured"
-    echo "3. Server is accessible"
-    exit 1
+    echo ""
+    echo "🔧 Possible solutions:"
+    echo "1. Make sure server IP is correct: $SERVER_IP"
+    echo "2. Make sure you can SSH: ssh $SERVER_USER@$SERVER_IP"
+    echo "3. If you don't have SSH key setup, run:"
+    echo "   ssh-copy-id $SERVER_USER@$SERVER_IP"
+    echo "4. Or use password authentication:"
+    echo "   ssh -o PreferredAuthentications=password $SERVER_USER@$SERVER_IP"
+    echo ""
+    
+    read -p "Would you like to try password authentication? (y/N): " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        echo "Please enter your server password when prompted..."
+        if ! ssh -o PreferredAuthentications=password $SERVER_USER@$SERVER_IP "echo 'SSH connection successful'"; then
+            log_error "Password authentication also failed. Please check server access."
+            exit 1
+        fi
+        # Set flag to use password auth for the rest of the script
+        SSH_AUTH="-o PreferredAuthentications=password"
+    else
+        exit 1
+    fi
+else
+    SSH_AUTH=""
 fi
 
 log_success "SSH connection verified"
@@ -72,11 +93,16 @@ log_success "Deployment package created: $DEPLOY_PACKAGE"
 
 # Upload to server
 log_info "Uploading to server..."
-scp $DEPLOY_PACKAGE $SERVER_USER@$SERVER_IP:/tmp/
+if [[ -n "$SSH_AUTH" ]]; then
+    scp $SSH_AUTH $DEPLOY_PACKAGE $SERVER_USER@$SERVER_IP:/tmp/
+else
+    scp $DEPLOY_PACKAGE $SERVER_USER@$SERVER_IP:/tmp/
+fi
 
 # Extract and deploy on server
 log_info "Deploying on server..."
-ssh $SERVER_USER@$SERVER_IP << 'EOF'
+if [[ -n "$SSH_AUTH" ]]; then
+    ssh $SSH_AUTH $SERVER_USER@$SERVER_IP << 'EOF'
 set -e
 
 APP_NAME="patong-boxing-stadium"
@@ -182,7 +208,11 @@ log_success "🎉 Deployment completed successfully!"
 
 # Show server status
 log_info "Getting server status..."
-ssh $SERVER_USER@$SERVER_IP "pm2 status"
+if [[ -n "$SSH_AUTH" ]]; then
+    ssh $SSH_AUTH $SERVER_USER@$SERVER_IP "pm2 status"
+else
+    ssh $SERVER_USER@$SERVER_IP "pm2 status"
+fi
 
 echo ""
 echo "🔗 Test your deployment:"
@@ -191,6 +221,12 @@ echo "• https://api-patongboxingstadiumticket.com/api"
 
 echo ""
 echo "📋 Remote commands:"
-echo "• Check logs: ssh $SERVER_USER@$SERVER_IP 'pm2 logs $APP_NAME'"
-echo "• Restart API: ssh $SERVER_USER@$SERVER_IP 'pm2 restart $APP_NAME'"
-echo "• Server status: ssh $SERVER_USER@$SERVER_IP 'pm2 status'"
+if [[ -n "$SSH_AUTH" ]]; then
+    echo "• Check logs: ssh $SSH_AUTH $SERVER_USER@$SERVER_IP 'pm2 logs $APP_NAME'"
+    echo "• Restart API: ssh $SSH_AUTH $SERVER_USER@$SERVER_IP 'pm2 restart $APP_NAME'"
+    echo "• Server status: ssh $SSH_AUTH $SERVER_USER@$SERVER_IP 'pm2 status'"
+else
+    echo "• Check logs: ssh $SERVER_USER@$SERVER_IP 'pm2 logs $APP_NAME'"
+    echo "• Restart API: ssh $SERVER_USER@$SERVER_IP 'pm2 restart $APP_NAME'"
+    echo "• Server status: ssh $SERVER_USER@$SERVER_IP 'pm2 status'"
+fi
