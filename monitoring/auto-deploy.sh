@@ -131,23 +131,19 @@ deploy() {
             log_message "npm ci failed, trying npm install with compatibility options..."
             if npm install --production=false --silent --no-audit --no-fund --legacy-peer-deps --force --engine-strict=false; then
                 log_message "Dependencies installed successfully with npm install (fallback)"
-                else
-                    log_message "ERROR: All dependency installation methods failed"
-                    
-                    # Check if it's a Node.js version issue
-                    log_message "Checking for Node.js version compatibility issues..."
-                    npm ls --depth=0 --silent 2>&1 | grep -i "EBADENGINE" && {
-                        log_message "Node.js version compatibility issue detected"
-                        send_notification "Deploy Failed" "Node.js version incompatibility detected during installation. Server may need Node.js upgrade." "$COLOR_RED"
-                    } || {
-                        send_notification "Deploy Failed" "Failed to install dependencies after trying all methods." "$COLOR_RED"
-                    }
-                    exit 1
-                fi
-        else
-            log_message "ERROR: npm not available or installation failed"
-            send_notification "Deploy Failed" "Package manager not available or installation failed." "$COLOR_RED"
-            exit 1
+            else
+                log_message "ERROR: All dependency installation methods failed"
+                
+                # Check if it's a Node.js version issue
+                log_message "Checking for Node.js version compatibility issues..."
+                npm ls --depth=0 --silent 2>&1 | grep -i "EBADENGINE" && {
+                    log_message "Node.js version compatibility issue detected"
+                    send_notification "Deploy Failed" "Node.js version incompatibility detected during installation. Server may need Node.js upgrade." "$COLOR_RED"
+                } || {
+                    send_notification "Deploy Failed" "Failed to install dependencies after trying all methods." "$COLOR_RED"
+                }
+                exit 1
+            fi
         fi
     else
         log_message "Using existing dependencies (no package changes detected)"
