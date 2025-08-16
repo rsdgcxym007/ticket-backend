@@ -145,10 +145,20 @@ fi
 print_status "Step 3: Installing dependencies"
 safe_execute "rm -rf node_modules package-lock.json yarn.lock" "Cleaning previous installations"
 
-if ! safe_execute "npm install --production=false --no-audit --no-fund --legacy-peer-deps" "Installing dependencies"; then
-    print_warning "Standard install failed, trying with force flag"
-    if ! safe_execute "npm install --production=false --no-audit --no-fund --legacy-peer-deps --force" "Force installing dependencies"; then
-        print_error "All dependency installation attempts failed"
+# Set npm timeouts to prevent hanging
+export NPM_CONFIG_TIMEOUT=300000
+export NPM_CONFIG_FETCH_TIMEOUT=300000
+export NPM_CONFIG_FETCH_RETRY_MINTIMEOUT=20000
+export NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=120000
+
+# Try installation with timeout
+print_status "Installing dependencies with 5-minute timeout"
+if ! timeout 300 npm install --production=false --no-audit --no-fund --legacy-peer-deps; then
+    print_warning "Standard install failed or timed out, trying with force flag"
+    if ! timeout 300 npm install --production=false --no-audit --no-fund --legacy-peer-deps --force; then
+        print_error "All dependency installation attempts failed or timed out"
+        print_error "This might be due to network issues or dependency conflicts"
+        print_status "Try running: bash scripts/deployment-recovery.sh"
         exit 1
     fi
 fi

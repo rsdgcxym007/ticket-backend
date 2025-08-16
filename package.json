@@ -28,6 +28,8 @@
     "migration:revert": "npm run typeorm -- migration:revert -d src/config/database.config.ts",
     "build-deploy": "./scripts/build-and-deploy.sh",
     "build-deploy-enhanced": "./scripts/build-deploy-enhanced.sh",
+    "deploy-recovery": "./scripts/deployment-recovery.sh",
+    "fix-hanging": "./scripts/quick-fix-hanging.sh",
     "lint": "eslint \"{src,apps,libs}/**/*.ts\" --fix",
     "lint:fix": "eslint \"{src,apps,libs}/**/*.ts\" --fix",
     "prebuild": "npm run clean"
