@@ -6,9 +6,28 @@ module.exports = {
     {
       name: 'ticket-backend-prod',
       script: 'dist/main.js',
-      instances: 1, // Single instance for production
+      instances: 1, // Single instance for 4GB RAM
       exec_mode: 'fork',
       cwd: '/var/www/backend/ticket-backend',
+
+      // 🚀 Performance & Memory Optimization
+      node_args: '--max-old-space-size=512 --no-huge-max-old-generation-size',
+      max_memory_restart: '600M', // Increased from 200M but still controlled
+      min_uptime: '10s',
+      max_restarts: 5,
+
+      // 🔄 Auto Build & Deploy Settings
+      watch: false,
+      ignore_watch: ['node_modules', 'logs', 'uploads'],
+
+      // 📊 Logging
+      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+      error_file: '/var/log/pm2/ticket-backend-error.log',
+      out_file: '/var/log/pm2/ticket-backend-out.log',
+      log_file: '/var/log/pm2/ticket-backend-combined.log',
+
+      // 🕒 Cron Restart (3 AM daily to clear memory)
+      cron_restart: '0 3 * * *',
       env: {
         NODE_ENV: 'development',
         PORT: 4000,
