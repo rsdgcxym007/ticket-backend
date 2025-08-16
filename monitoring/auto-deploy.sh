@@ -83,41 +83,51 @@ deploy() {
         exit 1
     fi
     
-    # Step 2: Complete fresh installation
-    log_message "Performing complete fresh installation..."
+    # Step 2: Smart dependency installation
+    log_message "Checking if dependencies need to be updated..."
     
-    # Clean everything including cache
-    log_message "Cleaning previous installations and cache..."
-    rm -rf node_modules/ package-lock.json yarn.lock dist/ .npm/ 2>/dev/null || true
-    npm cache clean --force 2>/dev/null || true
-    yarn cache clean 2>/dev/null || true
-    
-    # Install dependencies with yarn (more reliable than npm)
-    log_message "Installing dependencies with yarn..."
-    if command -v yarn >/dev/null 2>&1; then
-        if yarn install --frozen-lockfile --production=false; then
-            log_message "Dependencies installed successfully with yarn"
+    # Check if package.json or lock files changed
+    PACKAGE_CHANGED=false
+    if ! git diff HEAD~1 HEAD --name-only | grep -q "package\.json\|yarn\.lock\|package-lock\.json"; then
+        log_message "No changes to package files detected"
+        if [ -d "node_modules" ] && [ -f "yarn.lock" ]; then
+            log_message "Existing dependencies found, skipping installation"
         else
-            log_message "Yarn install failed, falling back to npm..."
-            if npm install --production=false --no-audit --no-fund --legacy-peer-deps; then
-                log_message "Dependencies installed successfully with npm (fallback)"
-            else
-                log_message "ERROR: All dependency installation methods failed"
-                send_notification "Deploy Failed" "Failed to install dependencies with both yarn and npm." "$COLOR_RED"
-                exit 1
-            fi
+            log_message "No node_modules found, performing installation"
+            PACKAGE_CHANGED=true
         fi
     else
-        # Install yarn if not available
-        log_message "Installing yarn package manager..."
-        npm install -g yarn
-        if yarn install --frozen-lockfile --production=false; then
-            log_message "Dependencies installed successfully with newly installed yarn"
+        log_message "Package files changed, performing fresh installation"
+        PACKAGE_CHANGED=true
+    fi
+    
+    if [ "$PACKAGE_CHANGED" = true ]; then
+        # Clean installation for major changes only
+        log_message "Cleaning previous installations..."
+        rm -rf node_modules/ yarn.lock package-lock.json 2>/dev/null || true
+        
+        # Install dependencies with yarn (faster than npm)
+        log_message "Installing dependencies with yarn..."
+        if command -v yarn >/dev/null 2>&1; then
+            if yarn install --frozen-lockfile --production=false --silent; then
+                log_message "Dependencies installed successfully with yarn"
+            else
+                log_message "Yarn install failed, falling back to npm..."
+                if npm install --production=false --silent --no-audit --no-fund --legacy-peer-deps; then
+                    log_message "Dependencies installed successfully with npm (fallback)"
+                else
+                    log_message "ERROR: All dependency installation methods failed"
+                    send_notification "Deploy Failed" "Failed to install dependencies." "$COLOR_RED"
+                    exit 1
+                fi
+            fi
         else
-            log_message "ERROR: Failed to install dependencies even with fresh yarn"
-            send_notification "Deploy Failed" "Failed to install dependencies." "$COLOR_RED"
+            log_message "ERROR: yarn not available"
+            send_notification "Deploy Failed" "Yarn package manager not available." "$COLOR_RED"
             exit 1
         fi
+    else
+        log_message "Using existing dependencies (no package changes detected)"
     fi
     
     # Step 3: Build application with fresh tools

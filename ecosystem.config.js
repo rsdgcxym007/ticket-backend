@@ -114,9 +114,9 @@ module.exports = {
       out_file: '/var/log/pm2/ticket-backend-out.log',
       log_file: '/var/log/pm2/ticket-backend.log',
       log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
-      max_memory_restart: '500M', // Optimized memory limit
+      max_memory_restart: '200M', // Even stricter memory limit
       node_args:
-        '--max-old-space-size=512 --gc-interval=100 --enable-source-maps --no-warnings', // Optimized memory allocation
+        '--max-old-space-size=180 --max-semi-space-size=64 --no-huge-max-old-generation-size --optimize-for-size --gc-interval=25 --expose-gc --enable-source-maps --no-warnings', // Fix Node.js 20 huge memory allocation
       watch: false,
       ignore_watch: ['node_modules', 'uploads', 'logs', '.git', 'dist'],
       restart_delay: 3000,
@@ -129,11 +129,10 @@ module.exports = {
       shutdown_with_message: true,
       wait_ready: true,
 
-      // Pre/Post restart hooks for complete fresh build
-      pre_restart:
-        'rm -rf dist node_modules package-lock.json yarn.lock .npm 2>/dev/null || true',
+      // Pre/Post restart hooks for smart build (only clean build files, keep dependencies)
+      pre_restart: 'rm -rf dist 2>/dev/null || true',
       post_restart:
-        '(command -v yarn >/dev/null && yarn install && yarn build) || (npm install --legacy-peer-deps && npm run build)',
+        '(test -d node_modules && yarn build) || (yarn install --silent && yarn build)',
 
       // Auto restart on file change in production (disabled for stability)
       autorestart: true,
