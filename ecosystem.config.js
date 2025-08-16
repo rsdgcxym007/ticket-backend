@@ -134,7 +134,7 @@ module.exports = {
 
       // Cron restart (daily at 3 AM)
       cron_restart: '0 3 * * *',
-      
+
       // Environment-specific Node.js options
       interpreter_args: '--max-old-space-size=1024 --experimental-worker',
     },
