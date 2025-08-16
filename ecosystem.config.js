@@ -135,6 +135,36 @@ module.exports = {
       // Cron restart (daily at 3 AM)
       cron_restart: '0 3 * * *',
     },
+
+    // Webhook Server for GitHub Auto-Deploy
+    {
+      name: 'webhook-server',
+      script: 'monitoring/webhook-server.js',
+      instances: 1,
+      exec_mode: 'fork',
+      cwd: '/var/www/backend/ticket-backend',
+      env: {
+        NODE_ENV: 'development',
+        WEBHOOK_PORT: 4200,
+        WEBHOOK_SECRET: 'webhook-secret-key-2025',
+      },
+      env_production: {
+        NODE_ENV: 'production',
+        WEBHOOK_PORT: 4200,
+        WEBHOOK_SECRET: 'webhook-secret-key-2025',
+      },
+      error_file: '/var/log/pm2/webhook-server-error.log',
+      out_file: '/var/log/pm2/webhook-server-out.log',
+      log_file: '/var/log/pm2/webhook-server.log',
+      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+      max_memory_restart: '200M',
+      node_args: '--max-old-space-size=256',
+      watch: false,
+      autorestart: true,
+      restart_delay: 2000,
+      max_restarts: 10,
+      min_uptime: '5s',
+    },
   ],
 
   deploy: {
