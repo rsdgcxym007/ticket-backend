@@ -29,7 +29,8 @@ export class EmailAutomationService {
    * 📧 Initialize Email Transporter
    */
   private initializeEmailTransporter() {
-    const smtpHost = this.configService.get<string>('SMTP_HOST') || 'smtp.gmail.com';
+    const smtpHost =
+      this.configService.get<string>('SMTP_HOST') || 'smtp.gmail.com';
     const smtpPort = this.configService.get<number>('SMTP_PORT') || 587;
     const smtpUser = this.configService.get<string>('SMTP_USER');
     const smtpPass = this.configService.get<string>('SMTP_PASS');
@@ -54,7 +55,7 @@ export class EmailAutomationService {
       transportConfig.secure = false;
       transportConfig.requireTLS = false;
       transportConfig.tls = {
-        rejectUnauthorized: false
+        rejectUnauthorized: false,
       };
     }
 

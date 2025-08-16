@@ -181,7 +181,9 @@ export class WebhookController {
 
       // ขั้นตอนที่ 1: ดาวน์โหลดโค้ดใหม่
       this.logger.log('📥 Pulling latest code...');
-      await execAsync(`cd ${projectDir} && git fetch origin && git reset --hard origin/feature/newfunction`);
+      await execAsync(
+        `cd ${projectDir} && git fetch origin && git reset --hard origin/feature/newfunction`,
+      );
 
       // ขั้นตอนที่ 2: ติดตั้ง dependencies (ถ้าจำเป็น)
       this.logger.log('📦 Installing dependencies...');
@@ -205,19 +207,18 @@ export class WebhookController {
         timestamp: new Date().toISOString(),
         environment: 'production',
       });
-
     } catch (error) {
       this.logger.error('❌ Deployment failed:', error);
-      
+
       // ส่งการแจ้งเตือน error
       await this.sendDiscordNotification({
         status: 'failed',
         message: `❌ Deployment failed: ${error.message}`,
-        branch: 'feature/newfunction', 
+        branch: 'feature/newfunction',
         timestamp: new Date().toISOString(),
         environment: 'production',
       });
-      
+
       throw error;
     }
   }
@@ -271,8 +272,11 @@ export class WebhookController {
         timestamp: new Date().toISOString(),
       };
     } catch (error) {
-      this.logger.error(`External deployment failed from IP: ${clientIp}:`, error);
-      
+      this.logger.error(
+        `External deployment failed from IP: ${clientIp}:`,
+        error,
+      );
+
       // Send error notification
       await this.sendDiscordNotification({
         status: 'failed',
@@ -281,7 +285,7 @@ export class WebhookController {
         timestamp: new Date().toISOString(),
         environment: 'production',
       });
-      
+
       return { status: 'error', message: 'External deployment failed' };
     }
   }
