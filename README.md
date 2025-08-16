@@ -1,53 +1,78 @@
-# 🎫 Ticket Backend System v5.3.0
+# 🥊 Patong Boxing Stadium - Ticket Backend
 
-Enterprise-grade ticket booking system with advanced analytics and scalability infrastructure.
+Complete backend system for Patong Boxing Stadium ticket booking with NestJS, TypeScript, PostgreSQL, and Redis.
 
-## 🚀 Quick Start
+## 🚀 Quick Start - One Command Deployment
 
-### Prerequisites
-- Node.js 18+
-- PostgreSQL
-- Redis (optional)
-- PM2 (auto-installed)
-
-### Start Development
 ```bash
-npm install
-npm run start:dev
+# Upload from local machine and deploy to server
+cd scripts && ./upload-and-deploy.sh
+
+# Or if you're already on the server
+sudo ./scripts/master-deployment.sh
 ```
 
-### Deploy Production
-```bash
-# Complete build and deploy
-./scripts/build-and-start.sh
+## 🎯 Production URLs
 
-# Or step by step
-npm run build
-npm run start:pm2
+- **Main Site**: https://patongboxingstadiumticket.com
+- **API Server**: https://api.patongboxingstadiumticket.com
+- **App Portal**: https://app.patongboxingstadiumticket.com  
+- **Admin Panel**: https://admin.patongboxingstadiumticket.com
+
+## 📋 Complete Features
+
+- 🎫 **Ticket Booking System** - Complete seat booking with QR codes
+- 💳 **Payment Integration** - Stripe payment processing
+- 📧 **Email System** - SendGrid + SMTP with templates
+- 🔐 **Authentication** - JWT with role-based access
+- 📱 **Mobile API** - Optimized for mobile apps
+- 👨‍💼 **Admin Dashboard** - Complete management system
+- 📊 **Analytics** - Booking and revenue analytics
+- 🔄 **Auto-Deployment** - GitHub webhook integration
+- 📋 **Monitoring** - Discord alerts + health checks
+- 🌐 **Multi-language** - Thai/English support
+
+## 🛠️ Tech Stack
+
+- **Backend**: NestJS + TypeScript
+- **Database**: PostgreSQL + Redis
+- **Web Server**: Nginx with SSL
+- **Process Manager**: PM2
+- **Security**: UFW + Fail2ban
+- **Email**: SendGrid + Nodemailer
+- **Monitoring**: Custom health checks
+- **Deployment**: GitHub Actions + Webhooks
+
+## 📁 Available Scripts
+
+### 🎯 Main Scripts (Recommended)
+
+```bash
+# Complete deployment (clean → install → email → monitor)
+sudo ./scripts/master-deployment.sh
+
+# Upload from local machine and deploy
+./scripts/upload-and-deploy.sh
+
+# Interactive management menu
+sudo ./scripts/quick-commands.sh
 ```
 
-## 📊 System Features
+### 🔧 Individual Scripts
 
-### ✅ Core Features (Completed)
-- **Authentication & Authorization** - JWT, Role-based access
-- **Order Management** - Seated/Standing tickets
-- **Payment Processing** - Multiple payment methods
-- **Seat Management** - Real-time locking/unlocking
-- **User Management** - Customer/Staff/Admin roles
-- **Admin Dashboard** - Complete management interface
+```bash
+# Clean old installation
+sudo ./scripts/complete-project-cleanup.sh
 
-### ✅ Phase 5.2 - Advanced Analytics Engine
-- ML-powered sales prediction (Linear Regression)
-- Demand forecasting (Exponential Smoothing)
-- Price elasticity analysis
-- Statistical business intelligence
+# Install fresh system
+sudo ./scripts/complete-deployment-setup.sh  
 
-### ✅ Phase 5.3 - Scalability Infrastructure
-- Microservices architecture (5 core services)
-- Redis clustering and advanced caching
-- Database sharding and optimization
-- Load balancing with health-based routing
-- Container orchestration (Kubernetes ready)
+# Setup email system
+sudo ./scripts/setup-email-complete.sh
+
+# Build and deploy updates
+./scripts/build-and-deploy.sh
+```
 - Infrastructure monitoring (Prometheus/Grafana)
 
 ## 🎮 Available Commands

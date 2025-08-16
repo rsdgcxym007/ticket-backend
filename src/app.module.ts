@@ -34,6 +34,8 @@ import { AuditModule } from './audit/audit.module';
 import { ApiIntegrationModule } from './api-integration/api-integration.module';
 import { ApiGatewayModule } from './gateway/api-gateway.module';
 import { ScalabilityModule } from './scalability/scalability.module';
+import { EmailModule } from './email/email.module';
+import { EmergencyModule } from './emergency/emergency.module';
 
 // ========================================
 // 🎮 MAIN CONTROLLERS & SERVICES
@@ -141,6 +143,8 @@ import { StaffModule } from './staff/staff.module';
     ApiIntegrationModule,
     ScalabilityModule,
     WebhookModule,
+    EmailModule,
+    EmergencyModule,
 
     // NotificationModule,
     // UploadModule,
