@@ -85,7 +85,12 @@ deploy() {
     
     # Step 2: Install dependencies
     log_message "Installing dependencies..."
-    if npm ci --production=false; then
+    
+    # Clean install to avoid package conflicts
+    rm -rf node_modules/ package-lock.json 2>/dev/null || true
+    
+    # Use npm install with flags to handle version warnings
+    if npm install --production=false --no-audit --no-fund --legacy-peer-deps; then
         log_message "Dependencies installed successfully"
     else
         log_message "ERROR: Failed to install dependencies"
@@ -93,13 +98,38 @@ deploy() {
         exit 1
     fi
     
-    # Step 3: Build application
-    log_message "Building application..."
-    if npm run build; then
-        log_message "Build completed successfully"
+    # Step 3: Build application with enhanced build script
+    log_message "Building application with enhanced build process..."
+    
+    if bash /var/www/backend/ticket-backend/monitoring/enhanced-build.sh 2>&1 | tee -a "$LOG_FILE"; then
+        log_message "Build completed successfully with enhanced build script"
     else
-        log_message "ERROR: Build failed"
-        send_notification "Deploy Failed" "Application build failed." "$COLOR_RED"
+        log_message "Enhanced build failed, falling back to standard methods..."
+        
+        # Fallback to standard build methods
+        rm -rf dist/ 2>/dev/null || true
+        
+        # Set Node.js compatibility options
+        export NODE_OPTIONS="--max-old-space-size=1024 --no-warnings"
+        export NPM_CONFIG_ENGINE_STRICT=false
+        
+        if npm run build --legacy-peer-deps 2>&1 | tee -a "$LOG_FILE"; then
+            log_message "Build completed with npm run build (fallback)"
+        else
+            log_message "ERROR: All build methods failed"
+            send_notification "Deploy Failed" "Application build failed after trying enhanced and fallback methods." "$COLOR_RED"
+            exit 1
+        fi
+    fi
+    
+    # Verify build output
+    if [ ! -f "dist/main.js" ]; then
+        log_message "ERROR: Build verification failed - dist/main.js not found"
+        if [ -d "dist/" ]; then
+            log_message "Contents of dist directory:"
+            ls -la dist/ | tee -a "$LOG_FILE"
+        fi
+        send_notification "Deploy Failed" "Build verification failed - main.js not found." "$COLOR_RED"
         exit 1
     fi
     

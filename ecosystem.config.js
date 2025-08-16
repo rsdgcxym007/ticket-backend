@@ -116,7 +116,7 @@ module.exports = {
       log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
       max_memory_restart: '1G', // Increased memory limit for better performance
       node_args:
-        '--max-old-space-size=1024 --gc-interval=100 --enable-source-maps', // Updated Node.js args
+        '--max-old-space-size=1024 --gc-interval=100 --enable-source-maps --no-warnings', // Suppress Node.js warnings
       watch: false,
       ignore_watch: ['node_modules', 'uploads', 'logs', '.git', 'dist'],
       restart_delay: 3000,
@@ -134,6 +134,9 @@ module.exports = {
 
       // Cron restart (daily at 3 AM)
       cron_restart: '0 3 * * *',
+      
+      // Environment-specific Node.js options
+      interpreter_args: '--max-old-space-size=1024 --experimental-worker',
     },
 
     // Webhook Server for GitHub Auto-Deploy
