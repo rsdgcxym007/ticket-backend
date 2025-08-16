@@ -175,32 +175,50 @@ export class WebhookController {
 
   private async executeDeployment() {
     try {
-      this.logger.log('Starting simple deployment...');
+      this.logger.log('🚀 Starting deployment...');
 
-      const projectDir =
-        process.env.PROJECT_DIR || '/var/www/backend/ticket-backend';
+      const projectDir = '/var/www/patong-boxing';
 
-      // Always use the single self-contained script as requested
-      const scriptPath = `${projectDir}/scripts/webhook-deploy.sh`;
-      const fs = require('fs');
-      if (!fs.existsSync(scriptPath)) {
-        throw new Error(`Deployment script not found: ${scriptPath}`);
-      }
-      this.logger.log(`Executing single-file deploy: ${scriptPath}`);
+      // ขั้นตอนที่ 1: ดาวน์โหลดโค้ดใหม่
+      this.logger.log('📥 Pulling latest code...');
+      await execAsync(`cd ${projectDir} && git fetch origin && git reset --hard origin/feature/newfunction`);
 
-      // Make sure script is executable
-      await execAsync(`chmod +x ${scriptPath}`);
+      // ขั้นตอนที่ 2: ติดตั้ง dependencies (ถ้าจำเป็น)
+      this.logger.log('📦 Installing dependencies...');
+      await execAsync(`cd ${projectDir} && npm ci --only=production`);
 
-      // Execute script without environment variables (keep it simple)
-      const { stdout, stderr } = await execAsync(scriptPath);
+      // ขั้นตอนที่ 3: Build application
+      this.logger.log('🔨 Building application...');
+      await execAsync(`cd ${projectDir} && npm run build`);
 
-      if (stdout) this.logger.log(`Deployment output: ${stdout}`);
-      if (stderr) this.logger.warn(`Deployment warnings: ${stderr}`);
+      // ขั้นตอนที่ 4: Restart PM2
+      this.logger.log('🔄 Restarting PM2 processes...');
+      await execAsync('pm2 restart all --update-env');
 
-      this.logger.log('Simple deployment completed successfully');
+      this.logger.log('✅ Deployment completed successfully');
+
+      // ส่งการแจ้งเตือนความสำเร็จ
+      await this.sendDiscordNotification({
+        status: 'success',
+        message: '✅ Deployment completed successfully!',
+        branch: 'feature/newfunction',
+        timestamp: new Date().toISOString(),
+        environment: 'production',
+      });
+
     } catch (error) {
-      this.logger.error('Simple deployment failed:', error);
-      // Let the script handle its own notifications
+      this.logger.error('❌ Deployment failed:', error);
+      
+      // ส่งการแจ้งเตือน error
+      await this.sendDiscordNotification({
+        status: 'failed',
+        message: `❌ Deployment failed: ${error.message}`,
+        branch: 'feature/newfunction', 
+        timestamp: new Date().toISOString(),
+        environment: 'production',
+      });
+      
+      throw error;
     }
   }
 
@@ -209,6 +227,63 @@ export class WebhookController {
   async testWebhook() {
     this.logger.log('Test webhook endpoint called');
     return { status: 'success', message: 'Webhook endpoint is working' };
+  }
+
+  /**
+   * 🚀 External deployment hook endpoint
+   * รองรับ webhook จาก external deployment service
+   */
+  @Post('deploy-backend-master')
+  @HttpCode(HttpStatus.OK)
+  async handleExternalDeploy(
+    @Body() payload: any,
+    @Headers() headers: any,
+    @Req() req: any,
+  ) {
+    const clientIp = req.ip || req.connection.remoteAddress;
+    const userAgent = headers['user-agent'];
+
+    this.logger.log(
+      `🔄 External deployment webhook from IP: ${clientIp}, User-Agent: ${userAgent}`,
+    );
+
+    try {
+      // Allow external deployment services
+      this.logger.log(`✅ External deployment initiated from IP: ${clientIp}`);
+
+      // Execute deployment
+      this.executeDeployment();
+
+      // Send Discord notification
+      await this.sendDiscordNotification({
+        status: 'started',
+        message: '🚀 Auto-deployment started from external service',
+        branch: 'feature/newfunction',
+        timestamp: new Date().toISOString(),
+        commit: payload.commit?.substring(0, 8) || 'latest',
+        version: payload.version || '1.0.0',
+        environment: 'production',
+      });
+
+      return {
+        status: 'success',
+        message: 'External deployment initiated',
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error) {
+      this.logger.error(`External deployment failed from IP: ${clientIp}:`, error);
+      
+      // Send error notification
+      await this.sendDiscordNotification({
+        status: 'failed',
+        message: `❌ Auto-deployment failed: ${error.message}`,
+        branch: 'feature/newfunction',
+        timestamp: new Date().toISOString(),
+        environment: 'production',
+      });
+      
+      return { status: 'error', message: 'External deployment failed' };
+    }
   }
 
   /**
