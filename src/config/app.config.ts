@@ -40,12 +40,12 @@ export default registerAs(
       backend:
         process.env.BACKEND_URL ||
         (process.env.NODE_ENV === 'production'
-          ? 'https://api-patongboxingstadiumticket.com'
+          ? 'https://api.patongboxingstadiumticket.com'
           : 'http://localhost:4000'),
       api:
         process.env.API_URL ||
         (process.env.NODE_ENV === 'production'
-          ? 'https://api-patongboxingstadiumticket.com/api'
+          ? 'https://api.patongboxingstadiumticket.com/api'
           : 'http://localhost:4000/api'),
     },
 
@@ -54,7 +54,7 @@ export default registerAs(
         // Production domains
         'https://patongboxingstadiumticket.com',
         'https://www.patongboxingstadiumticket.com',
-        'https://api-patongboxingstadiumticket.com',
+        'https://api.patongboxingstadiumticket.com',
 
         // Development
         'http://localhost:3000',
@@ -91,8 +91,8 @@ export default registerAs(
       
       ### 🌐 Domain Information
       - **Frontend**: https://patongboxingstadiumticket.com
-      - **API**: https://api-patongboxingstadiumticket.com
-      - **Documentation**: https://api-patongboxingstadiumticket.com/api/docs
+      - **API**: https://api.patongboxingstadiumticket.com
+      - **Documentation**: https://api.patongboxingstadiumticket.com/api/docs
       
       ### 🎯 Features
       - 🎟️ Ticket Booking & Management

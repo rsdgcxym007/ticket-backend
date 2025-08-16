@@ -1,21 +1,25 @@
 #!/bin/bash
 
 # Build and Deploy Script for ticket-backend
-# This script ensures proper build and deployment to avoid MODULE_NOT_FOUND errors
+# Updated for 2025 with modern practices and enhanced error handling
 
-set -e  # Exit on any error
+set -euo pipefail  # Exit on any error, undefined variables, and pipe failures
 
-# Discord webhook URL
+# Configuration
 DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/1404715794205511752/H4H1Q-aJ2B1LwSpKxHYP7rt4tCWA0p10339NN5Gy71fhwXvFjcfSQKXNl9Xdj60ks__l"
-
-# Webhook notification URL (updated to port 4200)
 WEBHOOK_URL="http://43.229.133.51:4200/hooks/deploy-backend-master"
+PM2_APP_NAME="ticket-backend-prod"
+LOG_FILE="/tmp/build-deploy-$(date +%Y%m%d-%H%M%S).log"
+
+# Ensure log directory exists
+mkdir -p "$(dirname "$LOG_FILE")"
 
 # Enhanced logging with timestamp and step tracking
 STEP_NUMBER=0
 get_timestamp() { date '+%Y-%m-%d %H:%M:%S'; }
 
 echo "🚀 Starting build and deployment process..."
+echo "📝 Logging to: $LOG_FILE"
 
 # Function to check if a command exists
 command_exists() {
@@ -25,29 +29,54 @@ command_exists() {
 # Enhanced logging functions with timestamp and step tracking
 print_status() {
     echo -e "\033[1;34m[$(get_timestamp)] 📋 $1\033[0m"
-    echo "[$(get_timestamp)] INFO: $1" >> /tmp/build-deploy.log 2>/dev/null || true
+    echo "[$(get_timestamp)] INFO: $1" >> "$LOG_FILE" 2>/dev/null || true
 }
 
 print_success() {
     echo -e "\033[1;32m[$(get_timestamp)] ✅ $1\033[0m"
-    echo "[$(get_timestamp)] SUCCESS: $1" >> /tmp/build-deploy.log 2>/dev/null || true
+    echo "[$(get_timestamp)] SUCCESS: $1" >> "$LOG_FILE" 2>/dev/null || true
 }
 
 print_error() {
     echo -e "\033[1;31m[$(get_timestamp)] ❌ $1\033[0m"
-    echo "[$(get_timestamp)] ERROR: $1" >> /tmp/build-deploy.log 2>/dev/null || true
+    echo "[$(get_timestamp)] ERROR: $1" >> "$LOG_FILE" 2>/dev/null || true
 }
 
 print_warning() {
     echo -e "\033[1;33m[$(get_timestamp)] ⚠️  $1\033[0m"
-    echo "[$(get_timestamp)] WARNING: $1" >> /tmp/build-deploy.log 2>/dev/null || true
+    echo "[$(get_timestamp)] WARNING: $1" >> "$LOG_FILE" 2>/dev/null || true
 }
 
 step() {
     STEP_NUMBER=$((STEP_NUMBER + 1))
     echo -e "\033[1;35m[$(get_timestamp)] 📋 STEP $STEP_NUMBER: $1\033[0m"
-    echo "[$(get_timestamp)] STEP $STEP_NUMBER: $1" >> /tmp/build-deploy.log 2>/dev/null || true
+    echo "[$(get_timestamp)] STEP $STEP_NUMBER: $1" >> "$LOG_FILE" 2>/dev/null || true
 }
+
+substep() {
+    echo -e "\033[1;36m[$(get_timestamp)]   └─ $1\033[0m"
+    echo "[$(get_timestamp)] SUBSTEP: $1" >> "$LOG_FILE" 2>/dev/null || true
+}
+
+log_command() {
+    local cmd="$1"
+    substep "Executing: $cmd"
+    echo "[$(get_timestamp)] COMMAND: $cmd" >> "$LOG_FILE" 2>/dev/null || true
+}
+
+# Cleanup function for graceful exit
+cleanup() {
+    local exit_code=$?
+    if [ $exit_code -ne 0 ]; then
+        print_error "Script failed with exit code $exit_code"
+        send_discord_notification "❌ Deployment failed with exit code $exit_code" "15158332" "Failed"
+        send_webhook_notification "failed" "❌ Deployment failed with exit code $exit_code"
+    fi
+    print_status "Cleanup completed. Log file: $LOG_FILE"
+}
+
+# Set trap for cleanup on exit
+trap cleanup EXIT
 
 substep() {
     echo -e "\033[1;36m[$(get_timestamp)]   └─ $1\033[0m"
@@ -65,10 +94,14 @@ send_discord_notification() {
     local message="$1"
     local color="$2"  # green=5763719, red=15158332, yellow=16776960
     local status="$3"
+    local branch=$(git branch --show-current 2>/dev/null || echo 'unknown')
+    local commit_hash=$(git rev-parse --short HEAD 2>/dev/null || echo 'unknown')
+    local commit_msg=$(git log -1 --pretty=format:"%s" 2>/dev/null || echo 'No commit message')
     
     if command_exists curl; then
-        curl -H "Content-Type: application/json" \
+        curl -sSL -H "Content-Type: application/json" \
              -X POST \
+             --max-time 10 \
              -d "{
                  \"embeds\": [{
                      \"title\": \"🚀 Ticket Backend Deployment\",
@@ -82,18 +115,38 @@ send_discord_notification() {
                          },
                          {
                              \"name\": \"Branch\",
-                             \"value\": \"$(git branch --show-current 2>/dev/null || echo 'unknown')\",
+                             \"value\": \"$branch\",
                              \"inline\": true
+                         },
+                         {
+                             \"name\": \"Commit\",
+                             \"value\": \"[$commit_hash](https://github.com/rsdgcxym007/ticket-backend/commit/$commit_hash)\",
+                             \"inline\": true
+                         },
+                         {
+                             \"name\": \"Message\",
+                             \"value\": \"$commit_msg\",
+                             \"inline\": false
                          },
                          {
                              \"name\": \"Timestamp\",
                              \"value\": \"$(date '+%Y-%m-%d %H:%M:%S')\",
                              \"inline\": true
+                         },
+                         {
+                             \"name\": \"Server\",
+                             \"value\": \"Production (43.229.133.51)\",
+                             \"inline\": true
                          }
-                     ]
+                     ],
+                     \"footer\": {
+                         \"text\": \"Build & Deploy Script v2.0\"
+                     }
                  }]
              }" \
-             "$DISCORD_WEBHOOK_URL" 2>/dev/null || true
+             "$DISCORD_WEBHOOK_URL" &>/dev/null || {
+                 print_warning "Failed to send Discord notification"
+             }
     fi
 }
 
@@ -104,11 +157,14 @@ send_webhook_notification() {
     local branch=$(git branch --show-current 2>/dev/null || echo 'unknown')
     local commit=$(git rev-parse HEAD 2>/dev/null || echo 'unknown')
     local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%S.%3NZ")
+    local version=$(node -p "require('./package.json').version" 2>/dev/null || echo 'unknown')
     
     if command_exists curl; then
-        curl -H "Content-Type: application/json" \
-             -H "User-Agent: ticket-backend-deploy-script/1.0" \
+        curl -sSL -H "Content-Type: application/json" \
+             -H "User-Agent: ticket-backend-deploy-script/2.0" \
+             -H "X-GitHub-Event: deployment" \
              -X POST \
+             --max-time 10 \
              -d "{
                  \"status\": \"$status\",
                  \"message\": \"$message\",
@@ -116,9 +172,12 @@ send_webhook_notification() {
                  \"commit\": \"$commit\",
                  \"timestamp\": \"$timestamp\",
                  \"environment\": \"production\",
-                 \"version\": \"$(npm version --json 2>/dev/null | grep 'ticket-backend' | cut -d'"' -f4 || echo 'unknown')\"
+                 \"version\": \"$version\",
+                 \"server\": \"43.229.133.51\",
+                 \"pm2_app\": \"$PM2_APP_NAME\",
+                 \"deployment_method\": \"build-and-deploy-script\"
              }" \
-             "$WEBHOOK_URL" 2>/dev/null || {
+             "$WEBHOOK_URL" &>/dev/null || {
                  print_warning "Failed to send webhook notification to $WEBHOOK_URL"
              }
     fi
@@ -167,50 +226,83 @@ step "Installing dependencies"
 # Clean npm cache and node_modules to fix corruption issues
 substep "Cleaning npm cache and node_modules"
 log_command "npm cache clean --force"
-npm cache clean --force 2>/dev/null || true
+npm cache clean --force 2>/dev/null || print_warning "Failed to clean npm cache"
 
 substep "Removing node_modules directory"
-log_command "rm -rf node_modules/"
-rm -rf node_modules/
+log_command "rm -rf node_modules/ package-lock.json yarn.lock pnpm-lock.yaml"
+rm -rf node_modules/ package-lock.json yarn.lock pnpm-lock.yaml 2>/dev/null || true
 
-substep "Removing package-lock.json (if exists)"
-log_command "rm -f package-lock.json"
-rm -f package-lock.json
+# Detect and use the best package manager
+substep "Detecting package manager"
+PACKAGE_MANAGER="npm"
+if command_exists pnpm; then
+    PACKAGE_MANAGER="pnpm"
+    substep "Using pnpm (fastest)"
+elif command_exists yarn; then
+    PACKAGE_MANAGER="yarn"
+    substep "Using yarn"
+else
+    substep "Using npm (default)"
+fi
 
-# Use npm install with retry logic for maximum compatibility
-substep "Installing dependencies with npm install (attempt 1/3)"
-log_command "npm install --production=false --no-audit --no-fund"
-if ! npm install --production=false --no-audit --no-fund; then
-    print_warning "First npm install failed, cleaning cache and retrying..."
-    
-    substep "Cleaning npm cache again"
-    log_command "npm cache clean --force"
-    npm cache clean --force 2>/dev/null || true
-    sleep 2
-    
-    substep "Installing dependencies with npm install (attempt 2/3)"
+# Install dependencies with retry logic
+substep "Installing dependencies with $PACKAGE_MANAGER (attempt 1/3)"
+case $PACKAGE_MANAGER in
+    "pnpm")
+        log_command "pnpm install --production=false"
+        if ! pnpm install --production=false; then
+            print_warning "First pnpm install failed, trying npm..."
+            PACKAGE_MANAGER="npm"
+        else
+            print_success "Dependencies installed successfully with pnpm"
+        fi
+        ;;
+    "yarn")
+        log_command "yarn install --production=false"
+        if ! yarn install --production=false; then
+            print_warning "First yarn install failed, trying npm..."
+            PACKAGE_MANAGER="npm"
+        else
+            print_success "Dependencies installed successfully with yarn"
+        fi
+        ;;
+esac
+
+# Fallback to npm if other package managers failed
+if [ "$PACKAGE_MANAGER" = "npm" ]; then
     log_command "npm install --production=false --no-audit --no-fund"
     if ! npm install --production=false --no-audit --no-fund; then
-        print_warning "Second attempt failed, trying with legacy peer deps..."
+        print_warning "First npm install failed, cleaning cache and retrying..."
+        
+        substep "Cleaning npm cache again"
+        log_command "npm cache clean --force"
+        npm cache clean --force 2>/dev/null || true
         sleep 2
         
-        substep "Installing dependencies with npm install --legacy-peer-deps (attempt 3/3)"
-        log_command "npm install --production=false --no-audit --no-fund --legacy-peer-deps"
-        if ! npm install --production=false --no-audit --no-fund --legacy-peer-deps; then
-            print_error "ALL DEPENDENCY INSTALLATION ATTEMPTS FAILED"
-            print_error "   • npm install failed (attempts 1-2)"
-            print_error "   • npm install --legacy-peer-deps failed (attempt 3)"
-            send_discord_notification "❌ Deployment failed: All npm install attempts failed" "15158332" "Failed"
-            send_webhook_notification "failed" "❌ Deployment failed: All npm install attempts failed"
-            exit 1
+        substep "Installing dependencies with npm install (attempt 2/3)"
+        log_command "npm install --production=false --no-audit --no-fund"
+        if ! npm install --production=false --no-audit --no-fund; then
+            print_warning "Second attempt failed, trying with legacy peer deps..."
+            sleep 2
+            
+            substep "Installing dependencies with npm install --legacy-peer-deps (attempt 3/3)"
+            log_command "npm install --production=false --no-audit --no-fund --legacy-peer-deps"
+            if ! npm install --production=false --no-audit --no-fund --legacy-peer-deps; then
+                print_error "ALL DEPENDENCY INSTALLATION ATTEMPTS FAILED"
+                print_error "   • npm install failed (attempts 1-2)"
+                print_error "   • npm install --legacy-peer-deps failed (attempt 3)"
+                send_discord_notification "❌ Deployment failed: All npm install attempts failed" "15158332" "Failed"
+                send_webhook_notification "failed" "❌ Deployment failed: All npm install attempts failed"
+                exit 1
+            else
+                print_success "Dependencies installed successfully with npm install (legacy mode)"
+            fi
         else
-            print_success "Dependencies installed successfully with npm install (legacy mode)"
+            print_success "Dependencies installed successfully with npm install (attempt 2)"
         fi
     else
-        print_success "Dependencies installed successfully with npm install (attempt 2)"
+        print_success "Dependencies installed successfully with npm install (attempt 1)"
     fi
-else
-    print_success "Dependencies installed successfully with npm install (attempt 1)"
 fi
 
 step "Cleaning previous build"
@@ -223,83 +315,164 @@ log_command "rm -f tsconfig.build.tsbuildinfo"
 rm -f tsconfig.build.tsbuildinfo
 
 step "Building the application"
-substep "Ensuring TypeScript is available globally"
-log_command "npm install -g typescript"
-npm install -g typescript || {
-    substep "Global install failed, ensuring local TypeScript"
-    log_command "npm install typescript --save-dev"
-    npm install typescript --save-dev || true
-}
+substep "Cleaning previous build artifacts"
+log_command "rm -rf dist/ tsconfig.build.tsbuildinfo .tsbuildinfo"
+rm -rf dist/ tsconfig.build.tsbuildinfo .tsbuildinfo 2>/dev/null || true
+
+substep "Pre-build validation"
+if [ ! -f "tsconfig.json" ]; then
+    print_error "tsconfig.json not found"
+    exit 1
+fi
+
+if [ ! -f "nest-cli.json" ]; then
+    print_warning "nest-cli.json not found, but continuing..."
+fi
 
 substep "Compiling TypeScript to JavaScript"
 log_command "npm run build"
 if ! npm run build; then
-    print_error "BUILD FAILED"
-    print_error "   • npm run build command failed"
+    print_error "BUILD FAILED with npm run build"
     
-    substep "Trying alternative build methods"
-    log_command "npx nest build"
-    if ! npx nest build; then
-        substep "Checking TypeScript compilation issues"
-        log_command "npx tsc --noEmit"
-        npx tsc --noEmit || true
-        
-        substep "Trying direct TypeScript compilation"
-        log_command "npx tsc"
-        npx tsc || true
-        
-        send_discord_notification "❌ Build failed during npm run build" "15158332" "Failed"
-        send_webhook_notification "failed" "❌ Build failed during npm run build"
-        exit 1
+    substep "Attempting alternative build methods"
+    if command_exists npx; then
+        log_command "npx nest build"
+        if ! npx nest build; then
+            substep "Trying direct TypeScript compilation"
+            log_command "npx tsc"
+            if ! npx tsc; then
+                substep "Final attempt with TypeScript check"
+                log_command "npx tsc --noEmit"
+                npx tsc --noEmit || true
+                
+                print_error "ALL BUILD METHODS FAILED"
+                send_discord_notification "❌ Build failed: All build methods exhausted" "15158332" "Failed"
+                send_webhook_notification "failed" "❌ Build failed during compilation"
+                exit 1
+            else
+                print_success "Application built successfully with direct TypeScript compilation"
+            fi
+        else
+            print_success "Application built successfully with npx nest build"
+        fi
     else
-        print_success "Application built successfully with npx nest build"
+        print_error "npx not available, build failed"
+        exit 1
     fi
 else
-    print_success "Application built successfully"
+    print_success "Application built successfully with npm run build"
 fi
 
 # Verify the build was successful
+step "Verifying build output"
 if [ ! -f "dist/main.js" ]; then
     print_error "❌ BUILD VERIFICATION FAILED"
     print_error "   • dist/main.js not found after build"
     print_warning "🔍 Checking build directory contents..."
-    ls -la dist/ 2>/dev/null || echo "dist/ directory not found"
+    if [ -d "dist/" ]; then
+        substep "Contents of dist/ directory:"
+        ls -la dist/ || echo "Cannot list dist/ contents"
+    else
+        print_error "dist/ directory does not exist"
+    fi
     send_discord_notification "❌ Build verification failed: dist/main.js not found" "15158332" "Failed"
     send_webhook_notification "failed" "❌ Build verification failed: dist/main.js not found"
     exit 1
 else
-    print_success "✅ Build verification passed - dist/main.js exists"
+    BUILD_SIZE=$(stat -f%z "dist/main.js" 2>/dev/null || stat -c%s "dist/main.js" 2>/dev/null || echo "unknown")
+    print_success "✅ Build verification passed - dist/main.js exists ($BUILD_SIZE bytes)"
 fi
 
-print_status "Step 4: Verifying build files..."
-echo "Build files:"
-ls -la dist/
+substep "Listing all build artifacts"
+if [ -d "dist/" ]; then
+    find dist/ -type f -name "*.js" -o -name "*.json" -o -name "*.map" | head -10
+    TOTAL_FILES=$(find dist/ -type f | wc -l)
+    substep "Total build files: $TOTAL_FILES"
+fi
 
-# Check main.js file
-if [ -f "dist/main.js" ]; then
-    print_success "main.js found ($(stat -f%z dist/main.js) bytes)"
+step "Testing application health"
+substep "Performing basic application test"
+timeout 10s node dist/main.js --version 2>/dev/null && print_success "Application test passed" || {
+    print_warning "Quick test failed - this might be normal if the app requires database connection"
+}
+
+step "Managing PM2 processes"
+substep "Checking current PM2 status"
+if command_exists pm2; then
+    PM2_STATUS=$(pm2 jlist 2>/dev/null || echo '[]')
+    if echo "$PM2_STATUS" | grep -q "\"name\":\"$PM2_APP_NAME\""; then
+        substep "Found existing PM2 process: $PM2_APP_NAME"
+        log_command "pm2 stop $PM2_APP_NAME"
+        pm2 stop "$PM2_APP_NAME" 2>/dev/null || print_warning "Failed to stop existing process"
+        
+        log_command "pm2 delete $PM2_APP_NAME"
+        pm2 delete "$PM2_APP_NAME" 2>/dev/null || print_warning "Failed to delete existing process"
+    else
+        substep "No existing PM2 process found for $PM2_APP_NAME"
+    fi
 else
-    print_error "main.js not found in dist folder"
+    print_error "PM2 is not installed or not in PATH"
+    send_discord_notification "❌ Deployment failed: PM2 not found" "15158332" "Failed"
+    send_webhook_notification "failed" "❌ Deployment failed: PM2 not found"
     exit 1
 fi
 
-print_status "Step 5: Testing the built application..."
-timeout 10s node dist/main.js --version 2>/dev/null || {
-    print_warning "Quick test failed, but this might be normal if the app requires database connection"
-}
+step "Starting application with PM2"
+substep "Using ecosystem.config.js for PM2 configuration"
+if [ ! -f "ecosystem.config.js" ]; then
+    print_error "ecosystem.config.js not found"
+    send_discord_notification "❌ Deployment failed: ecosystem.config.js not found" "15158332" "Failed"
+    send_webhook_notification "failed" "❌ Deployment failed: ecosystem.config.js not found"
+    exit 1
+fi
 
-print_status "Step 6: Stopping existing PM2 processes..."
-pm2 stop ticket-backend-prod 2>/dev/null || true
-pm2 delete ticket-backend-prod 2>/dev/null || true
+log_command "pm2 start ecosystem.config.js --env production"
+if ! pm2 start ecosystem.config.js --env production; then
+    print_error "Failed to start application with PM2"
+    substep "Checking PM2 logs for errors"
+    pm2 logs "$PM2_APP_NAME" --lines 20 || true
+    send_discord_notification "❌ Deployment failed: PM2 start failed" "15158332" "Failed"
+    send_webhook_notification "failed" "❌ Deployment failed: PM2 start failed"
+    exit 1
+fi
 
-print_status "Step 7: Starting application with PM2..."
-pm2 start ecosystem.config.js --env production
+step "Verifying deployment"
+substep "Waiting for application to stabilize"
+sleep 5
 
-print_status "Step 8: Checking PM2 status..."
-sleep 3
-pm2 status
-
-print_success "Deployment completed successfully!"
-send_discord_notification "✅ Deployment completed successfully! Application is now running." "5763719" "Success"
-send_webhook_notification "success" "✅ Deployment completed successfully! Application is now running."
-print_status "You can check logs with: pm2 logs ticket-backend-prod"
+substep "Checking PM2 application status"
+if pm2 status | grep -q "$PM2_APP_NAME.*online"; then
+    print_success "✅ Application is online and running"
+    
+    # Get application info
+    COMMIT_INFO=$(git log -1 --pretty=format:"%h - %s by %an" 2>/dev/null || echo "No commit info")
+    UPTIME=$(pm2 show "$PM2_APP_NAME" 2>/dev/null | grep "uptime" || echo "Unknown uptime")
+    
+    step "Deployment Summary"
+    print_success "🎉 DEPLOYMENT COMPLETED SUCCESSFULLY"
+    print_success "📊 Deployment Details:"
+    print_success "   • Application: $PM2_APP_NAME"
+    print_success "   • Status: Online"
+    print_success "   • Build: Success (dist/main.js: $BUILD_SIZE bytes)"
+    print_success "   • Package Manager: $PACKAGE_MANAGER"
+    print_success "   • Commit: $COMMIT_INFO"
+    print_success "   • Timestamp: $(get_timestamp)"
+    print_success "   • Log File: $LOG_FILE"
+    
+    send_discord_notification "✅ Deployment completed successfully! Application is now running.\n\n**Details:**\n• App: $PM2_APP_NAME\n• Commit: $COMMIT_INFO\n• Build Size: $BUILD_SIZE bytes" "5763719" "Success"
+    send_webhook_notification "success" "✅ Deployment completed successfully! Application is now running."
+    
+    print_status "You can check logs with: pm2 logs $PM2_APP_NAME"
+    print_status "You can check status with: pm2 status"
+    
+else
+    print_error "❌ APPLICATION FAILED TO START"
+    substep "Current PM2 status:"
+    pm2 status || true
+    substep "Recent logs:"
+    pm2 logs "$PM2_APP_NAME" --lines 10 || true
+    
+    send_discord_notification "❌ Deployment failed: Application failed to start properly" "15158332" "Failed"
+    send_webhook_notification "failed" "❌ Deployment failed: Application failed to start properly"
+    exit 1
+fi
