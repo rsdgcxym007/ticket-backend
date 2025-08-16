@@ -29,18 +29,39 @@ export class EmailAutomationService {
    * 📧 Initialize Email Transporter
    */
   private initializeEmailTransporter() {
-    this.transporter = nodemailer.createTransport({
-      host: this.configService.get<string>('SMTP_HOST') || 'smtp.gmail.com',
-      port: this.configService.get<number>('SMTP_PORT') || 587,
-      secure: false, // true for 465, false for other ports
-      auth: {
-        user: this.configService.get<string>('SMTP_USER'),
-        pass: this.configService.get<string>('SMTP_PASS'),
-      },
-    });
+    const smtpHost = this.configService.get<string>('SMTP_HOST') || 'smtp.gmail.com';
+    const smtpPort = this.configService.get<number>('SMTP_PORT') || 587;
+    const smtpUser = this.configService.get<string>('SMTP_USER');
+    const smtpPass = this.configService.get<string>('SMTP_PASS');
+
+    // Configuration for different SMTP setups
+    const transportConfig: any = {
+      host: smtpHost,
+      port: smtpPort,
+      secure: smtpPort === 465, // true for 465, false for other ports
+    };
+
+    // Only add auth if credentials are provided (for localhost SMTP without auth)
+    if (smtpUser && smtpPass && smtpPort !== 25) {
+      transportConfig.auth = {
+        user: smtpUser,
+        pass: smtpPass,
+      };
+    }
+
+    // For port 25 (local SMTP), don't require TLS
+    if (smtpPort === 25) {
+      transportConfig.secure = false;
+      transportConfig.requireTLS = false;
+      transportConfig.tls = {
+        rejectUnauthorized: false
+      };
+    }
+
+    this.transporter = nodemailer.createTransport(transportConfig);
 
     this.logger.log(
-      `📧 Email transporter initialized with ${this.configService.get<string>('SMTP_USER')}`,
+      `📧 Email transporter initialized with ${smtpUser || 'no-auth'} on ${smtpHost}:${smtpPort}`,
     );
   }
 
