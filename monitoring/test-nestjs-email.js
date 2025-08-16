@@ -8,14 +8,16 @@
 const http = require('http');
 const querystring = require('querystring');
 
-console.log('🔧 Testing NestJS Email API - ' + new Date().toLocaleString('th-TH'));
+console.log(
+  '🔧 Testing NestJS Email API - ' + new Date().toLocaleString('th-TH'),
+);
 console.log();
 
 // ฟังก์ชันสำหรับเรียก API
 function makeRequest(method, path, data = null) {
   return new Promise((resolve, reject) => {
     const postData = data ? JSON.stringify(data) : null;
-    
+
     const options = {
       hostname: 'localhost',
       port: 4000,
@@ -23,8 +25,8 @@ function makeRequest(method, path, data = null) {
       method: method,
       headers: {
         'Content-Type': 'application/json',
-        'User-Agent': 'Email-Test-Script/1.0'
-      }
+        'User-Agent': 'Email-Test-Script/1.0',
+      },
     };
 
     if (postData) {
@@ -33,24 +35,24 @@ function makeRequest(method, path, data = null) {
 
     const req = http.request(options, (res) => {
       let data = '';
-      
+
       res.on('data', (chunk) => {
         data += chunk;
       });
-      
+
       res.on('end', () => {
         try {
           const response = JSON.parse(data);
           resolve({
             statusCode: res.statusCode,
             headers: res.headers,
-            body: response
+            body: response,
           });
         } catch (e) {
           resolve({
             statusCode: res.statusCode,
             headers: res.headers,
-            body: data
+            body: data,
           });
         }
       });
@@ -63,7 +65,7 @@ function makeRequest(method, path, data = null) {
     if (postData) {
       req.write(postData);
     }
-    
+
     req.end();
   });
 }
@@ -87,15 +89,16 @@ async function testEmailAPI() {
       '/api/v1/email/test',
       '/api/email/test',
       '/email/test',
-      '/test-email'
+      '/test-email',
     ];
 
     console.log('📧 Testing email endpoints...');
     const testEmailData = {
       email: 'rsdgcxym@gmail.com',
       subject: '🧪 API Email Test - ' + new Date().toLocaleString('th-TH'),
-      message: 'This is a test email sent through NestJS API with updated Gmail credentials.',
-      recipientName: 'Test Recipient'
+      message:
+        'This is a test email sent through NestJS API with updated Gmail credentials.',
+      recipientName: 'Test Recipient',
     };
 
     for (const endpoint of emailEndpoints) {
@@ -103,7 +106,7 @@ async function testEmailAPI() {
         console.log(`   Testing: ${endpoint}`);
         const response = await makeRequest('POST', endpoint, testEmailData);
         console.log(`   Status: ${response.statusCode}`);
-        
+
         if (response.statusCode === 200 || response.statusCode === 201) {
           console.log(`   ✅ Success! ${endpoint}`);
           console.log(`   Response: ${JSON.stringify(response.body, null, 2)}`);
@@ -119,18 +122,22 @@ async function testEmailAPI() {
 
     console.log('📊 Summary:');
     console.log('   - Application is running on port 4000');
-    console.log('   - Health check:', healthResponse.statusCode === 200 ? '✅ OK' : '❌ Failed');
-    console.log('   - Email endpoints: Need JWT authentication or different path');
+    console.log(
+      '   - Health check:',
+      healthResponse.statusCode === 200 ? '✅ OK' : '❌ Failed',
+    );
+    console.log(
+      '   - Email endpoints: Need JWT authentication or different path',
+    );
     console.log();
     console.log('💡 Next steps:');
     console.log('   1. Check email service directly in application logs');
     console.log('   2. Use proper JWT token for authenticated endpoints');
     console.log('   3. Monitor PM2 logs for email sending attempts');
-
   } catch (error) {
     console.error('❌ API Test failed:');
     console.error(`   Error: ${error.message}`);
-    
+
     console.log('\n🔍 Troubleshooting:');
     console.log('   1. Check if NestJS app is running: pm2 status');
     console.log('   2. Check application logs: pm2 logs ticket-backend-prod');

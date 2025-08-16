@@ -48,7 +48,7 @@ module.exports = {
         SMTP_PASS: 'wykeiiiswwdznmko',
         EMAIL_FROM: 'patongboxingstadiumticket@gmail.com',
         EMAIL_FROM_NAME: 'Patong Boxing Stadium',
-        
+
         // Gmail Configuration
         GMAIL_USER: 'patongboxingstadiumticket@gmail.com',
         GMAIL_PASS: 'wykeiiiswwdznmko',
