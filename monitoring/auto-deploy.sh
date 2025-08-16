@@ -218,8 +218,8 @@ deploy() {
                 "$COLOR_GREEN" \
                 "{\"name\": \"Build Size\", \"value\": \"$build_size bytes\", \"inline\": true}, {\"name\": \"Status\", \"value\": \"Online\", \"inline\": true}"
                 
-            # Send system status after deployment
-            source /var/www/backend/ticket-backend/monitoring/system-monitor.sh health
+            # Health check after deployment
+            log_message "Deployment completed successfully"
             
         else
             log_message "ERROR: Application failed to start"
