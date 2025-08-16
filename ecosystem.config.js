@@ -41,19 +41,17 @@ module.exports = {
         DATABASE_SYNCHRONIZE: false,
         DATABASE_LOGGING: false,
 
-        // Email Configuration (Updated for better delivery)
-        GMAIL_USER: 'rsdgcxym@gmail.com',
-        GMAIL_PASS: 'jvwj gklh evbg kbnv', // Updated valid app password
-        EMAIL_FROM: 'rsdgcxym@gmail.com', // Changed to Gmail for better delivery
-        EMAIL_FROM_NAME: 'Patong Boxing Stadium',
-        
-        // SMTP Configuration (Primary: Gmail)
+        // Email Configuration (Updated with working Gmail credentials)
         SMTP_HOST: 'smtp.gmail.com',
         SMTP_PORT: 587,
-        SMTP_USER: 'rsdgcxym@gmail.com',
-        SMTP_PASS: 'jvwj gklh evbg kbnv',
-        SMTP_SECURE: false, // true for 465, false for other ports
-        SMTP_TLS: true,
+        SMTP_USER: 'patongboxingstadiumticket@gmail.com',
+        SMTP_PASS: 'wykeiiiswwdznmko',
+        EMAIL_FROM: 'patongboxingstadiumticket@gmail.com',
+        EMAIL_FROM_NAME: 'Patong Boxing Stadium',
+        
+        // Gmail Configuration
+        GMAIL_USER: 'patongboxingstadiumticket@gmail.com',
+        GMAIL_PASS: 'wykeiiiswwdznmko',
 
         // Redis Configuration (Optional)
         REDIS_HOST: '43.229.133.51',

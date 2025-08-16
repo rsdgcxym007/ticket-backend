@@ -2,7 +2,14 @@
 
 /**
  * 📧 Simple SMTP Test (No Auth)
- * ทดสอบการส่งอีเมลผ่าน local Postfix โดยไม่ใช้ authentication
+ * ทดสอบการส่ง    // กำหนดค่า Gmail SMTP ด้วย credentials ที่อัปเดต
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: 'patongboxingstadiumticket@gmail.com',
+        pass: 'wykeiiiswwdznmko' // Updated app password
+      }
+    });น local Postfix โดยไม่ใช้ authentication
  */
 
 const nodemailer = require('nodemailer');
@@ -18,8 +25,8 @@ async function testSimpleSMTP() {
       secure: false,
       // ไม่ใช้ auth สำหรับ local postfix
       tls: {
-        rejectUnauthorized: false
-      }
+        rejectUnauthorized: false,
+      },
     });
 
     console.log('⚡ Testing transporter connection...');
@@ -48,18 +55,17 @@ async function testSimpleSMTP() {
           </ul>
           <p style="color: #4caf50; font-weight: bold;">✅ Local email system is working!</p>
         </div>
-      `
+      `,
     });
 
     console.log('✅ Email sent successfully!');
     console.log(`   Message ID: ${info.messageId}`);
     console.log(`   Response: ${info.response}`);
     console.log('\n📬 Please check your inbox and mail logs.');
-    
   } catch (error) {
     console.error('❌ SMTP Test failed:');
     console.error(`   Error: ${error.message}`);
-    
+
     if (error.code) {
       console.error(`   Code: ${error.code}`);
     }
@@ -70,14 +76,14 @@ async function testSimpleSMTP() {
 async function testGmailSMTP() {
   try {
     console.log('\n🔧 Testing Gmail SMTP as fallback...\n');
-    
+
     // กำหนดค่า Gmail SMTP
     const transporter = nodemailer.createTransport({
       service: 'gmail',
       auth: {
         user: 'rsdgcxym@gmail.com',
-        pass: 'jvwj gklh evbg kbnv' // App password
-      }
+        pass: 'jvwj gklh evbg kbnv', // App password
+      },
     });
 
     console.log('⚡ Testing Gmail transporter connection...');
@@ -86,7 +92,7 @@ async function testGmailSMTP() {
 
     console.log('📧 Sending Gmail test email...');
     const info = await transporter.sendMail({
-      from: '"Patong Boxing Stadium" <rsdgcxym@gmail.com>',
+      from: '"Patong Boxing Stadium" <patongboxingstadiumticket@gmail.com>',
       to: 'rsdgcxym@gmail.com',
       subject: `🧪 Gmail SMTP Test - ${new Date().toLocaleString('th-TH')}`,
       text: 'This is a test email from Patong Boxing Stadium via Gmail SMTP',
@@ -104,12 +110,11 @@ async function testGmailSMTP() {
           </ul>
           <p style="color: #4caf50; font-weight: bold;">✅ Gmail backup email system is working!</p>
         </div>
-      `
+      `,
     });
 
     console.log('✅ Gmail email sent successfully!');
     console.log(`   Message ID: ${info.messageId}`);
-    
   } catch (error) {
     console.error('❌ Gmail SMTP Test failed:');
     console.error(`   Error: ${error.message}`);
