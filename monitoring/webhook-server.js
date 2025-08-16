@@ -12,8 +12,9 @@ const path = require('path');
 // Configuration
 const PORT = process.env.WEBHOOK_PORT || 4200;
 const SECRET = process.env.WEBHOOK_SECRET || 'webhook-secret-key-2025';
-const DEPLOY_SCRIPT =
+const BACKEND_DEPLOY_SCRIPT =
   '/var/www/backend/ticket-backend/monitoring/auto-deploy.sh';
+const FRONTEND_DEPLOY_SCRIPT = '/var/www/frontend/deploy-frontend.sh'; // Frontend deploy script
 const LOG_FILE = '/var/log/webhook-server.log';
 
 // Discord webhook
@@ -105,18 +106,24 @@ function verifySignature(body, signature) {
 }
 
 // Execute deployment
-function executeDeploy(webhookData) {
-  log('Starting deployment process...');
+function executeDeploy(webhookData, deployType = 'backend') {
+  log(`Starting ${deployType} deployment process...`);
 
   const { repository, commits, pusher, ref } = webhookData;
   const branch = ref.replace('refs/heads/', '');
 
+  // Choose appropriate deploy script
+  const deployScript =
+    deployType === 'frontend' ? FRONTEND_DEPLOY_SCRIPT : BACKEND_DEPLOY_SCRIPT;
+  const deployIcon = deployType === 'frontend' ? '🎨' : '⚙️';
+
   // Send deployment start notification
   sendDiscordNotification(
-    'Deployment Triggered',
-    `GitHub push event received and deployment is starting.`,
+    `${deployIcon} ${deployType.toUpperCase()} Deployment Triggered`,
+    `GitHub push event received and ${deployType} deployment is starting.`,
     16776960, // Yellow
     [
+      { name: 'Project', value: deployType.toUpperCase(), inline: true },
       { name: 'Repository', value: repository.full_name, inline: true },
       { name: 'Branch', value: branch, inline: true },
       { name: 'Pusher', value: pusher.name, inline: true },
@@ -125,12 +132,12 @@ function executeDeploy(webhookData) {
   );
 
   // Execute deployment script
-  exec(`bash ${DEPLOY_SCRIPT} deploy`, (error, stdout, stderr) => {
+  exec(`bash ${deployScript} deploy`, (error, stdout, stderr) => {
     if (error) {
-      log(`Deployment error: ${error.message}`);
+      log(`${deployType} deployment error: ${error.message}`);
       sendDiscordNotification(
-        'Deployment Failed',
-        'Deployment script execution failed.',
+        `${deployIcon} ${deployType.toUpperCase()} Deployment Failed`,
+        `${deployType} deployment script execution failed.`,
         15158332, // Red
         [
           {
@@ -138,17 +145,31 @@ function executeDeploy(webhookData) {
             value: error.message.substring(0, 1000),
             inline: false,
           },
+          { name: 'Project', value: deployType.toUpperCase(), inline: true },
         ],
       );
       return;
     }
 
     if (stderr) {
-      log(`Deployment stderr: ${stderr}`);
+      log(`${deployType} deployment stderr: ${stderr}`);
     }
 
-    log(`Deployment stdout: ${stdout}`);
-    log('Deployment completed successfully');
+    log(`${deployType} deployment stdout: ${stdout}`);
+
+    // Send success notification
+    sendDiscordNotification(
+      `${deployIcon} ${deployType.toUpperCase()} Deployment Success`,
+      `${deployType} deployment completed successfully!`,
+      5763719, // Green
+      [
+        { name: 'Project', value: deployType.toUpperCase(), inline: true },
+        { name: 'Repository', value: repository.full_name, inline: true },
+        { name: 'Branch', value: branch, inline: true },
+      ],
+    );
+
+    log(`${deployType} deployment completed successfully`);
   });
 }
 
