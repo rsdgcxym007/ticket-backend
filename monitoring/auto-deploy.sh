@@ -83,7 +83,20 @@ deploy() {
         exit 1
     fi
     
-    # Step 2: Smart dependency installation
+    # Step 2: Check Node.js version compatibility
+    log_message "Checking Node.js version compatibility..."
+    NODE_VERSION=$(node --version | sed 's/v//' | cut -d. -f1)
+    REQUIRED_NODE_VERSION=20
+    
+    if [ "$NODE_VERSION" -lt "$REQUIRED_NODE_VERSION" ]; then
+        log_message "ERROR: Node.js version $NODE_VERSION detected, but version $REQUIRED_NODE_VERSION or higher is required"
+        send_notification "Deploy Failed" "Node.js version incompatibility. Current: v$NODE_VERSION, Required: v$REQUIRED_NODE_VERSION+" "$COLOR_RED"
+        exit 1
+    else
+        log_message "Node.js version check passed: v$NODE_VERSION"
+    fi
+    
+    # Step 3: Smart dependency installation
     log_message "Checking if dependencies need to be updated..."
     
     # Check if package.json or lock files changed
@@ -106,70 +119,75 @@ deploy() {
         log_message "Cleaning previous installations..."
         rm -rf node_modules/ yarn.lock package-lock.json 2>/dev/null || true
         
-        # Install dependencies with yarn (faster than npm)
-        log_message "Installing dependencies with yarn..."
-        if command -v yarn >/dev/null 2>&1; then
-            if yarn install --frozen-lockfile --production=false --silent; then
-                log_message "Dependencies installed successfully with yarn"
-            else
-                log_message "Yarn install failed, falling back to npm..."
-                if npm install --production=false --silent --no-audit --no-fund --legacy-peer-deps; then
-                    log_message "Dependencies installed successfully with npm (fallback)"
+        # Install dependencies with enhanced error handling
+        log_message "Installing dependencies with npm and compatibility flags..."
+        export NODE_OPTIONS="--max-old-space-size=2048"
+        export NPM_CONFIG_ENGINE_STRICT=false
+        export NPM_CONFIG_LEGACY_PEER_DEPS=true
+        
+        if npm ci --production=false --silent --no-audit --no-fund --legacy-peer-deps --force; then
+            log_message "Dependencies installed successfully with npm ci (production)"
+        else
+            log_message "npm ci failed, trying npm install with compatibility options..."
+            if npm install --production=false --silent --no-audit --no-fund --legacy-peer-deps --force --engine-strict=false; then
+                log_message "Dependencies installed successfully with npm install (fallback)"
                 else
                     log_message "ERROR: All dependency installation methods failed"
-                    send_notification "Deploy Failed" "Failed to install dependencies." "$COLOR_RED"
+                    
+                    # Check if it's a Node.js version issue
+                    log_message "Checking for Node.js version compatibility issues..."
+                    npm ls --depth=0 --silent 2>&1 | grep -i "EBADENGINE" && {
+                        log_message "Node.js version compatibility issue detected"
+                        send_notification "Deploy Failed" "Node.js version incompatibility detected during installation. Server may need Node.js upgrade." "$COLOR_RED"
+                    } || {
+                        send_notification "Deploy Failed" "Failed to install dependencies after trying all methods." "$COLOR_RED"
+                    }
                     exit 1
                 fi
-            fi
         else
-            log_message "ERROR: yarn not available"
-            send_notification "Deploy Failed" "Yarn package manager not available." "$COLOR_RED"
+            log_message "ERROR: npm not available or installation failed"
+            send_notification "Deploy Failed" "Package manager not available or installation failed." "$COLOR_RED"
             exit 1
         fi
     else
         log_message "Using existing dependencies (no package changes detected)"
     fi
     
-    # Step 3: Build application with fresh tools
+    # Step 4: Build application with enhanced compatibility
     log_message "Building application with fresh build process..."
     
     # Clean previous build completely
     rm -rf dist/ 2>/dev/null || true
     
-    # Try yarn build first (more reliable)
-    if command -v yarn >/dev/null 2>&1; then
-        log_message "Building with yarn..."
-        if yarn build 2>&1 | tee -a "$LOG_FILE"; then
-            log_message "Build completed successfully with yarn"
-        else
-            log_message "Yarn build failed, trying npm..."
-            # Fallback to npm with compatibility options
-            export NODE_OPTIONS="--max-old-space-size=1024 --no-warnings"
-            export NPM_CONFIG_ENGINE_STRICT=false
-            
-            if npm run build --legacy-peer-deps 2>&1 | tee -a "$LOG_FILE"; then
-                log_message "Build completed with npm run build (fallback)"
-            else
-                log_message "ERROR: All build methods failed"
-                send_notification "Deploy Failed" "Application build failed with both yarn and npm." "$COLOR_RED"
-                exit 1
-            fi
-        fi
+    # Try build with enhanced Node.js options
+    log_message "Building with enhanced Node.js compatibility options..."
+    export NODE_OPTIONS="--max-old-space-size=2048 --no-experimental-fetch"
+    export NPM_CONFIG_ENGINE_STRICT=false
+    export NPM_CONFIG_LEGACY_PEER_DEPS=true
+    
+    if npm run build --legacy-peer-deps 2>&1 | tee -a "$LOG_FILE"; then
+        log_message "Build completed successfully with enhanced npm build"
     else
-        # Fallback to enhanced build script and npm
-        log_message "Building with enhanced build process..."
-        if bash /var/www/backend/ticket-backend/monitoring/enhanced-build.sh 2>&1 | tee -a "$LOG_FILE"; then
-            log_message "Build completed successfully with enhanced build script"
+        log_message "Enhanced npm build failed, trying alternative build method..."
+        
+        # Alternative build with direct nestjs cli
+        if npx @nestjs/cli build --no-cache 2>&1 | tee -a "$LOG_FILE"; then
+            log_message "Build completed with direct NestJS CLI"
         else
-            log_message "Enhanced build failed, trying npm fallback..."
-            export NODE_OPTIONS="--max-old-space-size=1024 --no-warnings"
-            export NPM_CONFIG_ENGINE_STRICT=false
+            log_message "Direct NestJS CLI failed, trying basic build..."
+            export NODE_OPTIONS="--max-old-space-size=1024"
             
-            if npm run build --legacy-peer-deps 2>&1 | tee -a "$LOG_FILE"; then
-                log_message "Build completed with npm run build (fallback)"
+            if npx nest build 2>&1 | tee -a "$LOG_FILE"; then
+                log_message "Build completed with basic nest build"
             else
                 log_message "ERROR: All build methods failed"
-                send_notification "Deploy Failed" "Application build failed after trying all methods." "$COLOR_RED"
+                
+                # Check for specific build errors
+                if [ -f "$LOG_FILE" ] && grep -q "EBADENGINE\|engine" "$LOG_FILE"; then
+                    send_notification "Deploy Failed" "Build failed due to Node.js version incompatibility. Server needs Node.js 20+ upgrade." "$COLOR_RED"
+                else
+                    send_notification "Deploy Failed" "Application build failed with all available methods." "$COLOR_RED"
+                fi
                 exit 1
             fi
         fi
@@ -186,7 +204,7 @@ deploy() {
         exit 1
     fi
     
-    # Step 4: Restart PM2
+    # Step 5: Restart PM2
     log_message "Restarting PM2 application..."
     if pm2 restart "$PM2_APP_NAME"; then
         sleep 5
