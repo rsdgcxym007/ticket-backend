@@ -83,42 +83,85 @@ deploy() {
         exit 1
     fi
     
-    # Step 2: Install dependencies
-    log_message "Installing dependencies..."
+    # Step 2: Complete fresh installation
+    log_message "Performing complete fresh installation..."
     
-    # Clean install to avoid package conflicts
-    rm -rf node_modules/ package-lock.json 2>/dev/null || true
+    # Clean everything including cache
+    log_message "Cleaning previous installations and cache..."
+    rm -rf node_modules/ package-lock.json yarn.lock dist/ .npm/ 2>/dev/null || true
+    npm cache clean --force 2>/dev/null || true
+    yarn cache clean 2>/dev/null || true
     
-    # Use npm install with flags to handle version warnings
-    if npm install --production=false --no-audit --no-fund --legacy-peer-deps; then
-        log_message "Dependencies installed successfully"
+    # Install dependencies with yarn (more reliable than npm)
+    log_message "Installing dependencies with yarn..."
+    if command -v yarn >/dev/null 2>&1; then
+        if yarn install --frozen-lockfile --production=false; then
+            log_message "Dependencies installed successfully with yarn"
+        else
+            log_message "Yarn install failed, falling back to npm..."
+            if npm install --production=false --no-audit --no-fund --legacy-peer-deps; then
+                log_message "Dependencies installed successfully with npm (fallback)"
+            else
+                log_message "ERROR: All dependency installation methods failed"
+                send_notification "Deploy Failed" "Failed to install dependencies with both yarn and npm." "$COLOR_RED"
+                exit 1
+            fi
+        fi
     else
-        log_message "ERROR: Failed to install dependencies"
-        send_notification "Deploy Failed" "Failed to install dependencies." "$COLOR_RED"
-        exit 1
+        # Install yarn if not available
+        log_message "Installing yarn package manager..."
+        npm install -g yarn
+        if yarn install --frozen-lockfile --production=false; then
+            log_message "Dependencies installed successfully with newly installed yarn"
+        else
+            log_message "ERROR: Failed to install dependencies even with fresh yarn"
+            send_notification "Deploy Failed" "Failed to install dependencies." "$COLOR_RED"
+            exit 1
+        fi
     fi
     
-    # Step 3: Build application with enhanced build script
-    log_message "Building application with enhanced build process..."
+    # Step 3: Build application with fresh tools
+    log_message "Building application with fresh build process..."
     
-    if bash /var/www/backend/ticket-backend/monitoring/enhanced-build.sh 2>&1 | tee -a "$LOG_FILE"; then
-        log_message "Build completed successfully with enhanced build script"
-    else
-        log_message "Enhanced build failed, falling back to standard methods..."
-        
-        # Fallback to standard build methods
-        rm -rf dist/ 2>/dev/null || true
-        
-        # Set Node.js compatibility options
-        export NODE_OPTIONS="--max-old-space-size=1024 --no-warnings"
-        export NPM_CONFIG_ENGINE_STRICT=false
-        
-        if npm run build --legacy-peer-deps 2>&1 | tee -a "$LOG_FILE"; then
-            log_message "Build completed with npm run build (fallback)"
+    # Clean previous build completely
+    rm -rf dist/ 2>/dev/null || true
+    
+    # Try yarn build first (more reliable)
+    if command -v yarn >/dev/null 2>&1; then
+        log_message "Building with yarn..."
+        if yarn build 2>&1 | tee -a "$LOG_FILE"; then
+            log_message "Build completed successfully with yarn"
         else
-            log_message "ERROR: All build methods failed"
-            send_notification "Deploy Failed" "Application build failed after trying enhanced and fallback methods." "$COLOR_RED"
-            exit 1
+            log_message "Yarn build failed, trying npm..."
+            # Fallback to npm with compatibility options
+            export NODE_OPTIONS="--max-old-space-size=1024 --no-warnings"
+            export NPM_CONFIG_ENGINE_STRICT=false
+            
+            if npm run build --legacy-peer-deps 2>&1 | tee -a "$LOG_FILE"; then
+                log_message "Build completed with npm run build (fallback)"
+            else
+                log_message "ERROR: All build methods failed"
+                send_notification "Deploy Failed" "Application build failed with both yarn and npm." "$COLOR_RED"
+                exit 1
+            fi
+        fi
+    else
+        # Fallback to enhanced build script and npm
+        log_message "Building with enhanced build process..."
+        if bash /var/www/backend/ticket-backend/monitoring/enhanced-build.sh 2>&1 | tee -a "$LOG_FILE"; then
+            log_message "Build completed successfully with enhanced build script"
+        else
+            log_message "Enhanced build failed, trying npm fallback..."
+            export NODE_OPTIONS="--max-old-space-size=1024 --no-warnings"
+            export NPM_CONFIG_ENGINE_STRICT=false
+            
+            if npm run build --legacy-peer-deps 2>&1 | tee -a "$LOG_FILE"; then
+                log_message "Build completed with npm run build (fallback)"
+            else
+                log_message "ERROR: All build methods failed"
+                send_notification "Deploy Failed" "Application build failed after trying all methods." "$COLOR_RED"
+                exit 1
+            fi
         fi
     fi
     

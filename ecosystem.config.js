@@ -114,9 +114,9 @@ module.exports = {
       out_file: '/var/log/pm2/ticket-backend-out.log',
       log_file: '/var/log/pm2/ticket-backend.log',
       log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
-      max_memory_restart: '1G', // Increased memory limit for better performance
+      max_memory_restart: '500M', // Optimized memory limit
       node_args:
-        '--max-old-space-size=1024 --gc-interval=100 --enable-source-maps --no-warnings', // Suppress Node.js warnings
+        '--max-old-space-size=512 --gc-interval=100 --enable-source-maps --no-warnings', // Optimized memory allocation
       watch: false,
       ignore_watch: ['node_modules', 'uploads', 'logs', '.git', 'dist'],
       restart_delay: 3000,
@@ -129,6 +129,12 @@ module.exports = {
       shutdown_with_message: true,
       wait_ready: true,
 
+      // Pre/Post restart hooks for complete fresh build
+      pre_restart:
+        'rm -rf dist node_modules package-lock.json yarn.lock .npm 2>/dev/null || true',
+      post_restart:
+        '(command -v yarn >/dev/null && yarn install && yarn build) || (npm install --legacy-peer-deps && npm run build)',
+
       // Auto restart on file change in production (disabled for stability)
       autorestart: true,
 
@@ -136,7 +142,7 @@ module.exports = {
       cron_restart: '0 3 * * *',
 
       // Environment-specific Node.js options
-      interpreter_args: '--max-old-space-size=1024 --experimental-worker',
+      interpreter_args: '--max-old-space-size=512 --experimental-worker',
     },
 
     // Webhook Server for GitHub Auto-Deploy
@@ -160,8 +166,8 @@ module.exports = {
       out_file: '/var/log/pm2/webhook-server-out.log',
       log_file: '/var/log/pm2/webhook-server.log',
       log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
-      max_memory_restart: '200M',
-      node_args: '--max-old-space-size=256',
+      max_memory_restart: '128M',
+      node_args: '--max-old-space-size=128',
       watch: false,
       autorestart: true,
       restart_delay: 2000,
@@ -206,4 +212,13 @@ module.exports = {
       },
     },
   },
+
+  // PM2 Startup and Save Configuration
+  startup: 'systemd',
+  save: true,
+
+  // Global PM2 settings for auto-restart after system reboot
+  pm2_serve_path: '/var/www/backend/ticket-backend',
+  pm2_serve_port: 4000,
+  pm2_serve_spa: false,
 };
