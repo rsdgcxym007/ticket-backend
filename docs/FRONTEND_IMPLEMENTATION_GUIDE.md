@@ -106,7 +106,7 @@ src/
 ---
 
 ## 🔧 **สิ่งที่ Backend ทำให้แล้ว**
-
+## 🔧 **สิ่งที่ Backend ทำให้แล้ว**## 🔧 **สิ่งที่ Backend ทำให้แล้ว**## 🔧 **สิ่งที่ Backend ทำให้แล้ว**
 ### **✅ API Endpoints พร้อมใช้:**
 1. `GET /check-in/{orderId}` - แสดงข้อมูลลูกค้า (HTML)
 2. `POST /staff-checkin` - Staff Login และเช็คอิน (HTML)
